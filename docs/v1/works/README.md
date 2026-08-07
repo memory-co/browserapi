@@ -1,35 +1,64 @@
-# browserapi v1 设计稿
+# browserapi —— 浏览器版的 tmux
 
-把 `kasm/chrome` 从"给人用的流式浏览器容器"扩展成**服务化浏览器操作体**(Browser Operator):
-一个既能被 Python 代码直接驱动、也能作为 HTTP/WS 服务被多租户调用的浏览器执行单元,
-并且**智能体在里面做过的每一步都可被实时观看、事后回放、结构化审计**。
+一个基于 `kasm/chrome` 的容器。起来之后:
 
-## 一句话定位
+- **在浏览器里打开一个网址,就能看到并直接操作里面那个远端 Chrome**
+- **同时用 API 或 Python lib 从外面驱动同一个 Chrome**
+- 关掉网页,浏览器照常在跑;下次打开还是那个状态
 
-> 不是"又一个浏览器自动化库",而是**给 Agent 用的、自带取证能力的浏览器运行时**。
-> 差异点:人能实时看见并随时抢方向盘(KasmVNC),Agent 的每一步都有观测-动作-效果三元组留痕。
+就这些。
 
-## 阅读顺序
+## tmux 对照
 
-| 文档 | 内容 | 读者 |
-| --- | --- | --- |
-| [00-goals-and-scope.md](00-goals-and-scope.md) | 目标 / 非目标 / 场景 / 术语 | 全体 |
-| [01-architecture.md](01-architecture.md) | 总体架构、部署形态、组件职责 | 全体 |
-| [02-container-runtime.md](02-container-runtime.md) | kasm/chrome 基座改造、容器内 `agentd` | 实现 |
-| [03-action-protocol.md](03-action-protocol.md) | **核心契约**:观测模型 + 动作空间 + 定位策略 | 全体 |
-| [04-trajectory-model.md](04-trajectory-model.md) | **核心诉求**:操作路径的记录、直播、回放、审计 | 全体 |
-| [05-python-sdk.md](05-python-sdk.md) | Python lib 模式 API | 使用方 |
-| [06-api-service.md](06-api-service.md) | API service 模式(REST/WS) | 使用方 / 集成 |
-| [07-security-and-ops.md](07-security-and-ops.md) | 隔离、凭证、出网管控、容量与回收 | 运维 / 安全 |
-| [08-roadmap-and-adr.md](08-roadmap-and-adr.md) | 里程碑、决策记录、开放问题 | 全体 |
+| tmux | browserapi |
+| --- | --- |
+| `tmux new -s work` | `docker run -d --name work -p 7900:7900 browserapi` |
+| `tmux attach -t work` | 浏览器打开 `http://localhost:7900` |
+| detach(`Ctrl-b d`) | 关掉网页,容器继续跑 |
+| `tmux send-keys` | `POST /api/act` 或 `b.click("登录")` |
+| `tmux capture-pane` | `GET /api/observe` |
+| scrollback 回滚历史 | 页面右侧的**操作日志** |
+| 多个 client 同时 attach | 人和 API 同时操作,互不阻塞 |
+| `tmux kill-session` | `docker rm -f work` |
+| tmux server 持有会话状态 | 容器持有 profile / cookie / 标签页 |
 
-## 状态
+核心是 tmux 那个最有用的性质:**会话比观看者活得久,而且看的人和写脚本的人共用同一个会话。**
 
-设计稿(work in progress),尚未实现。文中所有代码/JSON 均为**设计示意**,不是已存在的接口。
-涉及 `kasmweb/chrome` 镜像内部路径与环境变量的部分,标注为「基线假设」,实现前需按锁定的镜像 tag 复核。
+## 60 秒上手
 
-## 三条贯穿全文的设计原则
+```bash
+docker run -d --name work -p 7900:7900 browserapi/operator:1.0
+open http://localhost:7900        # 看到 Chrome,可以直接用鼠标点
+```
 
-1. **一套协议,两种外壳。** lib 与 service 共用同一份动作/观测/轨迹 schema,lib 默认是 service 的客户端。
-2. **可观测优先于可编程。** 任何新增动作,必须先回答"它在回放时长什么样",再回答"它的函数签名是什么"。
-3. **人是最后的兜底通道。** 任何 Agent 能做的事,人都能在同一个会话里接管着做完,且接管本身也进轨迹。
+```python
+from browserapi import Browser
+b = Browser("http://localhost:7900")
+
+b.goto("https://example.com")
+b.click("登录")                    # 语义定位,不用写 CSS 选择器
+b.type("手机号", "13800000000")
+print(b.text())
+```
+
+一边跑脚本,一边在 `http://localhost:7900` 里实时看着它点。卡住了就自己上手点两下,脚本继续跑。
+
+## 文档
+
+| 文件 | 内容 |
+| --- | --- |
+| [01-container.md](01-container.md) | 容器怎么改、怎么起、状态存哪 |
+| [02-api-and-lib.md](02-api-and-lib.md) | HTTP API 与 Python lib(同一套东西的两个壳) |
+| [03-view-and-log.md](03-view-and-log.md) | 查看页面 + 操作日志(scrollback) |
+
+## 明确不做
+
+保持它是个工具,不是平台:
+
+- ❌ 控制面 / 会话编排 / 容器池 —— 你要多个就 `docker run` 多次
+- ❌ 数据库 / 对象存储 —— 日志和截图就在容器里,像 tmux 的 scrollback
+- ❌ 多租户 / RBAC / 配额 —— 一个容器一个用户,权限交给网络层
+- ❌ 内置 LLM —— 它是手和眼,大脑你自己接
+- ❌ k8s operator / webhook / OTel —— 需要了外面自己包
+
+> 判断新功能该不该加,问一句:**tmux 会做这个吗?** 不会就别加。
