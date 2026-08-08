@@ -49,7 +49,7 @@ tab 列表和 URL 状态走 API 出来,由调用方在外面自己画。
 
 ### crop_top 从哪来
 
-不要写死 88。muxd 用 CDP 量,通过 API 报出来:
+不要写死 88。sessiond 用 CDP 量,通过 API 报出来:
 
 ```js
 window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
@@ -70,7 +70,7 @@ window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
 ### 想要页面视口正好是某个尺寸
 
 屏幕高 = 想要的页面高 + `crop_top`。但 `crop_top` 得等 Chrome 起来才量得到,所以是两段式:
-容器按默认分辨率起 → muxd 量出 `crop_top` → `xrandr` 把 X 分辨率调成 `page_h + crop_top`。
+容器按默认分辨率起 → sessiond 量出 `crop_top` → `xrandr` 把 X 分辨率调成 `page_h + crop_top`。
 不介意差那几十像素的话,这步可以省。
 
 ## 3. 外面画 tab 条和地址栏需要什么 —— CDP 给不给
@@ -87,7 +87,7 @@ window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
 | 转圈(在不在加载) | `Page.frameStartedLoading` / `frameStoppedLoading` | ✅ |
 | https 小锁 | `Security.securityStateChanged` | ✅ |
 | 当前激活的是哪个 tab | 没有现成事件 | ⚠️ 见 §4.1 |
-| favicon | 没有现成事件 | ⚠️ muxd 读 DOM 的 `link[rel~=icon]` 代抓并缓存 |
+| favicon | 没有现成事件 | ⚠️ sessiond 读 DOM 的 `link[rel~=icon]` 代抓并缓存 |
 | 加载进度百分比 | 无 | ❌ 只能转圈,画不了精确进度条 |
 
 **够用。** 缺的两样一个能绕,一个无关紧要。
@@ -177,7 +177,7 @@ fallback 到轮询 `Target.getTargets`。
 | **窗口看门狗** | **`/dockerstartup/maximize_window.sh` 每 ~10 秒把窗口重新最大化一次** |
 | 沙箱 | 镜像自带 `--no-sandbox`(kasm 的选择) |
 | CDP | `APP_ARGS` 加 `--remote-debugging-port=9222` 即可用 |
-| CDP 外部访问 | **被 Chrome 的 Host 头校验挡掉**,只能容器内访问 → 印证了 muxd 必须在容器里 |
+| CDP 外部访问 | **被 Chrome 的 Host 头校验挡掉**,只能容器内访问 → 印证了 sessiond 必须在容器里 |
 | 可用 X 工具 | `wmctrl` / `xprop` / `xwininfo` / `xwd` 有;**`xdotool` 没有** |
 
 关于窗口偏移那条路(已放弃,存档):

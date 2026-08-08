@@ -62,7 +62,7 @@
 
 直接返回图片字节(`Content-Type` 按实际,带 `ETag` 和 `Cache-Control`)。还没拿到时 `404`。
 
-由 **muxd 在容器内代抓**并缓存,不是让外面的 UI 自己去抓——
+由 **sessiond 在容器内代抓**并缓存,不是让外面的 UI 自己去抓——
 目标站点可能只有容器访问得到(内网、要登录态、走代理)。
 
 ## 3. 写
@@ -83,7 +83,7 @@
 
 ### `DELETE /api/tabs/{id}` 关闭
 
-关最后一个 tab 时:Chrome 会连窗口一起关掉,所以 muxd **会自动先建一个 `about:blank`**,
+关最后一个 tab 时:Chrome 会连窗口一起关掉,所以 sessiond **会自动先建一个 `about:blank`**,
 保证永远至少有一个 tab。响应里会带上新建的那个:
 
 ```jsonc
@@ -150,7 +150,7 @@
 
 ## 5. 「当前是哪个 tab」怎么来的
 
-CDP 不发"tab 被激活了"这种事件。人在 VNC 里按 `Ctrl+Tab` 换了 tab,得靠 muxd 自己发现。
+CDP 不发"tab 被激活了"这种事件。人在 VNC 里按 `Ctrl+Tab` 换了 tab,得靠 sessiond 自己发现。
 
 做法:用 `Page.addScriptToEvaluateOnNewDocument` 给每个 tab 注入一段监听 `visibilitychange`
 的脚本,谁 `visible` 谁就是当前 tab(导航后自动重装)。

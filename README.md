@@ -1,6 +1,6 @@
-# webmux
+# webmuxd
 
-浏览器版的 tmux。
+**webmuxd ≈ tmux + ttyd,只是 pane 里渲染的不是 tty 字符,是浏览器像素。**
 
 一个基于 `kasm/chrome` 的容器:在浏览器里打开一个网址就能看到并直接操作里面那个远端 Chrome,
 同时用 API 或 Python lib 从外面驱动同一个 Chrome。关掉网页,浏览器照常在跑。

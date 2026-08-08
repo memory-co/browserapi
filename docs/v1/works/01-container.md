@@ -3,18 +3,21 @@
 ## 1. 一张图
 
 ```
-┌─ 容器 (webmux/operator) ────────────────────────────────────┐
+┌─ session 容器 (webmux/operator) ────────────────────────────┐
 │                                                             │
-│   :7900  nginx ──┬─ /        查看页面(画面 + 操作日志)     │
-│                  ├─ /vnc/    → KasmVNC  :6901               │
-│                  └─ /api/    → muxd     :7070               │
+│   :7900  nginx ──┬─ /        查看页面                       │
+│                  ├─ /vnc/    → KasmVNC   :6901              │
+│                  └─ /api/    → sessiond  :7070              │
 │                                                             │
-│   muxd ──CDP──► Chrome (headful, 127.0.0.1:9222)            │
-│     │                 │                                     │
-│     │                 └─ X11 ─► KasmVNC ─► 人的鼠标键盘     │
-│     └─ 操作日志 → /data/log.jsonl + /data/shots/            │
+│   sessiond ──CDP──► Chrome (headful, 127.0.0.1:9222)        │
+│      │                  │                                   │
+│      │                  └─ X11 ─► KasmVNC ─► 人的鼠标键盘   │
+│      └─ 操作日志 → /data/log.jsonl + /data/shots/           │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
+
+上面是**一个 session**。webmuxd(server)在外面管着若干个这样的容器,
+见 [05](05-server-session-runtime.md)。
 ```
 
 **只暴露一个端口 7900。** 人看的页面和 API 在同一个 origin 下,省掉跨域、省掉两套鉴权、
@@ -24,7 +27,7 @@
 | --- | --- | --- |
 | 7900 | nginx,唯一入口 | ✅ |
 | 6901 | KasmVNC | ❌ 只经 nginx |
-| 7070 | muxd | ❌ 只经 nginx |
+| 7070 | sessiond | ❌ 只经 nginx |
 | 9222 | Chrome CDP | ❌ 锁 `127.0.0.1`,永不出容器 |
 
 ## 2. 起容器
@@ -54,11 +57,11 @@ ARG KASM_CHROME_TAG=1.16.0          # 锁 tag,别用 latest
 FROM kasmweb/chrome:${KASM_CHROME_TAG}
 
 USER root
-COPY dist/muxd    /opt/webmux/muxd
+COPY dist/sessiond    /opt/webmux/sessiond
 COPY web/           /opt/webmux/web/        # 查看页面(纯静态)
 COPY nginx.conf     /etc/nginx/conf.d/webmux.conf
 COPY startup.sh     /dockerstartup/custom_startup.sh
-RUN /opt/webmux/muxd/bin/pip install -r /opt/webmux/muxd/requirements.txt \
+RUN /opt/webmux/sessiond/bin/pip install -r /opt/webmux/sessiond/requirements.txt \
  && mkdir -p /data/shots && chown -R 1000:1000 /data /opt/webmux \
  && chmod +x /dockerstartup/custom_startup.sh
 
@@ -83,7 +86,7 @@ docker run -e APP_ARGS="--remote-debugging-port=9222 \
 > - `/dockerstartup/maximize_window.sh` **每 ~10 秒把窗口重新最大化**——
 >   任何在 X 层面挪窗口的做法都会被它撤销(见 [04 §5](04-chrome-ui-externalization.md))
 > - WM 是 xfwm4,默认分辨率 1024×768,Chrome 139
-> - **CDP 的 Host 头校验挡掉了容器外访问**,只能容器内连——印证了 muxd 必须跑在容器里
+> - **CDP 的 Host 头校验挡掉了容器外访问**,只能容器内连——印证了 sessiond 必须跑在容器里
 > - 有 `wmctrl`/`xprop`/`xwininfo`/`xwd`,**没有 `xdotool`**
 >
 > 换 tag 或换成 `kasmweb/chrome` 时复核这一段即可。
@@ -96,12 +99,12 @@ docker run -e APP_ARGS="--remote-debugging-port=9222 \
 包装脚本里),不是我们能顺手保留的。要恢复沙箱得改包装脚本并给容器相应权限,
 记为已知风险。
 
-## 4. muxd
+## 4. sessiond
 
 容器里唯一自己写的进程,几百行的量级:
 
 ```
-muxd/
+sessiond/
 ├── server.py     HTTP + WS(全部 API)
 ├── browser.py    CDP 连接、动作执行
 ├── observe.py    AX 树 → 元素表 → 标注截图
@@ -109,7 +112,7 @@ muxd/
 ```
 
 底层用 **Playwright 的 `connect_over_cdp()`**,不裸写 CDP —— 等待可见/可点击、iframe、
-文件上传这些脏活它已经做对了。但 API 只暴露 webmux 自己的动作名,
+文件上传这些脏活它已经做对了。但 API 只暴露 webmuxd 自己的动作名,
 以后想换底层不影响调用方。
 
 ## 5. 状态存哪
@@ -131,8 +134,8 @@ muxd/
 
 | 情况 | 行为 |
 | --- | --- |
-| Chrome 崩溃 | muxd 检测到 CDP 断开,**自动重启 Chrome**(profile 还在,页面丢失),日志记一条 `chrome_restarted` |
-| muxd 崩溃 | supervisor 拉起,Chrome 不受影响 |
+| Chrome 崩溃 | sessiond 检测到 CDP 断开,**自动重启 Chrome**(profile 还在,页面丢失),日志记一条 `chrome_restarted` |
+| sessiond 崩溃 | supervisor 拉起,Chrome 不受影响 |
 | 容器 OOM | 容器退出;挂了卷的话 profile 和日志还在,`docker start` 回来 |
 
 没有"unhealthy 状态机",没有 draining。崩了就重启,该丢的丢,像 tmux 里某个 pane 的进程死了一样。

@@ -1,29 +1,54 @@
 # 05 · server / session / runtime
 
-## 1. 一句话
+## 1. 定位
 
-**webmux 就是 tmux,只是 pane 里渲染的不是 tty 字符,是浏览器像素。**
+**webmuxd ≈ tmux + ttyd,只是 pane 里渲染的不是 tty 字符,是浏览器像素。**
 
-这句话是整个设计的定盘星。凡是拿不准的地方,先问"tmux 在这儿是怎么做的",
-除非有明确理由,否则照抄。下面先给完整对照,再只讲**不一样的地方**。
+这句话是整个设计的定盘星。拆开看是三块能力:
+
+| 来自 | 能力 | 在 webmuxd 里 |
+| --- | --- | --- |
+| **tmux** | 多路复用 + 持久化 + attach/detach | server / session / tab,关掉网页只是 detach |
+| **ttyd** | 把它暴露成一个网页,能看能操作能分享 | 观看页面(KasmVNC),token 分享,只读模式 |
+| **webmuxd 自己加的** | 程序化操作 + 给智能体的观测层 | `/api/act`、`/api/observe`、操作日志 |
+
+终端世界里这两件事是分开的,经典用法是 `ttyd tmux new -A -s work` 把它们拼起来。
+webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页——暴露不是可选项,是本体**。
+
+这带来一个直接后果:**HTTP 监听永远开着**,不然你根本没法看。
+安全控制点是绑定地址和 token,不是"开不开"([api/server.md §1](../api/server.md))。
+
+第三块是终端世界没有的:tmux 有 `send-keys` 和 `capture-pane`,但没人把它们做成
+给程序和模型用的接口。`/api/act` 和 `/api/observe` 大致就是这两个命令的 HTTP 版本,
+外加一层专门为多模态模型准备的元素表。
+
+凡是拿不准的地方,先问"tmux 或 ttyd 在这儿是怎么做的",除非有明确理由,否则照抄。
+下面先给完整对照,再只讲**不一样的地方**。
 
 ## 2. 对照表
 
-| tmux | webmux | 说明 |
+| tmux / ttyd | webmuxd | 说明 |
 | --- | --- | --- |
-| server | **server** | 按需自启,持有全部 session |
-| session | **session** | 一整套 kasm + Chrome + muxd |
-| window | **tab** | 浏览器标签页 |
-| pane | — | **不做**,理由见 §5 |
+| tmux server | **server** | 按需自启,持有全部 session |
+| tmux session | **session** | 一整套 kasm + Chrome + sessiond |
+| tmux window | **tab** | 浏览器标签页 |
+| tmux pane | — | **不做**,理由见 §5 |
 | client | 观看页面 / CLI / lib | 都是 client |
 | `/tmp/tmux-$UID/default` | `$XDG_RUNTIME_DIR/webmux/default.sock` | 控制 socket |
 | `tmux -L name` / `-S path` | 同 | 换 socket = 换一套独立的 server |
 | attach / detach | 打开 / 关掉观看页面 | |
 | scrollback | 操作日志 | |
 | `~/.tmux.conf` | `~/.webmux.conf` | 同样的 `set -g` 写法 |
-| `send-keys` | `click` / `type` / `key` | |
-| `capture-pane` | `capture` / `observe` | |
+| `send-keys` | `click` / `type` / `key` / `POST /api/act` | |
+| `capture-pane` | `capture` / `observe` / `GET /api/observe` | |
 | fork + exec 一个 shell | **runtime** | **唯一多出来的概念**,见 §4 |
+| **ttyd** `-p PORT` | server `:7800` / session `:7900` | |
+| **ttyd** 默认只读,`-W` 才可写 | `share` 默认只读,`--writable` 才可写 | 同款默认,见 §3.4 |
+| **ttyd** `-c user:pass` | `WEBMUX_TOKEN` | |
+| **ttyd** `-b base-path` | `/s/<name>/` 代理路径 | |
+| **ttyd** `-t` 客户端选项 | 观看页面参数(`crop_top`、要不要自带 tab 条) | |
+| **ttyd** 一个进程一个命令 | 一个 session 一个浏览器 | |
+| **ttyd** `-m` 最大客户端 | 多人同看一个 session | |
 
 ## 3. server
 
@@ -40,7 +65,7 @@
 ### 3.2 和 tmux 不一样的部分
 
 **① 它要管 runtime。** tmux 拉 pane 就是 fork+exec,一种方式;
-webmux 拉 session 有三种(容器 / 进程 / 远端),server 负责挑一个并记住用了哪个。
+webmuxd 拉 session 有三种(容器 / 进程 / 远端),server 负责挑一个并记住用了哪个。
 
 **② 容器 session 能在 server 重启后被重新收养。**
 
@@ -54,7 +79,22 @@ webmux 拉 session 有三种(容器 / 进程 / 远端),server 负责挑一个并
 开发用 `process`,`kill-server` 一把清干净。**但要在 `webmux ls` 里明确显示 runtime**,
 不然人不知道自己的 session 抗不抗得住 server 重启。
 
-**③ 它可以听 TCP,并代理到各个 session。**
+**③ 它同时是 ttyd —— HTTP 监听是本体,不是可选项。**
+
+tmux 的 server 只有一个 unix socket。webmuxd 的 server 还必须提供 HTTP,
+否则观看页面无处可去。所以:
+
+| | 地址 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| 控制 socket | `$XDG_RUNTIME_DIR/webmux/default.sock` | 开 | CLI 走这个,靠文件权限 |
+| HTTP | `127.0.0.1:7800` | **开** | 观看页面 + 管理 + 代理 |
+| HTTP 对外 | `0.0.0.0:7800` | 关 | `--listen`,**必须配 token** |
+
+**从 `127.0.0.1` 换到 `0.0.0.0` 是这个系统里最需要谨慎的一步操作**——
+那是把一个能操作浏览器、且很可能带着登录态的东西放到网上。
+没设 `WEBMUX_TOKEN` 时直接拒绝启动,不给"我待会再加"的机会。
+
+它代理到各个 session:
 
 ```
               ┌─────────────────────────────────────────┐
@@ -74,7 +114,7 @@ session 自己的端口仍然直连得到,但平时不用。
 ### 3.3 server 不做什么
 
 这里要划清界线。tmux 的 server 是**本机的 session 持有者**,不是编排平台。
-webmux 的 server 同样:
+webmuxd 的 server 同样:
 
 - ❌ 不做多租户、RBAC、配额
 - ❌ 不做数据库 —— 状态就是 `~/.webmux/` 下几个 json,崩了靠现场探活重建
@@ -83,10 +123,25 @@ webmux 的 server 同样:
 
 **判断标准还是那句:tmux 的 server 会做这个吗?** 不会就别加。
 
+### 3.4 分享:抄 ttyd 的默认值
+
+ttyd 默认只读,要加 `-W` 才允许客户端敲键盘。这个默认是对的,照抄。
+但要分成两件事,不要混:
+
+| | 谁用 | 鉴权 | 权限 |
+| --- | --- | --- | --- |
+| `webmux attach` | **你自己** | 控制 socket(文件权限) | 完整 |
+| `webmux share` | **给别人** | 一次性 token,带过期 | **默认只读** |
+
+`share` 出来的链接发给同事,他能实时看着你的浏览器跑,但点不了东西。
+要可操作得显式 `--writable`,而且 CLI 会打印一行警告。
+
+这个不对称是故意的:一个能操作你带登录态浏览器的链接,不该顺手就发出去。
+
 ## 4. runtime —— 唯一多出来的概念
 
 tmux 里 pane 就是 fork+exec 一个 shell,只有一种拉法,所以它不需要这层。
-浏览器这一套(X + VNC + Chrome + muxd)重得多,拉起方式有真实的分歧,所以要抽象。
+浏览器这一套(X + VNC + Chrome + sessiond)重得多,拉起方式有真实的分歧,所以要抽象。
 
 ### 4.1 接口
 
@@ -107,7 +162,7 @@ class Runtime:
 
 | | `container`(默认) | `process` | `remote` |
 | --- | --- | --- | --- |
-| 怎么拉 | `docker run` | 本机拉 Xvnc + Chrome + muxd | 不拉,接现成的 |
+| 怎么拉 | `docker run` | 本机拉 Xvnc + Chrome + sessiond | 不拉,接现成的 |
 | 隔离 | ✅ | ❌ **页面跑在你自己机器上** | 看对面 |
 | 启动 | 几秒 | 秒起 | 立即 |
 | 依赖 | docker + 镜像 | 宿主机装了 Xvnc/Chrome | 一个 URL |
@@ -129,7 +184,7 @@ class Runtime:
 
 ## 5. 为什么不做 pane
 
-tmux 的 pane 是分屏。webmux 不做,原因很具体:
+tmux 的 pane 是分屏。webmuxd 不做,原因很具体:
 **一块 VNC 屏幕同时只显示一个 tab**——Chrome 的多个 tab 共用一个窗口。
 
 要做真正的分屏(几个 tab 并排各自独立看、独立点),得放弃 VNC 改用
@@ -146,7 +201,7 @@ CDP 的 screencast 逐 target 出帧。那是另一个产品形态,v1 不做。
 | 截图 | `/data/shots/` | `~/.webmux/<name>/shots/` |
 | 下载 | `/data/downloads/` | `~/.webmux/<name>/downloads/` |
 
-**muxd 只认一个 `--data-dir`,完全不知道自己跑在容器里还是进程里。**
+**sessiond 只认一个 `--data-dir`,完全不知道自己跑在容器里还是进程里。**
 这是两种 runtime 行为一致的关键。
 
 server 自己的状态:
@@ -173,7 +228,7 @@ stale   process    7903  dead — webmux kill -t stale 清掉
 
 除了 §3.2 §4 §5 之外,还有几处刻意偏离,都记在这:
 
-| | tmux | webmux | 为什么 |
+| | tmux | webmuxd | 为什么 |
 | --- | --- | --- | --- |
 | 无 `-t` 又有多个 session | 挑最近的 | **报错** | 点错浏览器比敲错终端代价大 |
 | 多 client 同时输入 | 字符交错 | 人操作后 3 秒内 API 让路(`busy_human`) | 同上 |
@@ -186,7 +241,7 @@ stale   process    7903  dead — webmux kill -t stale 清掉
 ```bash
 webmux new -s work                                    # container,server 自动起
 webmux new -s dev  --runtime process
-webmux new -s prod --runtime remote --endpoint https://browser.internal:7900
+webmux new -s prod --runtime remote --endpoint https://browser.internal:7800
 webmux ls
 webmux click -t dev "登录"                            # runtime 对用起来不可见
 webmux kill-server                                    # process 的死,container 的活

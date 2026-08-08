@@ -1,4 +1,4 @@
-# webmux v1 · 接口规格
+# webmuxd v1 · 接口规格
 
 设计稿在 [`../works`](../works/)。这里是接口本身。
 

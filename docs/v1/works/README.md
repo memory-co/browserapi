@@ -1,6 +1,17 @@
-# webmux —— 浏览器版的 tmux
+# webmuxd
 
-一个基于 `kasm/chrome` 的容器。起来之后:
+**webmuxd ≈ tmux + ttyd,只是 pane 里渲染的不是 tty 字符,是浏览器像素。**
+
+| 来自 | 能力 |
+| --- | --- |
+| **tmux** | 多路复用 + 持久化 + attach/detach |
+| **ttyd** | 把它暴露成一个网页,能看、能操作、能分享链接 |
+| **自己加的** | 程序化操作 + 给智能体的观测层与操作日志 |
+
+终端世界里这两件事是分开的(`ttyd tmux new -A -s work`)。webmuxd 合成一个,
+因为浏览器的渲染层本来就是网页——**暴露不是可选项,是本体**。
+
+一个基于 `kasm/chrome` 的 session。起来之后:
 
 - **在浏览器里打开一个网址,就能看到并直接操作里面那个远端 Chrome**
 - **同时用 API 或 Python lib 从外面驱动同一个 Chrome**
@@ -10,9 +21,10 @@
 
 ## tmux 对照
 
-| tmux | webmux |
+| tmux / ttyd | webmuxd |
 | --- | --- |
-| `tmux new -s work` | `docker run -d --name work -p 7900:7900 webmux` |
+| `ttyd tmux new -A -s work` | **就是 webmuxd 本身** |
+| `tmux new -s work` | `docker run -d --name work -p 7900:7900 webmuxd` |
 | `tmux attach -t work` | 浏览器打开 `http://localhost:7900` |
 | detach(`Ctrl-b d`) | 关掉网页,容器继续跑 |
 | `tmux send-keys` | `POST /api/act` 或 `b.click("登录")` |
@@ -20,7 +32,8 @@
 | scrollback 回滚历史 | 页面右侧的**操作日志** |
 | 多个 client 同时 attach | 人和 API 同时操作,互不阻塞 |
 | `tmux kill-session` | `docker rm -f work` |
-| tmux server 持有会话状态 | 容器持有 profile / cookie / 标签页 |
+| tmux server 持有会话状态 | server 持有 session,session 持有 profile / cookie / tab |
+| ttyd 默认只读,`-W` 才可写 | 分享链接默认只读,要操作得显式要完整 token |
 
 核心是 tmux 那个最有用的性质:**会话比观看者活得久,而且看的人和写脚本的人共用同一个会话。**
 

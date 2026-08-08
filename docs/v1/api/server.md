@@ -9,20 +9,27 @@ server 持有全部 session,概念见 [works/05](../works/05-server-session-runt
 
 ## 1. 两个监听
 
-| | 地址 | 用途 |
-| --- | --- | --- |
-| 控制 socket | `$XDG_RUNTIME_DIR/webmux/default.sock` | CLI 默认走这个,不占端口,靠文件权限鉴权 |
-| TCP(可选) | `:7800` | 远程访问 + 代理到各 session |
+server 同时扮演 tmux 的 server(控制 socket)和 ttyd(HTTP 暴露),
+所以**两个都开着**——[works/05 §1](../works/05-server-session-runtime.md)。
 
-socket 和 tmux 一致:`-L name` 换一个名字、`-S /path` 指定路径,
-不同 socket 之间的 server 互不可见。
+| | 地址 | 默认 | 用途 |
+| --- | --- | --- | --- |
+| 控制 socket | `$XDG_RUNTIME_DIR/webmux/default.sock` | 开 | CLI 走这个,不占端口,靠文件权限(0600) |
+| HTTP | `127.0.0.1:7800` | **开** | 观看页面 + 管理 + 代理到各 session |
 
-TCP 默认**不开**。开了必须设 `WEBMUX_TOKEN`,否则拒绝启动——
-一个没有鉴权的浏览器控制端口暴露在网上,后果不用解释。
+socket 和 tmux 一致:`-L name` 换名字、`-S /path` 指定路径,不同 socket 的 server 互不可见。
+
+**HTTP 不是可选项**:观看页面本身就是网页,不开就没法看。
+所以问题不是"要不要开",而是**绑在哪**:
 
 ```bash
-webmux server --listen 0.0.0.0:7800     # 需要 WEBMUX_TOKEN
+webmux server                            # 127.0.0.1:7800,只有本机
+webmux server --listen 0.0.0.0:7800      # 对外,必须有 WEBMUX_TOKEN
 ```
+
+绑到 `0.0.0.0` **没设 `WEBMUX_TOKEN` 时拒绝启动**,不给"待会再加"的机会。
+这是整个系统里最需要谨慎的一步:那是把一个能操作浏览器、
+而且很可能带着登录态的东西放到网上。
 
 ## 2. 代理
 
@@ -65,7 +72,7 @@ session 自己的端口仍然直连得到(`http://host:7900`),但走 server 只�
   { "name": "dev", "runtime": "process", "state": "ready",
     "endpoint": "http://127.0.0.1:7901", "proxy": "/s/dev/",
     "tab_count": 1, "active_tab_url": "http://localhost:3000",
-    "handle": { "display": ":7", "pids": {"xvnc":4821,"chrome":4830,"muxd":4835} } },
+    "handle": { "display": ":7", "pids": {"xvnc":4821,"chrome":4830,"sessiond":4835} } },
 
   { "name": "stale", "runtime": "process", "state": "dead",
     "endpoint": null, "hint": "webmux kill -t stale 清掉" }

@@ -4,19 +4,21 @@
 
 ## 1. 概念映射
 
-**webmux 就是 tmux,只是 pane 里渲染的不是 tty 字符,是浏览器像素。**
-概念见 [works/05](../works/05-server-session-runtime.md)。
+**webmuxd ≈ tmux + ttyd,只是 pane 里渲染的不是 tty 字符,是浏览器像素。**
+tmux 给多路复用与持久化,ttyd 给 web 暴露,概念见 [works/05](../works/05-server-session-runtime.md)。
 
-| tmux | webmux | 实体 |
+| tmux | webmuxd | 实体 |
 | --- | --- | --- |
 | server | **server** | 按需自启,持有全部 session,见 §7 |
-| session | **session** | 一整套 kasm + Chrome + muxd |
+| session | **session** | 一整套 kasm + Chrome + sessiond |
 | window | **tab** | 浏览器标签页 |
 | pane | — | 不做:一块 VNC 屏同时只显示一个 tab |
 | `send-keys` | `click` / `type` / `key` / `send` | 往里面打东西 |
 | `capture-pane` | `capture` / `observe` | 把里面的内容抓出来 |
 | scrollback | `log` | 操作日志 |
 | `~/.tmux.conf` | `~/.webmux.conf` | |
+| ttyd `-p` / `-b` | server `:7800` + `/s/<name>/` | 见 §7 |
+| ttyd 默认只读 / `-W` | `share` 默认只读,`--writable` 才可写 | 见 §3 |
 
 ## 2. 目标语法 `-t`
 
@@ -31,14 +33,15 @@
 
 省略 `-t` 时:用环境变量 `WEBMUX_TARGET`,再没有就用**唯一**的那个会话;
 有多个会话又没指定,报错(不猜)。这条和 tmux 略有不同——tmux 会挑最近的,
-webmux 不猜,因为点错浏览器的代价比敲错终端大。
+webmuxd 不猜,因为点错浏览器的代价比敲错终端大。
 
 ## 3. 会话
 
 ```bash
 webmux new [-s NAME] [--runtime R] [-p PORT] [-u URL] [-v WxH] [--volume VOL] [-d]
 webmux ls
-webmux attach -t NAME [-p] [--read-only]
+webmux attach -t NAME [-p]
+webmux share  -t NAME [--writable] [--ttl 1h]
 webmux kill -t NAME
 webmux kill-server
 webmux rename -t NAME NEW
@@ -58,18 +61,25 @@ dev     process    7901  1 tab   localhost:3000
 prod    remote     -     5 tabs  intranet.corp/dash
 stale   process    7903  dead — webmux kill -t stale 清掉
 
-$ webmux attach -t work        # 用默认浏览器打开观看页面
+$ webmux attach -t work        # 自己看,完整权限,用默认浏览器打开
 $ webmux attach -t work -p     # 只打印 URL,不开浏览器(无 GUI 环境用)
-http://localhost:7900?token=...
+http://localhost:7800/s/work/
 
-$ webmux attach -t work --read-only    # 只读 token,发给别人看
-http://localhost:7900?token=<view-token>
+$ webmux share -t work         # 给别人的链接,默认只读(抄 ttyd)
+http://localhost:7800/s/work/?t=...   (只读,1 小时后过期)
+
+$ webmux share -t work --writable
+http://localhost:7800/s/work/?t=...   (可操作,1 小时后过期)
+⚠ 这个链接能操作你的浏览器,包括已登录的站点
 ```
 
 - `-p PORT` 不给就自动从 7900 往上找空闲端口
 - `-d` 建完不 attach(默认就是不 attach,`-d` 只是为了跟 tmux 的手感一致)
 - **detach 不需要命令**——关掉网页就是 detach,容器照跑
 - `has` 只返回退出码,给脚本用:`webmux has -t work || webmux new -s work`
+- `attach` 是**你自己看**,走 socket 鉴权,完整权限
+- `share` 是**给别人**,签一次性 token。**默认只读**,和 ttyd 的默认一致;
+  要可操作得显式 `--writable`,并且会打印一行警告
 - `kill-server` 停掉 server。**`process` 的 session 跟着死,`container` 的活着**,见 §7
 
 ## 4. tab
@@ -195,8 +205,8 @@ webmux info                              # server 状态、探测到哪些 runti
 socket 语义和 tmux 完全一致:
 
 ```bash
-webmux -L ci new -s build                # 换个 socket = 另一套互不可见的 server
-webmux -S /tmp/x.sock ls
+webmux-L ci new -s build                # 换个 socket = 另一套互不可见的 server
+webmux-S /tmp/x.sock ls
 ```
 
 `kill-server` 的效果**取决于 runtime**,这点必须知道:
@@ -238,7 +248,7 @@ $ webmux new -s work
 ## 9. 远端
 
 ```bash
-webmux -H https://browser.internal:7800 ls
+webmux-H https://browser.internal:7800 ls
 export WEBMUX_HOST=https://browser.internal:7800
 export WEBMUX_TOKEN=...
 ```
@@ -289,7 +299,8 @@ CLI 不做任何 API 没有的事,每条命令就是一次调用:
 | --- | --- |
 | `new` | `POST /api/sessions`([server.md](server.md)) |
 | `ls` | `GET /api/sessions` |
-| `attach` | `POST /api/sessions/{name}/live-token` → 打开观看页面 |
+| `attach` | 直接打开 `/s/{name}/`(socket 已鉴权) |
+| `share` | `POST /api/sessions/{name}/live-token` |
 | `kill` | `DELETE /api/sessions/{name}` |
 | `info` | `GET /api/server` |
 | `kill-server` | `POST /api/server/shutdown` |
