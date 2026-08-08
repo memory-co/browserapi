@@ -84,18 +84,50 @@ Target.setAutoAttach{autoAttach: true, flatten: true, waitForDebuggerOnStart: fa
 **不轮询 `Target.getTargets`。** 事件是推的,毫秒级到;轮询只在断线重连之后
 拉一次全量对账([api/events.md §1](../api/events.md#1-信封) 的 `gap`)。
 
+### 会不会漏
+
+人能造出 tab 的方式就那几种,**全都走 `targetCreated`**,没有旁路:
+
+| 人怎么开的 | 收得到 |
+| --- | --- |
+| 点 `target="_blank"` 链接 | ✅ |
+| 页面调 `window.open()` | ✅ |
+| Ctrl+点击 / 中键点击(后台开) | ✅ |
+| Ctrl+T / Ctrl+Shift+T(恢复关掉的) | ✅ |
+
+两条保证:
+
+- **断线期间的补齐** —— 重新 `setDiscoverTargets{discover:true}` 会把**当前所有
+  target 各补一条 `targetCreated`**,不是只推之后的增量。所以 sessiond 重连不会
+  留下一个它不知道的 tab。
+- **重连后再对一次账** —— 收到 `gap` 就 `Target.getTargets` 拉全量比对,多的补、少的删。
+
+**但必须按 `type` 过滤。** `targetCreated` 推的是所有 target,不只 tab:
+
+```
+page  iframe(OOPIF)  worker  service_worker  shared_worker  browser  other
+```
+
+只收 `page`,并且排掉子框架的那种。不过滤的话 service worker 会跑进你的 tab 条 ——
+那是**多**,不是漏,但一样得治。
+
 ### `reason` 怎么判出来的
 
 | reason | 判据 |
 | --- | --- |
 | `api` | sessiond 自己刚建的,它知道 |
-| `link_target_blank` / `window_open` | 有 `openerId`;两者的细分靠注入脚本在 **opener 那一页**记一笔(点了带 `target` 的链接 / 调了 `window.open`) |
-| `user_ctrl_t` | 没有 `openerId`,而且不是 API 建的 |
+| `link_target_blank` / `window_open` | 有 `openerId`(两者的细分 CDP 给不出,见下) |
+| `user_ctrl_t` | 没有 `openerId`,**而且** url 是 NTP / `about:blank` |
 | `restored` | Chrome 重启后一批一起冒出来 |
+| `unknown` | 其余 —— 见下 |
 
-分不出细分时退回一个笼统值,**不猜**。这个字段是给你的 tab 条用的
-([api/tabs.md §4](../api/tabs.md#4-事件)):`api` 建的不自动切过去,
-`link_target_blank` 切过去才符合人的预期。
+**`rel="noopener"` 分不出来。** 带 `noopener` 的 `target=_blank` 链接开出来的 tab
+**没有 `openerId`**,和 Ctrl+T 开的长得一样。所以判据里必须带上 url:
+Ctrl+T 落在 NTP / `about:blank`,noopener 链接落在一个真站点。
+两条都对不上就报 `unknown`,**不猜** —— 猜错的代价是你的 tab 条自动切了不该切的 tab。
+
+这个字段是给 tab 条用的([api/tabs.md §4](../api/tabs.md#4-事件)):
+`api` 建的不自动切过去,`link_target_blank` 切过去才符合人的预期,`unknown` 按不切处理。
 
 ### 点完当场就能拿到,不用等事件
 
@@ -158,14 +190,35 @@ tab 条要画的东西,除了上面两条路给的 `id`/`opener`/`reason`,其余
 **代价**:人按 `Ctrl+Tab` 走的是 Chrome 的顺序,拖过序之后和你 bar 上的对不上。
 v1 接受。
 
-## 5. 待实测
+## 5. 一个没解决的:popup 窗口
+
+`window.open('...', '_blank', 'width=500,height=400')` 开出来的是**一个新的浏览器窗口**,
+不是 tab。
+
+`targetCreated` 照样收得到,所以**不会漏**。坏的是显示:
+
+- VNC 那块屏上会多出一个浮在上面的小窗,盖住原来的页面
+- `crop_top` 是按"一个最大化窗口"算的([04 §2](04-chrome-ui-externalization.md)),
+  多一个窗口这个数就不对了
+- kasm 的最大化看门狗每 ~10 秒还会去掰扯窗口([04 §5](04-chrome-ui-externalization.md))
+
+**CDP 没有"把 popup 变成 tab"的命令。** v1 的处理是:照样收进 tab 列表(不然它就成了
+一个谁都不知道的窗口),`reason` 记 `window_open`,但**画面上它就是个浮窗**,
+外面那条 tab 条点它也切不干净。
+
+真要治,两条路都不好走:启动时加 `--disable-popup-blocking` 之类的开关改不了这个行为;
+拦 `Page.windowOpen` 事件然后自己 `Target.createTarget` 开成 tab、再把原 popup 关掉 ——
+能做,但会改变页面拿到的 `window.open()` 返回值,破坏依赖它的站点。记为已知缺陷。
+
+## 6. 待实测
 
 | 要验的 | 怎么验 | 不成立的话 |
 | --- | --- | --- |
+| **重新 `setDiscoverTargets` 会不会把已存在的 target 各补一条 `targetCreated`** | 先开三个 tab,再重连 CDP,数收到几条 | 重连后**必须**用 `Target.getTargets` 重建全表,不能只靠事件 |
 | `Target.setAutoAttach{flatten}` 拿到的 session 上,`Page`/`Security` 事件是不是都推得到 | 开几个 tab,导航,看 `frameNavigated` / `securityStateChanged` 齐不齐 | 缺哪个就对哪个退回按需 `Runtime.evaluate` 取 |
-| `targetCreated` 的 `openerId` 在 `target=_blank` 和 `window.open` 下是不是都给 | 两种各点一次,看 `openerId` 有没有 | 没有就 `opener` 留空,`reason` 退回笼统值 |
+| `openerId` 在 `target=_blank` / `window.open` / `rel=noopener` 三种下分别给不给 | 三种各点一次 | 按 §2 那张表退 `unknown` |
 
-都是"字段全不全"级别的,不影响这条路成不成立。
+第一条是"会不会漏"的底,先验它。另外两条是字段全不全,不影响这条路成不成立。
 
 > 早先这里列的三条(独立世界能不能收到 `visibilitychange`、`addBinding` 的绑定时机、
 > `waitForDebuggerOnStart` 会不会卡住页面)**全部作废** ——
