@@ -70,7 +70,7 @@ GET /api/log?kind=tab
 ```
 
 **这是持久的,不是事件流。** `tab.created` / `tab.closed` 事件是内存里最近 1000 条
-([events.md §1](events.md#2-信封)),重启就没了;这份落盘,而且**不截断** ——
+([events.md §2](events.md#2-信封)),重启就没了;这份落盘,而且**不截断** ——
 所以"那个已经关掉的 tab 什么时候建的、谁建的、关的时候停在哪"永远查得到
 ([works/03 §3.2](../works/03-view-and-log.md#32-sessionjsonl--这个-session-的目录))。
 

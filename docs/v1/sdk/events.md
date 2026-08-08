@@ -26,7 +26,7 @@ for e in web.watch(after=118):       # 从某个 seq 之后补,服务端保留�
     ...
 ```
 
-事件对象就是 [api/events.md §1](../api/events.md#2-信封) 的信封,
+事件对象就是 [api/events.md §2](../api/events.md#2-信封) 的信封,
 `e.seq` `e.at` `e.type` 加各类型自己的字段(`e.tab` `e.changed` `e.note` `e.user` …),
 访问不存在的字段返回 `None` 而不是抛 —— 事件字典只增不减,新字段不该让老代码崩。
 
@@ -116,7 +116,7 @@ with web.watch() as w:        # 也可以显式管理
 | — | server 级 `WS /api/events`(`session.*`)在 lib 里**没有对应** |
 
 事件类型不在 lib 里另建一套枚举 —— **字符串就是 API 那个字符串**,
-[api/events.md §2](../api/events.md#3-事件字典) 那张字典是唯一的一份。
+[api/events.md §3](../api/events.md#3-事件字典) 那张字典是唯一的一份。
 
 `web.watch()` 只给你**这一个 session** 的事件。server 级的那条流
 (`session.created` / `session.died`,[api/server.md §4](../api/server.md#4-事件))

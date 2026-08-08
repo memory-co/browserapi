@@ -16,7 +16,7 @@ tab.bundle("t_7.zip")     # 打包这个 tab 的目录:日志 + 截图 + 离线 
 ## 1. 一条长什么样
 
 ```python
-e.seq             # 全局单调,和事件流是同一个计数器 —— 见 ../events.md §1
+e.seq             # 全局单调,和事件流共用一个计数器(所以两边对得齐)
 e.at
 e.kind            # 这里恒为 "action"
 e.user            # 署名

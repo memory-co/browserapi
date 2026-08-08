@@ -89,7 +89,7 @@ lib 就是那个 client。
 | 整张 `web.tabs` 表 | `log()` 操作日志 |
 
 **外挂 UI 画得出来的东西在内存里,画不出来的要请求。** 事件流里不塞大字段
-([api/events.md §1](../api/events.md#2-信封)),所以右边那一列没法省。
+([api/events.md §2](../api/events.md#2-信封)),所以右边那一列没法省。
 
 左边那一列**人在画面里操作也会更新** —— 他点个 `target=_blank` 的链接,
 你内存里就多一个 tab。怎么做到的见 [works/06](../works/06-tab-sync.md)。
@@ -102,7 +102,7 @@ lib 就是那个 client。
 
 ### 旧了会告诉你
 
-lib 按 [api/events.md §3](../api/events.md#4-客户端该怎么写) 那三条办事,
+lib 按 [api/events.md §4](../api/events.md#4-客户端该怎么写) 那三条办事,
 不是"建议",是义务:字段级合并、收到 `gap` 或 `chrome.restarted` 自动重新拉全量。
 
 ```python
