@@ -142,12 +142,19 @@ class Session:
     def share(self, *, writable: bool = False, ttl: float = 3600) -> dict:
         """**默认只读**,和 API、CLI、ttyd 的默认一致 ——
         lib 不做"代码里方便所以更宽松"这种事。"""
-        return self._t.post("/api/live-token",
-                            {"read_only": not writable, "ttl_s": int(ttl)})
+        r = self._t.post("/api/live-token",
+                         {"read_only": not writable, "ttl_s": int(ttl)})
+        tok = r["token"]
+        return {**r,
+                "vnc_url": f"{self.vnc_url}?t={tok}" if self.vnc_url else "",
+                "api_url": f"{self.api_url}/api?t={tok}"}
 
     def upload_file(self, path: str) -> str:
+        import os
         with open(path, "rb") as fh:
-            return self._t.post("/api/upload", {"name": path, "data": fh.read().hex()})["file_id"]
+            r = self._t.post("/api/upload", {"name": os.path.basename(path),
+                                             "data": fh.read().hex()})
+        return r["file_id"]
 
     def download(self, name: str, to: str | None = None) -> bytes:
         data = self._t.get_bytes(f"/api/download/{name}")

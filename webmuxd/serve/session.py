@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from webmuxd.core import observe as observe_mod
+from webmuxd.core import observe as observe_mod, shim
 from webmuxd.core.act import MASK, Executor
 from webmuxd.core.cdp import CDP
 from webmuxd.core.log import Log, Seq
@@ -55,12 +55,23 @@ class Session:
         self._action_lock = asyncio.Lock()
         self.started_at = time.time()
         self.restarts = 0
+        self._dispatched_at = 0.0
+
+        root = Path(data_dir)
+        self.files_dir = root / "files"
+        self.downloads_dir = root / "downloads"
+        for d in (self.files_dir, self.downloads_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        self._tokens: dict[str, tuple[bool, float]] = {}
 
     # ------------------------------------------------------------------ 起
 
     async def start(self) -> None:
         self.cdp.on("Target.attachedToTarget", self._on_attached)
         self.cdp.on("Inspector.targetCrashed", self._on_crashed)
+        self.cdp.on("Page.javascriptDialogOpening", self._on_dialog)
+        self.cdp.on("Page.javascriptDialogClosed", self._on_dialog_closed)
+        self.cdp.on("Runtime.bindingCalled", self._on_binding)
         await self.tabs.start()
         await asyncio.sleep(0.3)               # 让已存在的 target 都进来
         self.log.append("session", event="session_started")
@@ -73,6 +84,52 @@ class Session:
             self._pending_sessions[info["targetId"]] = params["sessionId"]
 
     _pending_sessions: dict[str, str] = {}
+
+    #: 我们自己刚派发完动作的时间点。这之后这么久内的输入算我们的,不算人的。
+    _SELF_WINDOW = 0.4
+
+    def _on_binding(self, params: dict, sid: str | None) -> None:
+        """页面报上来一次输入。**是人还是我们,靠相关性分**。"""
+        if params.get("name") != shim.BINDING:
+            return
+        if time.monotonic() - self._dispatched_at < self._SELF_WINDOW:
+            return                          # 这是我们刚发的那一下
+        import json as _json
+        try:
+            info = _json.loads(params.get("payload") or "{}")
+        except Exception:
+            info = {}
+        self.note_human_activity(info.get("kind", "input"))
+        tab_id = self._tab_of_session(sid)
+        # 人干的**也进日志** —— 这样它才是完整的操作路径,不是"只有 API 干过的事"
+        self.log.append("action", tab=tab_id, user="human",
+                        action=info.get("kind", "input"),
+                        target={"point": [info.get("x"), info.get("y")]},
+                        hit={"role": info.get("role"), "name": info.get("name")}
+                             if info.get("name") else None,
+                        ok=True, ms=0)
+
+    def _on_dialog(self, params: dict, sid: str | None) -> None:
+        """弹窗**挡住了页面**,等回应 —— 所以它是 tab 上的状态,不只是一条通知
+        (api/tabs.md §3)。"""
+        tab_id = self._tab_of_session(sid)
+        if tab_id:
+            self.tabs.update(tab_id, dialog={
+                "kind": params.get("type"), "message": params.get("message", ""),
+                "default": params.get("defaultPrompt") or ""})
+
+    def _on_dialog_closed(self, _params: dict, sid: str | None) -> None:
+        tab_id = self._tab_of_session(sid)
+        if tab_id:
+            self.tabs.update(tab_id, dialog=None)
+
+    def _tab_of_session(self, sid: str | None) -> str | None:
+        if not sid:
+            return None
+        for tab_id, s in self._sessions.items():
+            if s == sid:
+                return tab_id
+        return None
 
     def _on_crashed(self, _params: dict, _sid: str | None) -> None:
         self.restarts += 1
@@ -125,7 +182,12 @@ class Session:
         self._subscribers.discard(q)
 
     def note_human_activity(self, kind: str = "input") -> None:
-        """人在 VNC 里动了 —— 开让路窗口。"""
+        """人在 VNC 里动了 —— 开让路窗口。
+
+        **靠相关性判断**:sessiond 知道自己刚派发了什么(它握着动作锁),
+        对不上的输入就是人的。窗口边界上会误判,代价只是日志署错名或者
+        让路窗口早开晚开一点,不影响正确性(works/06 §3.2)。
+        """
         was_idle = not self.human_active
         self._human_at = time.monotonic()
         if was_idle:
@@ -151,6 +213,10 @@ class Session:
         self._sessions[tab_id] = sid
         ex = Executor(self.cdp, sid, secrets=self.secrets)
         await ex.start()
+        # **popup 一律转成 tab**(works/07 §4)—— 装在页面层,
+        # 因为只有页面自己调原生 open 才能保住 opener 关系。
+        await shim.install(self.cdp, sid)
+        await shim.install_input_watch(self.cdp, sid)
         self._exec[tab_id] = ex
         return ex
 
@@ -239,11 +305,18 @@ class Session:
             raise Busy("已有动作在跑", code="busy", details={})
 
         tab_id = self.resolve_tab(tab)
+        dialog = self.tabs.get(tab_id).dialog
+        if dialog:
+            # **不自动回应** —— 该点确定还是取消是调用方的判断(api/tabs.md §3)
+            raise Busy(f"这个 tab 被 {dialog.get('kind')} 弹窗挡住了",
+                       code="busy", details={"dialog": dialog})
         async with self._action_lock:
             self.tabs.mark_busy(tab_id)
             try:
                 ex = await self.executor_for(tab_id)
+                self._dispatched_at = time.monotonic()
                 results = await ex.run(actions, settle=settle)
+                self._dispatched_at = time.monotonic()
             finally:
                 self.tabs.mark_idle(tab_id)
 
@@ -280,6 +353,28 @@ class Session:
         if activated:
             obs.notes.append("为了拍这张图,这个 tab 被切到了前台")
         return obs
+
+    def mint_token(self, *, read_only: bool = True, ttl_s: int = 3600) -> str:
+        """一次性观看 token。
+
+        **默认只读** —— 和 API、CLI、ttyd 的默认一致。可操作的链接
+        能碰调用方所有登录态,那得显式要。
+        """
+        import secrets as _secrets
+        tok = _secrets.token_urlsafe(24)
+        self._tokens[tok] = (read_only, time.time() + ttl_s)
+        return tok
+
+    def check_token(self, tok: str) -> tuple[bool, bool]:
+        """→ (认不认, 是不是只读)。过期的当场清掉。"""
+        got = self._tokens.get(tok)
+        if not got:
+            return False, True
+        read_only, expires = got
+        if time.time() > expires:
+            del self._tokens[tok]
+            return False, True
+        return True, read_only
 
     def status(self) -> dict[str, Any]:
         return {

@@ -295,7 +295,12 @@ class Tab:
         return self._one({"type": "js", "expression": expression}).results[0].get("value")
 
     def upload(self, target: Any, path_or_id: str, **kw: Any) -> "ActResult":
-        return self._one({"type": "upload", "file_id": path_or_id,
+        """也接受本地路径 —— **内部先传一次再用**,省掉调用方自己 upload_file。"""
+        import os
+        file_id = path_or_id
+        if os.path.exists(path_or_id):
+            file_id = self._s.upload_file(path_or_id)
+        return self._one({"type": "upload", "file_id": file_id,
                           **_locator(target, **kw)})
 
     # ------------------------------------------------------------- 观测

@@ -52,9 +52,18 @@ def _json(payload: Any, status: int = 200) -> web.Response:
 
 @web.middleware
 async def auth(request: web.Request, handler: Callable[..., Awaitable]) -> web.Response:
+    given = (request.headers.get("Authorization", "")
+             .removeprefix("Bearer ").strip()) or request.query.get("t", "")
+
+    # 一次性观看 token(`POST /api/live-token` 签的)—— 只读的写操作 403
+    if given:
+        known, read_only = request.app["session"].check_token(given)
+        if known:
+            if read_only and request.method in _WRITE_METHODS:
+                return _err(ReadOnly("这是只读链接", code="read_only"))
+            return await handler(request)
+
     if TOKEN or VIEW_TOKEN:
-        given = (request.headers.get("Authorization", "")
-                 .removeprefix("Bearer ").strip()) or request.query.get("t", "")
         if VIEW_TOKEN and given == VIEW_TOKEN:
             if request.method in _WRITE_METHODS:
                 return _err(ReadOnly("这是只读链接", code="read_only"))
@@ -104,6 +113,9 @@ def build(session: Session) -> web.Application:
     r.add_get("/api/log/bundle", h_bundle)
     r.add_get("/api/log/{seq}/shot", h_log_shot)
 
+    # 还没做:/api/tabs/{id}/favicon、/api/live-token、/api/upload、
+    # /api/download/{name}、/api/openapi.json —— 文档里有,这儿先空着,
+    # 免得留半截路由骗人。
     r.add_get("/api/events", h_events)
     r.add_get("/healthz", lambda _r: web.Response(text="ok"))
     return app
@@ -129,10 +141,22 @@ async def h_status(request: web.Request) -> web.Response:
 
 
 async def h_viewport(request: web.Request) -> web.Response:
+    """`crop_top` = Chromium 自带 UI 的高度,**外面按它裁 iframe**
+    (works/04 §2)。硬编 0 等于让上层裁错。"""
     s = _s(request)
-    obs = await s.observe(annotate=False, text="none", max_elements=0)
-    vp = obs.page.get("viewport", {})
-    return _json({"screen": vp, "page": vp, "crop_top": 0})
+    tab_id = s.resolve_tab(request.query.get("tab"))
+    await s.executor_for(tab_id)
+    r = await s.cdp.send(
+        "Runtime.evaluate",
+        {"expression": "JSON.stringify([window.outerWidth, window.outerHeight,"
+                       " window.innerWidth, window.innerHeight])",
+         "returnByValue": True}, session_id=s._sessions[tab_id])
+    ow, oh, iw, ih = json.loads(r["result"]["value"])
+    return _json({"screen": {"w": ow, "h": oh},
+                  "page": {"w": iw, "h": ih},
+                  # headless 下 outer==inner,量出来就是 0 —— 那是真的没有 UI,
+                  # 不是没量到
+                  "crop_top": max(0, oh - ih)})
 
 
 async def h_reset(request: web.Request) -> web.Response:

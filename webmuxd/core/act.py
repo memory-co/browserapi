@@ -492,6 +492,16 @@ class Executor:
             await asyncio.sleep(0.08)
         raise Timeout(f"等 {spec} 超时", code="timeout", details={"waited": spec})
 
+    async def _do_upload(self, spec: dict) -> None:
+        el = await self._resolve(spec, "upload")
+        file_id = spec.get("file_id") or spec.get("file")
+        if not file_id:
+            raise BadRequest("upload 要给 file_id", code="bad_request")
+        paths = [str(p) for p in (file_id if isinstance(file_id, list) else [file_id])]
+        await self._cdp.send("DOM.setFileInputFiles",
+                             {"files": paths, "backendNodeId": el.backend_node_id},
+                             session_id=self._sid)
+
     async def _do_extract(self, spec: dict) -> Any:
         el = await self._resolve(spec, "extract")
         mode = spec.get("mode", "text")
