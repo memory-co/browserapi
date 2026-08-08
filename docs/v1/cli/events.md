@@ -3,9 +3,14 @@
 对应 [api/events.md](../api/events.md)。两条流式命令,`Ctrl-C` 退出。
 
 ```bash
-webmuxd watch -t NAME [--types 'tab.*'] [--json]
-webmuxd log   -t NAME -f
+webmuxd log   -t NAME -f                         # 平时你要的是这个
+webmuxd watch -t NAME [--types 'tab.*'] [--json]  # 排查同步问题时才用
 ```
+
+**两个不是一个东西。** `log -f` 跟的是**账**(谁做了什么);`watch` 吐的是
+**同步机制的原始流**,里面大量是"标题变了""loading 变了"这类没人"做"的变化。
+
+要看它干了什么就用 `log -f`;怀疑外面那条 tab 条没跟上、或者在写自己的 UI,才用 `watch`。
 
 ## 1. `watch` —— 全部事件
 
@@ -50,7 +55,7 @@ CLI 自动带 `?after=<最后一条 seq>` 重连(服务端保留最近 1000 条)
 ```
 
 收到 `gap` 或 `chrome.restarted` 时,CLI 重新 `GET /api/tabs` + `GET /api/status`
-再继续跟——和 [api/events.md §4](../api/events.md#4-客户端该怎么写) 说的一样。
+再继续跟——和 [api/events.md §5](../api/events.md#5-客户端该怎么写) 说的一样。
 `--json` 模式下 `gap` 事件**照样吐给你**,该重拉全量的是你的下游脚本。
 
 ## 4. ↔ API 对照

@@ -2,14 +2,18 @@
 
 导出成 [api/events.md](../api/events.md)。
 
-**事件不是日志。** 事件是内存里的**变化通知**(会丢、1000 条上限、重启就没),
-日志是磁盘上的**账**([log.md](log.md) / [tab/log.md](tab/log.md))。
-两边共用 `seq` 所以对得齐,但**要回看就读日志** ——
-完整对照见 [api/events.md §1](../api/events.md#1-事件不是日志)。
+**写脚本或 agent 的话,这一篇你不用看。** lib 已经替你订好了 ——
+`web.tabs` / `tab.url` 读的就是它维护的那份内存
+([README §3](README.md#3-tab-的状态在内存里)),你不需要自己处理事件。
 
-**lib 自己就是这条流的第一个消费者** —— 内存里那份 tab 表就是它维护的
-([README §3](README.md#3-tab-的状态在内存里))。`web.watch()` 是把同一条连接上的事件
-再分你一份,不会多开一条 WS。
+`web.watch()` 是给**你要自己画 UI** 的时候用的:一块面板、一条自定义的 tab 条、
+一个把动作推给别处的桥。除此之外都不需要。
+
+**模型更不需要。** 它的输入是 `observe()` 和[日志](log.md),它不订阅任何东西。
+
+> 事件是内存里的**变化通知**(会丢、1000 条上限、重启就没),
+> 日志是磁盘上的**账**(不丢)。共用 `seq` 所以对得齐,但**要回看只能读日志** ——
+> 见 [api/events.md §2](../api/events.md#2-它和日志不是一回事也不是一个层级)。
 
 ## 1. `web.watch()`
 
@@ -26,7 +30,7 @@ for e in web.watch(after=118):       # 从某个 seq 之后补,服务端保留�
     ...
 ```
 
-事件对象就是 [api/events.md §2](../api/events.md#2-信封) 的信封,
+事件对象就是 [api/events.md §3](../api/events.md#3-信封) 的信封,
 `e.seq` `e.at` `e.type` 加各类型自己的字段(`e.tab` `e.changed` `e.note` `e.user` …),
 访问不存在的字段返回 `None` 而不是抛 —— 事件字典只增不减,新字段不该让老代码崩。
 
@@ -50,7 +54,7 @@ my_tab_bar.render(web.tabs, web.active)
 
 | 你想要 | 事件 |
 | --- | --- |
-| 直播:下一步打算干什么 | `action.started`(带 `note` 和 `user`) |
+| 面板上显示「下一步打算干什么」 | `action.started`(带 `note` 和 `user`) |
 | 动作结果、耗时、截图 | `action.done` |
 | 日志滚动 | `log.appended` |
 | 人上手了 | `human.active` / `human.idle` |
@@ -116,7 +120,7 @@ with web.watch() as w:        # 也可以显式管理
 | — | server 级 `WS /api/events`(`session.*`)在 lib 里**没有对应** |
 
 事件类型不在 lib 里另建一套枚举 —— **字符串就是 API 那个字符串**,
-[api/events.md §3](../api/events.md#3-事件字典) 那张字典是唯一的一份。
+[api/events.md §4](../api/events.md#4-事件字典) 那张字典是唯一的一份。
 
 `web.watch()` 只给你**这一个 session** 的事件。server 级的那条流
 (`session.created` / `session.died`,[api/server.md §4](../api/server.md#4-事件))

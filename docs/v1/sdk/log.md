@@ -5,7 +5,7 @@
 
 **别和事件流搞混**:事件是内存里的变化通知(会丢),日志是磁盘上的账(不丢)。
 共用 `seq` 所以能对齐,但要回看只能读这儿 ——
-见 [api/events.md §1](../api/events.md#1-事件不是日志)。
+见 [api/events.md §2](../api/events.md#2-它和日志不是一回事也不是一个层级)。
 
 ```python
 for e in web.log(limit=100, after=42, only="failed"):

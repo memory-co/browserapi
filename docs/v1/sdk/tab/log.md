@@ -71,4 +71,4 @@ old.log()         # 照常读得到
 | `tab.bundle(path)` | `GET /api/log/bundle?tab={id}` |
 | `e.shot` | `GET /api/log/{seq}/shot` |
 
-**不要拿事件流当记录用** —— 两者的区别见 [api/events.md §1](../../api/events.md#1-事件不是日志)。
+**不要拿事件流当记录用** —— 两者的区别见 [api/events.md §2](../../api/events.md#2-它和日志不是一回事也不是一个层级)。
