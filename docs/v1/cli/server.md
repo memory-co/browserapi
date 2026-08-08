@@ -47,7 +47,8 @@ http://localhost:7800/s/work/?t=...   (可操作,1 小时后过期)
 ⚠ 这个链接能操作你的浏览器,包括已登录的站点
 ```
 
-- `-p PORT` 不给就自动从 7900 往上找空闲端口
+- `-p PORT` 不给就自动从 7900 往上找空闲端口。**一个 session 一个端口**,
+  kasm 复用不了 —— 这是和 tmux 差别最大的一处([works/05 §2](../works/05-server-session-runtime.md))
 - `-d` 建完不 attach(默认就是不 attach,`-d` 只是为了跟 tmux 的手感一致)
 - **detach 不需要命令**——关掉网页就是 detach,容器照跑
 - `has` 只返回退出码,给脚本用:`webmuxd has -t work || webmuxd new -s work`

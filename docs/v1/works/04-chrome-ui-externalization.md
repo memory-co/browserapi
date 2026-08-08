@@ -142,24 +142,40 @@ window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
 
 ### Python lib
 
+lib 自己就订着这条流,**内存里一直有一份完整的 tab 表** ——
+所以画 tab 条不用监事件,直接读就行:
+
 ```python
-for t in b.tabs():
+for t in web.tabs:               # 读内存,0 往返
     print(t.index, t.title, t.url, "●" if t.active else "")
 
-t = b.new_tab("https://example.com")
-t.activate(); t.close()
+tab = web.open("https://example.com")
+tab.activate(); tab.close()
 
-for e in b.watch("tab.*"):       # 实时同步你自己的 tab 条
-    ui.update(e)
+ui.render(web.tabs, web.active)  # 值一直是新的
 ```
+
+这套外挂 UI 的接口是先为 lib 设计的,HTTP 那份是它的导出面
+([works/02](02-lib-and-api.md))。TypeScript 写的前端拿不到这份内存,
+那才需要自己订 `tab.*` 做局部合并。
 
 ### 4.1 「当前是哪个 tab」没有现成事件
 
 人在 VNC 里按 `Ctrl+Tab` 换了 tab,外面怎么知道?
 
 用 `Page.addScriptToEvaluateOnNewDocument` 给每个 tab 注入一段监听 `visibilitychange` 的脚本,
-谁 `visible` 谁就是当前 tab(导航后自动重装)。`about:` 这类注入不进去的页面,
-fallback 到轮询 `Target.getTargets`。
+谁 `visible` 谁就是当前 tab(导航后自动重装)。注入走**独立世界**(`worldName`),
+页面自己的 CSP 拦不住。
+
+真正注入不进去的只有**特权页面**(`chrome://` `devtools://` 那一类),
+所以它们**直接被禁掉**:导航过去返回 `400 blocked_url`,人用快捷键捅出来一个就导回
+`about:blank`([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab怎么来的))。
+
+这样就**不需要轮询兜底**,「当前是哪个 tab」永远由事件驱动,不会慢半拍。
+代价是碰不到 Chrome 的设置页 —— 那些东西本来就该在容器启动参数里配。
+
+注入脚本怎么把状态送回来(`Runtime.addBinding`)、滚动怎么节流、
+人的操作怎么和 API 的操作区分开 —— 整条回程见 [06](06-sync-paths.md)。
 
 ## 5. 基座实测记录
 

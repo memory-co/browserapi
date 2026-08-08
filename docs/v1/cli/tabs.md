@@ -58,7 +58,17 @@ $ webmuxd kill-tab -t work:0
 这不是 CLI 的贴心,是 [api/tabs.md §3](../api/tabs.md#3-写) 的行为——
 Chrome 关掉最后一个 tab 会连窗口一起关。
 
-## 4. 后退不动就报错
+## 4. 特权页面去不了
+
+```console
+$ webmuxd goto -t work chrome://settings
+✗ blocked_url: chrome:// 这类页面被禁掉了
+```
+
+退出码 2。原因见 [api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab怎么来的) ——
+注入不进去的页面会让「当前是哪个 tab」变得不可靠,所以直接不让去。
+
+## 5. 后退不动就报错
 
 ```console
 $ webmuxd back -t work
@@ -68,7 +78,7 @@ $ webmuxd back -t work
 退出码 2。**不静默无操作**——脚本里 `back` 成功和没得后退是两回事,
 和你 UI 上按钮的禁用状态要对得上。
 
-## 5. ↔ API 对照
+## 6. ↔ API 对照
 
 | CLI | API |
 | --- | --- |

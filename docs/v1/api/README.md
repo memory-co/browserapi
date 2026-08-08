@@ -1,18 +1,23 @@
 # webmuxd v1 · HTTP 接口规格
 
-设计稿在 [`../works`](../works/)。这里是**线上格式本身** —— 任何语言的 client 都照这个来。
-命令行在 [`../cli`](../cli/),Python 在 [`../sdk`](../sdk/);那两边不做本目录没有的事。
+设计稿在 [`../works`](../works/)。这里是**线上格式**:非 Python 的 client 照这个来,
+调试的时候 `curl` 也照这个来。
+
+**行为不定义在这儿。** 定位规则、元素筛选、`candidates`、日志格式都定义在
+[`../sdk`](../sdk/) 那个 lib 里,本目录是它的**导出面** —— 为什么这么定,
+见 [works/02](../works/02-lib-and-api.md)。所以本目录只描述线上长什么样;
+遇到「为什么是这个语义」的问题,答案在 sdk 那边。命令行在 [`../cli`](../cli/)。
 
 本文与 [tabs](tabs.md)/[agent](agent.md)/[events](events.md) 讲的是**单个 session** 的接口;
 [server.md](server.md) 讲的是**管理多个 session**。
 
-| 文件 | 内容 | 另外两边 |
-| --- | --- | --- |
-| README.md(本文) | 全局约定、端点总表、错误 | [cli](../cli/README.md) · [sdk](../sdk/README.md) |
-| [tabs.md](tabs.md) | **tab bar** —— 列表、新建、切换、关闭、导航、历史、favicon | [cli](../cli/tabs.md) · [sdk](../sdk/tabs.md) |
-| [agent.md](agent.md) | **agent browser** —— 观测、动作、定位、操作日志 | [cli](../cli/agent.md) · [sdk](../sdk/agent.md) |
-| [events.md](events.md) | WS 事件字典 | [cli](../cli/events.md) · [sdk](../sdk/events.md) |
-| [server.md](server.md) | **server** —— session 管理、代理、鉴权 | [cli](../cli/server.md) · [sdk](../sdk/server.md) |
+| 文件 | 内容 | 主体在 | 命令行 |
+| --- | --- | --- | --- |
+| README.md(本文) | 全局约定、端点总表、错误 | [sdk](../sdk/README.md) | [cli](../cli/README.md) |
+| [tabs.md](tabs.md) | **tab bar** —— 列表、新建、切换、关闭、导航、历史、favicon | [sdk](../sdk/tabs.md) | [cli](../cli/tabs.md) |
+| [agent.md](agent.md) | **agent browser** —— 观测、动作、定位、操作日志 | [sdk](../sdk/agent.md) | [cli](../cli/agent.md) |
+| [events.md](events.md) | WS 事件字典 | [sdk](../sdk/events.md) | [cli](../cli/events.md) |
+| [server.md](server.md) | **server** —— session 管理、代理、鉴权 | [sdk](../sdk/server.md) | [cli](../cli/server.md) |
 
 ## 1. 约定
 
@@ -88,7 +93,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `GET` | `/api/viewport` | 屏幕尺寸与 `crop_top`(外面裁 iframe 用) |
 | `POST` | `/api/reset` | 清 cookie、关多余 tab、回 about:blank |
 | `POST` | `/api/live-token` | 签发观看页面的一次性 token,`{ "read_only": true, "ttl_s": 3600 }` |
-| `GET` | `/api/openapi.json` | 由 schema 生成 |
+| `GET` | `/api/openapi.json` | 由 lib 的方法签名生成,不手写 |
 | `WS` | `/api/events` | 事件流,见 [events.md](events.md) |
 
 ```jsonc
@@ -124,12 +129,14 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `busy_human` | 409 | 人正在 VNC 里操作 | 见 §5 |
 | `read_only` | 403 | 用的是只读 token | — |
 | `chrome_gone` | 503 | Chrome 崩了(会自动重拉) | 等重启,别盲目重试动作 |
+| `blocked_url` | 400 | 特权页面(`chrome://` 那类),禁止导航 | 别去,见 [tabs.md §3](tabs.md#3-写) |
 | `bad_request` | 400 | 参数不对 | 改代码 |
 
 前五个是**调用方能自愈**的;`chrome_gone` 是这个 session 出事了,该告警而不是重试。
 
-这个二分是给 client 用的:SDK 映射成异常树([sdk/README §3](../sdk/README.md#3-异常)),
-CLI 映射成退出码([cli/README §6](../cli/README.md#6-退出码))。
+这张表是 lib 那棵异常树的序列化([sdk/README §3](../sdk/README.md#5-异常)) ——
+`code` 对应类名,`details` 装的是异常上那些属性(`candidates`、`retry_after_ms`、`hint`)。
+CLI 再把同一个二分压成退出码([cli/README §6](../cli/README.md#6-退出码))。
 
 ## 5. 人在操作时的让路
 
@@ -153,3 +160,6 @@ API 动作返回 `409 busy_human` 并带 `retry_after_ms`。
 ```
 
 字段只增不删不改语义。要破坏兼容时才上 `/api/v2`。
+
+**版本跟着 lib 走**:导出面是从 lib 的方法签名生成的,所以这里不会先于 lib 出现新字段。
+反过来,lib 加了纯客户端的东西(`with`、`obs[12]`)不影响这个版本号 —— 没导出就不算变更。

@@ -101,6 +101,16 @@
 
 失败返回 `502 nav_failed`,带 `details.net_error`(如 `ERR_NAME_NOT_RESOLVED`)。
 
+**特权页面被禁掉**,返回 `400 blocked_url`:
+
+```
+chrome://  chrome-untrusted://  devtools://  chrome-extension://  view-source:
+```
+
+`about:blank` 是允许的(新建 tab 的默认页)。理由见 §5 —— 这些页面注入不进去,
+放着它们会让「当前是哪个 tab」变得不可靠。而且它们对调用方也没用:
+`chrome://settings` 里的东西该用容器的启动参数配,不该让 agent 去点。
+
 ### `POST /api/tabs/{id}/back` `/forward` `/reload` `/stop`
 
 无 body。`reload` 接受 `{ "ignore_cache": true }`。
@@ -153,18 +163,28 @@
 CDP 不发"tab 被激活了"这种事件。人在 VNC 里按 `Ctrl+Tab` 换了 tab,得靠 sessiond 自己发现。
 
 做法:用 `Page.addScriptToEvaluateOnNewDocument` 给每个 tab 注入一段监听 `visibilitychange`
-的脚本,谁 `visible` 谁就是当前 tab(导航后自动重装)。
+的脚本,谁 `visible` 谁就是当前 tab(导航后自动重装)。注入走**独立世界**
+(`worldName`),所以页面自己的 CSP 拦不住它。
 
-**已知盲区**:`about:`、`chrome://`、以及 CSP 严格到拦住注入的页面,脚本进不去。
-这些 fallback 到轮询 `Target.getTargets`,延迟约 500ms。
-表现是:切到这类页面时,你的 tab 条高亮会慢半拍。
+真正进不去的只有**特权页面**(`chrome://` 那一类)——**所以它们被禁掉了**(§3):
+
+- API 导航过去返回 `400 blocked_url`
+- 人在 VNC 里用快捷键捅出来一个(`Ctrl+H`、`F12`),sessiond **把那个 tab 导回
+  `about:blank`** 并在日志里记一条 `user: "human"` 的条目
+
+代价是 agent 和人都碰不到 Chrome 的设置页;换来的是**「当前是哪个 tab」永远由事件驱动,
+没有轮询兜底、没有慢半拍**。这个交换是划算的:设置该在容器启动参数里配,
+不该让 agent 去 `chrome://settings` 里点。
+
+完整的同步机制(注入脚本怎么回传、人的操作怎么抓)见
+[works/06](../works/06-sync-paths.md)。
 
 ## 6. client
 
 同一套东西的另外两个壳:
 
-- **Python** —— [sdk/tabs.md](../sdk/tabs.md):`b.tabs()`、`Tab` 对象、
-  `b.tab("t_7").click("确认")` 这种跨 tab 操作
+- **Python** —— [sdk/tabs.md](../sdk/tabs.md):tab 是**活的句柄**,而且
+  `tab.url` / `web.tabs` **读内存不发请求**(靠订这条事件流维护)
 - **命令行** —— [cli/tabs.md](../cli/tabs.md):`webmuxd tabs`、`select-tab`、`-F` 格式化
 
 两边都没有本文的全部内容(favicon 字节、history、`stop` 只在 API 这层),

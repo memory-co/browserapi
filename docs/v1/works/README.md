@@ -14,7 +14,7 @@
 一个基于 `kasm/chrome` 的 session。起来之后:
 
 - **在浏览器里打开一个网址,就能看到并直接操作里面那个远端 Chrome**
-- **同时用 API 或 Python lib 从外面驱动同一个 Chrome**
+- **同时用 Python lib(或 HTTP API)从外面驱动同一个 Chrome**
 - 关掉网页,浏览器照常在跑;下次打开还是那个状态
 
 就这些。
@@ -27,8 +27,8 @@
 | `tmux new -s work` | `docker run -d --name work -p 7900:7900 webmuxd` |
 | `tmux attach -t work` | 浏览器打开 `http://localhost:7900` |
 | detach(`Ctrl-b d`) | 关掉网页,容器继续跑 |
-| `tmux send-keys` | `POST /api/act` 或 `b.click("登录")` |
-| `tmux capture-pane` | `GET /api/observe` |
+| `tmux send-keys` | `tab.click("登录")`(或 `POST /api/act`) |
+| `tmux capture-pane` | `tab.observe()`(或 `GET /api/observe`) |
 | scrollback 回滚历史 | 页面右侧的**操作日志** |
 | 多个 client 同时 attach | 人和 API 同时操作,互不阻塞 |
 | `tmux kill-session` | `docker rm -f work` |
@@ -45,13 +45,13 @@ open http://localhost:7900        # 看到 Chrome,可以直接用鼠标点
 ```
 
 ```python
-from webmuxd import Browser
-b = Browser("http://localhost:7900")
+from webmuxd import Webmuxd
+web = Webmuxd(port=7900)
 
-b.goto("https://example.com")
-b.click("登录")                    # 语义定位,不用写 CSS 选择器
-b.type("手机号", "13800000000")
-print(b.text())
+tab = web.open("https://example.com")
+tab.click("登录")                  # 语义定位,不用写 CSS 选择器
+tab.type("手机号", "13800000000")
+print(tab.text())
 ```
 
 一边跑脚本,一边在 `http://localhost:7900` 里实时看着它点。卡住了就自己上手点两下,脚本继续跑。
@@ -61,10 +61,11 @@ print(b.text())
 | 文件 | 内容 |
 | --- | --- |
 | [01-container.md](01-container.md) | 容器怎么改、怎么起、状态存哪 |
-| [02-api-and-lib.md](02-api-and-lib.md) | HTTP API 与 Python lib(同一套东西的两个壳) |
+| [02-lib-and-api.md](02-lib-and-api.md) | **Python lib 是主体**,HTTP API 是它的导出面 |
 | [03-view-and-log.md](03-view-and-log.md) | 查看页面 + 操作日志(scrollback) |
 | [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chrome 的 tab 条和地址栏,改由外面用 API 自己画 |
 | [05-server-session-runtime.md](05-server-session-runtime.md) | server / session / runtime 三层概念,与 tmux 的完整对照 |
+| [06-sync-paths.md](06-sync-paths.md) | **一进一出两条路径** —— 命令怎么进去、人在画面里干的事怎么同步出来 |
 
 规格在上一级([`..`](../)):[`api`](../api/) HTTP · [`cli`](../cli/) 命令行 · [`sdk`](../sdk/) Python。
 本目录是**为什么**,那三个目录是**做成什么样**。

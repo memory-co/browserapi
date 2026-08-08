@@ -65,8 +65,8 @@
 日志的价值在于能回答"它为什么点错了"。光有动作还不够 —— 加个可选字段就行:
 
 ```python
-b.note("购物车里已有一张票,现在需要确认支付")   # 下一个动作会带上这句
-b.click(obs[8])
+tab.note("购物车里已有一张票,现在需要确认支付") # 下一个动作会带上这句
+tab.click(obs[8])
 ```
 
 日志里就变成:
@@ -85,7 +85,7 @@ b.click(obs[8])
 页面靠 WS 实时更新;你的程序也能订阅:
 
 ```python
-for e in b.watch():
+for e in web.watch():
     print(e.action, e.ok)
 ```
 

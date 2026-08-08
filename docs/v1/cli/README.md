@@ -2,8 +2,16 @@
 
 照着 tmux 设计。用过 tmux 的人应该不用查文档。
 
-对应 [`../api`](../api/) —— **CLI 不做任何 API 没有的事**,每条命令就是一次调用,
-逐行对照见 §7。
+**CLI 是 lib 的一个用户**,和你的代码平级 —— 它自己不实现任何行为,
+每条命令就是一次 lib 调用([`../sdk`](../sdk/)),落到线上就是一次
+[`../api`](../api/) 的请求。逐行对照见 §7。
+
+CLI 比 lib 多出来的只有三样,都是终端才需要的:
+
+- §2 的**目标解析**(`-t work:购物车` 按标题匹配)
+- §3 的**输出格式化**(`-F`、表格对齐、退出码)
+- **session 的遍历和清理**(`ls` / `kill` / `info` / `kill-server`)—— lib 里没有
+  `Server` 类,这类运维活就归 CLI([sdk/server.md §5](../sdk/server.md#5-lib-不管有哪些-session))
 
 | 文件 | 内容 | 对应 |
 | --- | --- | --- |
@@ -59,6 +67,7 @@ webmuxd 不猜,因为点错浏览器的代价比敲错终端大。
 | `--json` | 输出 API 的**原始响应**,不做格式化 —— 方便和 API 混着用 |
 | `-F FORMAT` | 自定义输出模板,占位符见 [tabs.md §2](tabs.md#2-列出) |
 | `--note "..."` | 写进操作日志,对应 API 的 `note`,见 [agent.md §3](agent.md#3-note-参数) |
+| `--user NAME` | 操作的署名,进日志。默认 `WEBMUXD_USER`,再没有就是 `cli` |
 | `-L NAME` / `-S PATH` | 换 socket,语义同 tmux,见 [server.md §4](server.md#4-socket) |
 | `-H URL` | 指向远端 server,见 [server.md §6](server.md#6-远端) |
 
@@ -105,7 +114,7 @@ set -g attach-cmd   "firefox %u"      # %u = 观看 URL
 | --- | --- | --- |
 | 0 | 成功 | — |
 | 1 | 一般失败 | — |
-| 2 | 用法错误(参数不对、目标解析不唯一) | `bad_request` |
+| 2 | 用法错误(参数不对、目标解析不唯一、导航到特权页面) | `bad_request` `blocked_url` |
 | 3 | 会话或 tab 不存在(`has` 用这个) | `session_not_found` `tab_gone` |
 | 4 | 元素找不到 / 不可点 | `not_found` `not_clickable` |
 | 5 | 超时 | `timeout` |
@@ -154,4 +163,5 @@ esac
 | `bundle` | `GET /api/log/bundle` | [agent.md](agent.md) |
 | `log -f` `watch` | `WS /api/events` | [events.md](events.md) |
 
-**唯一多出来的东西**是目标解析(§2)和输出格式化(§3)。这两样都在客户端做,不进服务端。
+**多出来的东西**就是开头那三样:目标解析(§2)、输出格式化(§3)、
+以及 session 的遍历和清理。前两样在客户端做,不进服务端;第三样是 lib 有意不做的运维面。

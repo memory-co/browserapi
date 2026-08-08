@@ -6,6 +6,9 @@ WS /api/events?after=118&types=tab.*,action.*
 
 一条 WS 推全部事件。tab 条的实时刷新、agent 的动作直播、日志滚动,都从这里来。
 
+这些事件是**怎么被采集到的**(CDP 事件 / 注入脚本 / VNC tee 三个来源)见
+[works/06](../works/06-sync-paths.md)。
+
 ## 1. 信封
 
 每个事件都长这样:
@@ -48,12 +51,12 @@ WS /api/events?after=118&types=tab.*,action.*
 
 | type | 字段 | 什么时候 |
 | --- | --- | --- |
-| `action.started` | `seq`, `tab`, `action`, `target`, `note` | 动作开始派发 |
+| `action.started` | `seq`, `tab`, `action`, `target`, `note`, `user` | 动作开始派发 |
 | `action.done` | `seq`, `ok`, `ms`, `hit`, `after`, `shot` | 动作完成(成功或失败) |
 | `log.appended` | `entry` | 日志新增一条(等价于 `action.done` 落库后) |
 
-`action.started` 里带 `note`,所以直播面板能在动作发生**之前**就显示
-"它现在打算做什么、为什么"。
+`action.started` 里带 `note` 和 `user`,所以直播面板能在动作发生**之前**就显示
+"**谁**现在打算做什么、为什么"。
 
 ### 页面
 
@@ -72,7 +75,7 @@ WS /api/events?after=118&types=tab.*,action.*
 | `human.active` | `at`, `kind` | 人在 VNC 里点了/敲了。触发 `busy_human` 让路窗口 |
 | `human.idle` | — | 让路窗口结束,API 恢复可用 |
 
-人的操作**同样会产生 `log.appended`**(`actor: "human"`),所以操作日志是完整的路径,
+人的操作**同样会产生 `log.appended`**(`user: "human"`),所以操作日志是完整的路径,
 不是只有 API 干过的事。
 
 ### 容器
@@ -86,9 +89,9 @@ WS /api/events?after=118&types=tab.*,action.*
 ## 3. 客户端该怎么写
 
 ```python
-for e in b.watch():
+for e in events():
     if e.type == "gap" or e.type == "chrome.restarted":
-        ui.reload_all(b.tabs(), b.status())        # 重新拉全量
+        ui.reload_all(get_tabs(), get_status())     # 重新拉全量
     elif e.type.startswith("tab."):
         ui.apply_tab_event(e)                      # 局部更新,别整条替换(会闪)
     elif e.type == "viewport.changed":

@@ -4,64 +4,76 @@
 
 | 目录 | 是什么 | 谁用 |
 | --- | --- | --- |
-| [`api`](api/) | HTTP + WS 的线上格式 —— **唯一真相** | 任何语言的 client |
+| [`sdk`](sdk/) | Python 包 `webmuxd` —— **主体**,行为定义在这儿 | 写 agent 的代码 |
+| [`api`](api/) | HTTP + WS 的线上格式 —— sdk 的**导出面** | 调试、非 Python 的 client |
 | [`cli`](cli/) | `webmuxd` 命令,照着 tmux 设计 | 人、shell 脚本 |
-| [`sdk`](sdk/) | Python 包 `webmuxd` | 写 agent 的代码 |
 
-**cli 和 sdk 都不做 api 没有的事。** 每条命令、每个方法都是一次 HTTP 调用,
-名字、参数、错误码都跟着 api 走。api 加了字段,另外两边才有得加。
+**顺序是 sdk → api,不是反过来。** 定位规则、元素筛选、`candidates`、日志格式,
+这些行为都定义在 lib 里;HTTP 那层是把它导出去的壳,为**调试**和**非 Python 集成**而加。
+为什么这么定,见 [works/02](works/02-lib-and-api.md)。
+
+所以:**api 不做 sdk 没有的事**。反过来可以 —— lib 有些东西
+(`with` 自动清理、按标题找 tab、`obs[12]` 下标)是纯客户端的,不必导出。
+CLI 是 lib 的一个用户,和你的代码平级。
 
 ## 1. 文件对照
 
 三个目录的文件名**尽量对齐**,同一行讲的大致是同一件事:
 
-| 讲什么 | api | cli | sdk |
+| 讲什么 | sdk(主体) | api(导出面) | cli |
 | --- | --- | --- | --- |
-| 全局约定、错误、总表 | [README](api/README.md) | [README](cli/README.md) | [README](sdk/README.md) |
-| **tab bar** —— 列表、切换、导航 | [tabs](api/tabs.md) | [tabs](cli/tabs.md) | [tabs](sdk/tabs.md) |
-| **agent browser** —— 观测、动作、日志 | [agent](api/agent.md) | [agent](cli/agent.md) | [agent](sdk/agent.md) |
-| **事件流** —— 实时推送 | [events](api/events.md) | [events](cli/events.md) | [events](sdk/events.md) |
-| **server** —— session 管理、代理、鉴权 | [server](api/server.md) | [server](cli/server.md) | [server](sdk/server.md) |
+| 全局约定、错误、总表 | [README](sdk/README.md) | [README](api/README.md) | [README](cli/README.md) |
+| **tab bar** —— 列表、切换、导航 | [tabs](sdk/tabs.md) | [tabs](api/tabs.md) | [tabs](cli/tabs.md) |
+| **agent browser** —— 观测、动作、日志 | [agent](sdk/agent.md) | [agent](api/agent.md) | [agent](cli/agent.md) |
+| **事件流** —— 实时推送 | [events](sdk/events.md) | [events](api/events.md) | [events](cli/events.md) |
+| **server** —— session 管理、代理、鉴权 | [server](sdk/server.md) | [server](api/server.md) | [server](cli/server.md) |
 
-每个 cli/sdk 文件的开头写着它对应哪个 api 文件,结尾有一张对照表。
+每个文件的开头写着它对应哪几个,结尾有一张对照表。
 
 **但不强求一一对应。** 对齐是为了好找,不是为了整齐:
 
-- **api 有、cli/sdk 没有**的很正常 —— `GET /api/tabs/{id}/favicon` 是给 UI 画图标的,
-  终端里没意义。这类缺口在对照表最后一行明写「没覆盖的」,并说清怎么绕
-  (`--json` + `curl`,或换另一边)。
-- **cli/sdk 有、api 没有**的只能是**客户端便利**,见 §3。凡是这种都标出来。
-  真要新增行为,先加到 api。
+- **sdk 有、api 没有**的很正常 —— tab 句柄、内存里那份 tab 表、`with` 自动清理、
+  `obs[12]` 下标,这些是客户端的东西,导出去没意义。见 §3。
+- **api 有、sdk 没有**的只有一处,而且是故意的:session 的遍历和清理
+  (`GET /api/sessions`、`GET /api/server`)。lib 里没有 `Server` 类 ——
+  那是运维,归 CLI 的 `ls` / `kill`([sdk/server.md §5](sdk/server.md#5-lib-不管有哪些-session))。
+- **api 有、cli 没有**的也很正常 —— `GET /api/tabs/{id}/favicon` 是给 UI 画图标的,
+  终端里用不上。这类缺口在对照表最后一行明写「没覆盖的」,并说清怎么绕。
 - 分文件也只是尽量:cli 的会话命令和 server 命令都在
   [cli/server.md](cli/server.md),因为对用户是一件事。
 
 ## 2. 同一件事的三种写法
 
+```python
+tab.click("提交订单", user="claudecode")                        # sdk —— 主体
+```
+```bash
+webmuxd click -t work "提交订单" --user claudecode              # cli
+```
 ```bash
 curl -X POST localhost:7900/api/act \
-     -d '{"actions":[{"type":"click","text":"提交订单"}]}'     # api
-```
-```bash
-webmuxd click -t work "提交订单"                                # cli
-```
-```python
-b.click("提交订单")                                             # sdk
+  -d '{"actions":[{"type":"click","text":"提交订单"}],"user":"claudecode"}'   # api
 ```
 
-三条走的是同一个端点、同一套定位语义([api/agent.md §4](api/agent.md#4-定位))、
-同一份错误码([api/README.md §4](api/README.md#4-错误))。
-定位不到时,三边都会把**候选**给你,而不是随便挑一个。
+三条落到的是**同一个定位引擎**([sdk/agent.md §2](sdk/agent.md#2-做tabact-和快捷方法)):
+精确匹配优先 → 子串 → 大小写不敏感 → 仍然多于一个就报错并列出全部候选,绝不随便挑一个。
+定位不到时三边都把**候选**给你,只是形态不同 —— 异常属性、终端里几行字、JSON 的 `details`。
 
-## 3. 只有 client 才有的东西
+## 3. 表达力的落差
 
-api 没有、cli/sdk 各自加的,只有这些 —— 都在客户端做,不进服务端:
+同一个东西在三边**必然长得不一样**,因为 JSON 里没有对象、没有异常、没有惰性:
 
-| | cli | sdk |
-| --- | --- | --- |
-| 目标解析 | `-t work:购物车` 按标题匹配 | `Server().get("work")` |
-| 输出 | `-F '#{tab_url}'` 格式化、表格对齐 | `Observation` / `Tab` 对象 |
-| 错误 | 退出码([cli/README §6](cli/README.md#6-退出码)) | 异常树([sdk/README §3](sdk/README.md#3-异常)) |
-| 断线 | `watch` 自动续传 | `b.watch()` 自动续传 |
+| | sdk | api | cli |
+| --- | --- | --- | --- |
+| 拿一个 tab | `tab = web.open(url)` 句柄 | 两个端点 + 一个 `{id}` | `new-tab` 打印一行 |
+| 读 `url` / `title` | **内存,0 往返** | 每次一个 `GET` | 每次一个 `GET` |
+| 定位失败 | `except NotFound as e: e.candidates` | `404` + `details.candidates` | 退出码 4 + 列候选 |
+| 观测 | `obs[12]`、`obs.as_prompt()` | 一坨 JSON 数组 | 几行紧凑文本 |
+| 图标 | `tab.favicon` → bytes,惰性取 | 一个 URL 字符串 | 没有 |
+| 断线 | `web.watch()` 自己重连并补全量 | 你自己带 `?after=` | `watch` 自己重连 |
 
-多出来的这几样都不改变语义:`work:购物车` 只是先 `GET /api/tabs` 再本地匹配,
-`obs.as_prompt()` 只是把 `elements` 数组换个排版。
+**这个落差就是为什么主体在 lib。** 让表达力最弱的那层当起点,
+另外两层只能跟着退化成 dict 搬运 —— [works/02 §1](works/02-lib-and-api.md#1-为什么是-lib-而不是-api)。
+
+落差不改变语义:`obs.as_prompt()` 只是把 `elements` 换个排版,
+`work:购物车` 只是先拉一次 tab 列表再本地匹配。

@@ -95,8 +95,10 @@ $ webmuxd log -t work -n 3
 ([api/agent.md §1.3](../api/agent.md#13-给模型的紧凑表示));`--json` 拿原始响应,
 `--shot FILE` 把标注截图存下来。
 
-`log` 里 `💭` 是 `note`、`👤` 是 `actor: "human"` —— **人在 VNC 里的操作同样进日志**,
+`log` 里 `💭` 是 `note`、`👤` 是 `user: "human"` —— **人在 VNC 里的操作同样进日志**,
 所以这是完整的操作路径,不是只有 CLI 干过的事。
+
+`log --user claudecode` 只看某个署名干了什么。
 
 ## 3. note 参数
 
@@ -117,6 +119,8 @@ webmuxd 不产生思考,但它提供一个思考与后果对齐的存放位置
 | `click` `type` `key` `scroll` `wait` | `POST /api/act`,一个动作 |
 | `send '<json>'` | `POST /api/act`,原样透传 `actions` |
 | `--note` | `POST /api/act` 的 `note` |
+| `--user` | `POST /api/act` 的 `user`(署名,不是鉴权) |
+| `log --user X` | `GET /api/log?user=X` |
 | `--timeout N` | `settle.timeout_ms` / `wait_for` 的超时 |
 | `observe [--shot]` | `GET /api/observe` |
 | `capture --text` | `GET /api/text` |

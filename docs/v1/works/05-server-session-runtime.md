@@ -42,6 +42,12 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | `send-keys` | `click` / `type` / `key` / `POST /api/act` | |
 | `capture-pane` | `capture` / `observe` / `GET /api/observe` | |
 | fork + exec 一个 shell | **runtime** | **唯一多出来的概念**,见 §4 |
+| 一个 socket 复用全部 session | **一个 session 一个端口** | kasm 复用不了,见下 |
+
+**端口这条是硬约束,也是和 tmux 差别最大的一处**:tmux 的 server 用一个 socket
+承载所有 session;kasm 不行 —— 每个 session 自带一块 VNC 屏和一个 HTTP 口,
+端口没法复用。所以 `:7800` 那个 server 存在的意义之一就是**对外只开一个口**,
+按名字代理到 7900、7901、7902…,免得把一片端口全暴露出去。
 | **ttyd** `-p PORT` | server `:7800` / session `:7900` | |
 | **ttyd** 默认只读,`-W` 才可写 | `share` 默认只读,`--writable` 才可写 | 同款默认,见 §3.4 |
 | **ttyd** `-c user:pass` | `WEBMUXD_TOKEN` | |
