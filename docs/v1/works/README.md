@@ -52,6 +52,8 @@ print(b.text())
 | [03-view-and-log.md](03-view-and-log.md) | 查看页面 + 操作日志(scrollback) |
 | [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chrome 的 tab 条和地址栏,改由外面用 API 自己画 |
 
+接口规格在 [`../api`](../api/)。
+
 ## 明确不做
 
 保持它是个工具,不是平台:
