@@ -18,6 +18,7 @@ import sys
 import tempfile
 from typing import Any
 
+from webmuxd import env
 from webmuxd.runtime.base import (
     Handle, require_ports, unavailable, wait_http, wait_port,
 )
@@ -31,10 +32,25 @@ class ProcessRuntime:
     name = "process"
 
     def available(self) -> tuple[bool, str]:
+        rec = env.runtime_info("process")
+        if rec is not None:
+            # **信记录,不重探** —— 每次都探等于 `webmuxd install` 白做
+            return bool(rec.get("ok")), rec.get("why", "")
         if not _which(CHROMIUM_NAMES):
             return False, ("本机没有 chromium。装一个,或者改用 runtime=container "
                            "(那样浏览器在镜像里)")
         return True, ""
+
+    def _chromium(self) -> str | None:
+        """记录里的路径优先。**但要验它还在** —— 记录会撒谎(cli/install.md §4)。"""
+        rec = env.runtime_info("process") or {}
+        p = rec.get("chromium")
+        if p:
+            if os.path.exists(p):
+                return p
+            raise unavailable(self.name, env.stale_hint(f"chromium 在 {p}"),
+                              "跑 `webmuxd install` 重新探")
+        return _which(CHROMIUM_NAMES)
 
     def start(self, id: str, *, api_port: int, vnc_port: int,
               url: str = "about:blank", viewport: str = "1280x800",
@@ -45,8 +61,8 @@ class ProcessRuntime:
             raise unavailable(self.name, why, "改用 runtime=container")
         require_ports(api_port)
 
-        chromium = _which(CHROMIUM_NAMES)
-        vnc = _which(VNC_NAMES)
+        chromium = self._chromium()
+        vnc = (env.runtime_info("process") or {}).get("vnc", _which(VNC_NAMES))
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
         cdp_port = _free_port()
@@ -79,12 +95,12 @@ class ProcessRuntime:
             args.append("--headless=new")
         args.append(url)
 
-        env = dict(os.environ)
+        child_env = dict(os.environ)
         if display:
-            env["DISPLAY"] = display
+            child_env["DISPLAY"] = display
         # `start_new_session` —— 脱离调用者的进程组。CLI 是一次性的命令,
         # 不脱离的话 `webmuxd new` 一退出就把刚起的浏览器带走了。
-        procs["chromium"] = subprocess.Popen(args, env=env,
+        procs["chromium"] = subprocess.Popen(args, env=child_env,
                                              stdout=subprocess.DEVNULL,
                                              stderr=subprocess.DEVNULL,
                                              start_new_session=True)
@@ -98,7 +114,7 @@ class ProcessRuntime:
              "--cdp", f"http://127.0.0.1:{cdp_port}",
              "--host", "127.0.0.1", "--port", str(api_port),
              "--data", os.path.join(work, "data")],
-            env={**env, "PYTHONPATH": os.pathsep.join(sys.path)},
+            env={**child_env, "PYTHONPATH": os.pathsep.join(sys.path)},
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
         if not wait_http(f"http://127.0.0.1:{api_port}/healthz", 30):

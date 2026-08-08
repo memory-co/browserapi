@@ -16,6 +16,7 @@ import shutil
 import subprocess
 from typing import Any
 
+from webmuxd import env
 from webmuxd.runtime.base import Handle, require_ports, unavailable, wait_http
 
 IMAGE = os.environ.get("WEBMUXD_IMAGE", "webmuxd/operator:1.0")
@@ -26,11 +27,18 @@ LABEL = "webmuxd.session"
 class ContainerRuntime:
     name = "container"
 
-    def __init__(self, image: str = IMAGE, docker: str = "docker") -> None:
-        self.image = image
-        self.docker = docker
+    def __init__(self, image: str | None = None, docker: str | None = None) -> None:
+        rec = env.runtime_info("container")
+        self.image = image or (rec or {}).get("image") or IMAGE
+        self.docker = docker or (rec or {}).get("docker") or "docker"
+        # 只有**真有记录、而且调用方没指定 docker** 时才信记录;
+        # 没记录就现探 —— 没装过也要照常能用(install.md §5)
+        self._recorded = rec if (rec and docker is None) else None
 
     def available(self) -> tuple[bool, str]:
+        if self._recorded is not None:
+            # **信记录,不每次 `docker info`** —— 那是每条命令 100ms+ 的白开销
+            return bool(self._recorded.get("ok")), self._recorded.get("why", "")
         if not shutil.which(self.docker):
             return False, f"找不到 {self.docker} 命令"
         try:
@@ -44,7 +52,9 @@ class ContainerRuntime:
     def start(self, id: str, *, api_port: int, vnc_port: int,
               url: str = "about:blank", viewport: str = "1280x800",
               volume: str | None = None, proxy: str | None = None,
-              token: str | None = None, **_opts: Any) -> Handle:
+              token: str | None = None, tab_max: int | None = None,
+              log_limit: int | None = None, human_yield: int | None = None,
+              **_opts: Any) -> Handle:
         ok, why = self.available()
         if not ok:
             # **不静默降级** —— 换成 process 等于把页面偷偷挪到你自己机器上跑
@@ -61,6 +71,13 @@ class ContainerRuntime:
                 "-p", f"{api_port}:7900",
                 "-e", f"WEBMUXD_VIEWPORT={viewport}",
                 "-e", f"WEBMUXD_START_URL={url}"]
+        # 容器内部的行为也是**调用方传进来的** —— 没有配置文件那一层,
+        # 你在 `session(...)` 里写什么就是什么。
+        for key, val in (("WEBMUXD_TAB_MAX", tab_max),
+                         ("WEBMUXD_LOG_LIMIT", log_limit),
+                         ("WEBMUXD_HUMAN_YIELD", human_yield)):
+            if val is not None:
+                args += ["-e", f"{key}={val}"]
         if token:
             args += ["-e", f"WEBMUXD_TOKEN={token}"]
         if proxy:

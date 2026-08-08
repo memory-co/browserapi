@@ -135,8 +135,14 @@ def _fmt(template: str, **fields: Any) -> str:
 # ---------------------------------------------------------------------------
 
 def cmd_new(args: argparse.Namespace) -> int:
+    # **命令行 > 环境变量 > 内置默认。** 没有配置文件那一档 ——
+    # 参数从 lib 传(sdk/manager.md),CLI 只是把它们摆成 flag。
+    runtime = args.runtime or rt.default()
+    url = args.url or os.environ.get("WEBMUXD_START_URL") or "about:blank"
+    viewport = args.viewport or os.environ.get("WEBMUXD_VIEWPORT") or "1280x800"
+
     reg = Registry(name=args.socket_name)
-    impl = rt.get(args.runtime)
+    impl = rt.get(runtime)
     if reg.get(args.id) and reg.list():
         row = next((r for r in reg.list() if r["id"] == args.id), None)
         if row and row["state"] == "ready":
@@ -146,7 +152,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         reg.forget(args.id)
 
     handle = impl.start(args.id, api_port=args.port, vnc_port=args.vnc_port or 0,
-                        url=args.url, viewport=args.viewport,
+                        url=url, viewport=viewport,
                         volume=args.volume, proxy=args.proxy,
                         endpoint=args.endpoint,
                         token=os.environ.get("WEBMUXD_TOKEN"))
@@ -199,10 +205,19 @@ def cmd_kill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install(args: argparse.Namespace) -> int:
+    from webmuxd.cli.install import install
+    install(pull=not args.no_pull)
+    return 0
+
+
 def cmd_info(args: argparse.Namespace) -> int:
+    from webmuxd import env
     rows = Registry(name=args.socket_name).list()
+    rec = env.load()
     info = {"version": "0.1.0", "runtimes": rt.detect(),
-            "default_runtime": rt.DEFAULT,
+            "default_runtime": rt.default(),
+            "env_record": {"at": rec["at"]} if rec else None,
             "sessions": {"total": len(rows),
                          "ready": sum(1 for r in rows if r["state"] == "ready"),
                          "dead": sum(1 for r in rows if r["state"] != "ready")}}
@@ -212,7 +227,10 @@ def cmd_info(args: argparse.Namespace) -> int:
                         f"{k}{'' if v else '(不可用)'}"
                         for k, v in info["runtimes"].items()),
                     f"session   {info['sessions']['ready']} 在跑,"
-                    f"{info['sessions']['dead']} 死了"]))
+                    f"{info['sessions']['dead']} 死了",
+                    (f"记录      {rec['at']}(webmuxd install 探的)" if rec
+                     else "记录      没有 —— 每次都现探,"
+                          "跑 `webmuxd install` 可以省掉")]))
     return 0
 
 
@@ -483,15 +501,19 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("-s", "--id", required=True)
     n.add_argument("-p", "--port", type=int, required=True, help="API 口,必填")
     n.add_argument("--vnc-port", type=int, default=0, help="画面口")
-    n.add_argument("--runtime", default=rt.DEFAULT,
+    n.add_argument("--runtime", default=None,
                    choices=["container", "process", "remote"])
-    n.add_argument("-u", "--url", default="about:blank")
-    n.add_argument("-v", "--viewport", default="1280x800")
+    n.add_argument("-u", "--url", default=None)
+    n.add_argument("-v", "--viewport", default=None)
     n.add_argument("--volume", default=None)
     n.add_argument("--proxy", default=None)
     n.add_argument("--endpoint", default=None)
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
 
+    ins = add("install", cmd_install, target=False,
+              help="探一遍环境、装该装的、把结果记下来")
+    ins.add_argument("--no-pull", action="store_true",
+                     help="不拉镜像,只探(离线时用)")
     add("ls", cmd_ls, target=False, help="列出 session")
     add("info", cmd_info, target=False, help="server 状态和 runtime 探测")
     add("has", cmd_has, help="只返回退出码,给脚本用")

@@ -17,6 +17,7 @@ CLI 比 lib 多出来的只有两样,都是终端才需要的:
 | 文件 | 内容 | 对应 |
 | --- | --- | --- |
 | README.md(本文) | 概念映射、`-t` 目标语法、配置、退出码 | [api/README.md](../api/README.md) |
+| [install.md](install.md) | `webmuxd install` —— 装一次,之后别再问 | —— |
 | [tabs.md](tabs.md) | `tabs` `new-tab` `select-tab` `goto` `back` … | [api/tabs.md](../api/tabs.md) |
 | [act.md](act.md) | `click` `type` `observe` `capture` `send` | [api/act.md](../api/act.md) |
 | [log.md](log.md) | `log` `bundle` | [api/log.md](../api/log.md) |
@@ -36,7 +37,7 @@ tmux 给多路复用与持久化,ttyd 给 web 暴露,概念见 [works/05](../wor
 | `send-keys` | `click` / `type` / `key` / `send` | 往里面打东西,见 [act.md](act.md) |
 | `capture-pane` | `capture` / `observe` | 把里面的内容抓出来 |
 | scrollback | `log` | 操作日志 |
-| `~/.tmux.conf` | `~/.webmuxd.conf` | 见 §5 |
+| `~/.tmux.conf` | **不做** | 参数从 lib 传,见 §5 |
 | ttyd `-p` / `-b` | server `:7800` + `/s/<id>/` | 见 [server.md](server.md) |
 | ttyd 默认只读 / `-W` | `share` 默认只读,`--writable` 才可写 | 见 [server.md §2](server.md#2-会话) |
 
@@ -81,6 +82,7 @@ webmuxd observe -t work --json | jq '.elements[] | select(.role=="button")'
 ## 4. 命令总表
 
 ```
+装     install                                          → install.md
 会话   new  ls  attach  share  kill  rename  has          → server.md
 server start-server  kill-server  server  info            → server.md
 tab    new-tab  tabs  select-tab  kill-tab  move-tab
@@ -91,25 +93,30 @@ tab    new-tab  tabs  select-tab  kill-tab  move-tab
 流     log -f                                          → log.md
 ```
 
-## 5. 配置
+## 5. 没有配置文件
 
-`~/.webmuxd.conf`,tmux 的 `set -g` 写法:
+**`webmuxd` 不读 `~/.webmuxd.conf`,也不读任何配置文件。**
 
-```conf
-set -g image        webmuxd/operator:1.0
-set -g viewport     1280x800
-set -g tab-max      10           # 超了挤掉最不活跃的
-set -g log-limit    5000         # 满了切一刀,只留上一刀
-set -g human-yield  3000
-set -g runtime      container
-set -g attach-cmd   "firefox %u"      # %u = 观看 URL
+参数从 **lib** 传([sdk/manager.md §1](../sdk/manager.md#1-session--拿一个-session)):
+
+```python
+web.session(id="work", port=7900, vnc_port=6901,
+            runtime="process", viewport="1024x768")
 ```
 
-命令行参数 > 环境变量 > 配置文件 > 内置默认。
-**只有一部分**配置项对应容器的环境变量(`viewport` `tab-max` `log-limit` `human-yield`
-↔ `WEBMUXD_VIEWPORT` `WEBMUXD_TAB_MAX` `WEBMUXD_LOG_LIMIT` `WEBMUXD_HUMAN_YIELD`,
-见 [works/01 §2](../works/01-container.md#2-起容器))。
-`image` `runtime` `attach-cmd` 是**客户端自己的**,不进容器。
+CLI 只是把同一批参数摆成 flag。**这是 lib 是主体的直接后果** ——
+配置文件会变成第二种说同一件事的方式,而两种说法迟早会不一致。
+
+而且用户就开一个浏览器,`--runtime process` 打一次的成本远低于
+"我上次在配置里写了什么来着"。
+
+| | |
+| --- | --- |
+| 一次性的参数 | 命令行 flag / `session(...)` 的入参 |
+| 部署环境给的 | `WEBMUXD_*` 环境变量(容器那几个,见 [works/01 §2](../works/01-container.md#2-起容器)) |
+| 探出来的事实 | `~/.webmuxd.json`,`webmuxd install` 写,**别手写**([install.md](install.md)) |
+
+优先级只有三档:**命令行 > 环境变量 > 内置默认。**
 
 ## 6. 退出码
 
@@ -151,6 +158,7 @@ esac
 | `kill` | `DELETE /api/sessions/{name}` | [server.md](server.md) |
 | `rename` | `POST /api/sessions/{name}/rename` | [server.md](server.md) |
 | `has` | `GET /api/sessions/{name}` | [server.md](server.md) |
+| `install` | 不打接口 —— 本机探测,写 `~/.webmuxd.json` | [install.md](install.md) |
 | `info` | `GET /api/server` | [server.md](server.md) |
 | `kill-server` | `POST /api/server/shutdown` | [server.md](server.md) |
 | `tabs` | `GET /api/tabs` | [tabs.md](tabs.md) |

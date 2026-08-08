@@ -38,7 +38,7 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | `tmux -L name` / `-S path` | 同 | 换 socket = 换一套独立的 server |
 | attach / detach | 连上 / 断开画面 | |
 | scrollback | 操作日志 | |
-| `~/.tmux.conf` | `~/.webmuxd.conf` | 同样的 `set -g` 写法 |
+| `~/.tmux.conf` | **不做** | 见 §7 |
 | `send-keys` | `click` / `type` / `key` / `POST /api/act` | |
 | `capture-pane` | `capture` / `observe` / `GET /api/observe` | |
 | fork + exec 一个 shell | **runtime** | **唯一多出来的概念**,见 §4 |
@@ -254,6 +254,7 @@ stale   process    6904/7903  dead — webmuxd kill -t stale 清掉
 | 快捷键前缀 `C-b` | 有 | **无** | 没有终端键盘可劫持,命令都是子命令 |
 | 状态栏 | `status-line` | 外面自己画 tab 条 | 见 [04](04-chrome-ui-externalization.md) |
 | 复制模式 | `copy-mode` | `capture` / `extract` | |
+| 配置文件 | `~/.tmux.conf` | **没有** | lib 是主体,参数从那儿传;配置文件会变成第二种说法,两种说法迟早不一致 |
 
 ## 8. 用起来
 

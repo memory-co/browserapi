@@ -13,6 +13,13 @@ _MAKERS = {"container": ContainerRuntime, "process": ProcessRuntime,
 DEFAULT = "container"
 
 
+def default() -> str:
+    """默认 runtime。装过就用记录里那个(它知道 docker 通不通)。"""
+    from webmuxd import env
+    rec = env.load()
+    return (rec or {}).get("default_runtime") or DEFAULT
+
+
 def get(name: str = DEFAULT) -> Runtime:
     try:
         return _MAKERS[name]()
@@ -22,7 +29,16 @@ def get(name: str = DEFAULT) -> Runtime:
 
 
 def detect() -> dict[str, bool]:
-    """探测哪些能用 —— CLI 靠它给出**准确的**报错提示,而不是猜。"""
+    """哪些能用。
+
+    **有 `~/.webmuxd.json` 就读记录,没有就现探**(cli/install.md §5)——
+    没装过也照常能用,`install` 省的是重复开销,不是"必须先装"。
+    """
+    from webmuxd import env
+    rec = env.load()
+    if rec:
+        return {k: bool(v.get("ok"))
+                for k, v in (rec.get("runtimes") or {}).items()}
     out = {}
     for name, make in _MAKERS.items():
         try:
@@ -32,5 +48,5 @@ def detect() -> dict[str, bool]:
     return out
 
 
-__all__ = ["get", "detect", "DEFAULT", "Handle", "Runtime",
+__all__ = ["get", "detect", "default", "DEFAULT", "Handle", "Runtime",
            "ContainerRuntime", "ProcessRuntime", "RemoteRuntime"]

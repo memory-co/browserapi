@@ -73,10 +73,6 @@ webmuxd new -s dev -p 7901 --vnc-port 6902 --runtime process   # 不要 docker,�
 webmuxd new -s prod --runtime remote --endpoint https://browser.internal:7800
 ```
 
-```conf
-# ~/.webmuxd.conf
-set -g runtime container
-```
 
 docker 不可用又没给 `--runtime` 时**报错,不静默降级**
 (对应 `503 runtime_unavailable`,退出码 1):
