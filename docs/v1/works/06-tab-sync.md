@@ -115,10 +115,22 @@ lib 把它转成句柄放进 `r.new_tabs`。**同一次变更从响应和 WS 两
 ```
 Page.enable / Security.enable                      ← 之后 url/title/loading/锁 都是推的
 Page.addScriptToEvaluateOnNewDocument{             ← 每次导航自动重装
-    source, worldName: "webmuxd" }                 ← 独立世界,页面 CSP 拦不住
-Runtime.addBinding{name: "__webmuxd"}              ← 页面调它 → sessiond 收 bindingCalled
+    source, worldName: "webmuxd" }                 ← 独立世界,见下
+Runtime.addBinding{name: "__webmuxd",              ← 页面调它 → sessiond 收 bindingCalled
+    executionContextName: "webmuxd"}
 Runtime.runIfWaitingForDebugger                    ← 放行(配 waitForDebuggerOnStart)
 ```
+
+**`worldName` = 独立世界**,和扩展 content script 待的地方是同一种:
+
+| | 主世界(页面的) | 独立世界(我们的) |
+| --- | --- | --- |
+| JS 全局、内置原型 | 页面的 | **各自一套**,互不可见 |
+| DOM | ← 同一棵 → | 同一棵,只是 JS wrapper 不同 |
+| 页面的 CSP | 管 | **不管** |
+
+用它就为一条:**页面的 CSP 拦不住独立世界**。注进主世界的话,
+`script-src 'self'` 那类站会直接把我们挡掉。顺带的好处是页面既看不见也覆盖不掉我们的东西。
 
 注入脚本只干一件和 tab 有关的事:**报告本页 `visibilitychange`**,
 谁 `visible` 谁就是当前 tab —— CDP 没有"tab 被激活了"这种事件,只能这么补
@@ -151,7 +163,13 @@ v1 接受。
 
 | 要验的 | 怎么验 | 不成立的话 |
 | --- | --- | --- |
-| `worldName` 独立世界里拿不拿得到 `visibilitychange` | 开个 CSP 严格的站,切 tab 看有没有 `bindingCalled` | 退回主世界注入,CSP 站上当前 tab 会失准 |
+| **没人连 VNC 时,窗口会不会被判成不可见** —— 那样**所有** tab 都 `hidden`,"谁 visible 谁是当前"就答不出来 | 断开所有 VNC 连接,切 tab,看还有没有 `visible` 的那个 | 全 hidden 时**不更新**,保留最后一次已知的当前 tab |
+| `Runtime.addBinding{executionContextName}` 对**之后新建**的执行上下文生不生效、够不够早 | 导航后立刻切 tab,看 `bindingCalled` 到不到 | 每次 `Runtime.executionContextCreated` 后补一次 `addBinding` |
 | `waitForDebuggerOnStart` 会不会把 `target=_blank` 开出来的页面卡住 | 点一堆 `_blank` 链接,看有没有卡在空白 | 去掉它,接受注入偶尔漏开头 |
 
-这两条决定 OUT 那条路成不成立,先做。
+第一条最要命:它不是"世界"的问题,是 `visibilityState` **本来就是整窗口语义**的问题。
+容器里没有人看着的时候,这套机制可能整个失效。
+
+> **不用验的**:「独立世界里能不能收到 `visibilitychange`」。事件派发在 DOM 层,
+> 一次派发会把**所有世界**注册的 listener 都调一遍 —— 扩展的 content script
+> 就是靠这个监听页面事件的。共享 DOM、隔离 JS 全局,这是独立世界的定义。
