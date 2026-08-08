@@ -190,25 +190,16 @@ tab 条要画的东西,除了上面两条路给的 `id`/`opener`/`reason`,其余
 **代价**:人按 `Ctrl+Tab` 走的是 Chrome 的顺序,拖过序之后和你 bar 上的对不上。
 v1 接受。
 
-## 5. 一个没解决的:popup 窗口
+## 5. popup 窗口
 
 `window.open('...', '_blank', 'width=500,height=400')` 开出来的是**一个新的浏览器窗口**,
 不是 tab。
 
-`targetCreated` 照样收得到,所以**不会漏**。坏的是显示:
+`targetCreated` 照样收得到,所以**不会漏**。坏的是显示:它浮在页面上,
+而 `crop_top` 是按"一个最大化窗口"算的。
 
-- VNC 那块屏上会多出一个浮在上面的小窗,盖住原来的页面
-- `crop_top` 是按"一个最大化窗口"算的([04 §2](04-chrome-ui-externalization.md)),
-  多一个窗口这个数就不对了
-- kasm 的最大化看门狗每 ~10 秒还会去掰扯窗口([04 §5](04-chrome-ui-externalization.md))
-
-**CDP 没有"把 popup 变成 tab"的命令。** v1 的处理是:照样收进 tab 列表(不然它就成了
-一个谁都不知道的窗口),`reason` 记 `window_open`,但**画面上它就是个浮窗**,
-外面那条 tab 条点它也切不干净。
-
-真要治,两条路都不好走:启动时加 `--disable-popup-blocking` 之类的开关改不了这个行为;
-拦 `Page.windowOpen` 事件然后自己 `Target.createTarget` 开成 tab、再把原 popup 关掉 ——
-能做,但会改变页面拿到的 `window.open()` 返回值,破坏依赖它的站点。记为已知缺陷。
+这件事单独一篇:[07](07-popup-windows.md) —— 结论是**不转化**,
+把它当成 tab 收进模型、切过去时顶成全屏;想真转成 tab 有个开关。
 
 ## 6. 待实测
 
