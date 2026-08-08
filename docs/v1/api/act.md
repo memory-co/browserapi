@@ -277,5 +277,5 @@ POST /api/act  { actions, note, user }
 `note` 带上这一步的思考,`user` 带上是谁在动,两个都落进操作日志([log.md](log.md))。
 一次 `act` 执行一串动作,省掉每个动作一次往返。
 
-写成代码见 [sdk/tab/read.md §3](../sdk/tab/read.md#3-怎么和模型接起来)。
+写成代码见 [sdk/tab/read.md §3](../sdk/tab/read.md#5-怎么和模型接起来)。
 跑的时候在观看页面里能实时看着它点。
