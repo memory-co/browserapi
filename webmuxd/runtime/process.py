@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import signal
@@ -58,7 +59,8 @@ class ProcessRuntime:
             procs["vnc"] = subprocess.Popen(
                 [vnc, display, "-geometry", viewport, "-rfbport", str(vnc_port),
                  "-SecurityTypes", "None", "-AlwaysShared"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True)
             wait_port(vnc_port, 10)
         else:
             # **说出来**:没有 VNC 就没有画面,只有 API。装作有画面比没画面更糟。
@@ -80,9 +82,12 @@ class ProcessRuntime:
         env = dict(os.environ)
         if display:
             env["DISPLAY"] = display
+        # `start_new_session` —— 脱离调用者的进程组。CLI 是一次性的命令,
+        # 不脱离的话 `webmuxd new` 一退出就把刚起的浏览器带走了。
         procs["chromium"] = subprocess.Popen(args, env=env,
                                              stdout=subprocess.DEVNULL,
-                                             stderr=subprocess.DEVNULL)
+                                             stderr=subprocess.DEVNULL,
+                                             start_new_session=True)
         if not wait_port(cdp_port, 30):
             _kill_all(procs)
             raise unavailable(self.name, "chromium 起来了但 CDP 没监听",
@@ -94,7 +99,8 @@ class ProcessRuntime:
              "--host", "127.0.0.1", "--port", str(api_port),
              "--data", os.path.join(work, "data")],
             env={**env, "PYTHONPATH": os.pathsep.join(sys.path)},
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
         if not wait_http(f"http://127.0.0.1:{api_port}/healthz", 30):
             _kill_all(procs)
             raise unavailable(self.name, "sessiond 没起来",
@@ -106,12 +112,29 @@ class ProcessRuntime:
                        "notes": notes, "_procs": procs})
 
     def stop(self, handle: Handle) -> None:
-        _kill_all(handle.detail.get("_procs") or {})
+        procs = handle.detail.get("_procs") or {}
+        if procs:
+            _kill_all(procs)
+            return
+        # 跨进程:只有 pid,按 pid 杀
+        for pid in (handle.detail.get("pids") or {}).values():
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)
 
     def alive(self, handle: Handle) -> bool:
         procs = handle.detail.get("_procs") or {}
         p = procs.get("sessiond")
-        return bool(p and p.poll() is None)
+        if p is not None:
+            return p.poll() is None
+        # 别的进程起的(CLI 上一次调用)—— 只能看 pid 还在不在
+        pid = (handle.detail.get("pids") or {}).get("sessiond")
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
 
 
 def _kill_all(procs: dict) -> None:
