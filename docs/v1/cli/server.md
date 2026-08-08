@@ -1,7 +1,7 @@
 # CLI · 会话与 server
 
 对应 [api/server.md](../api/server.md)。管的是**有哪些 session**,
-不是某个浏览器里发生什么(那是 [agent.md](agent.md) 和 [tabs.md](tabs.md))。
+不是某个浏览器里发生什么(那是 [act.md](act.md) / [tabs.md](tabs.md) / [log.md](log.md))。
 
 ## 1. 命令
 

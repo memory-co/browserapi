@@ -11,13 +11,14 @@ CLI 比 lib 多出来的只有三样,都是终端才需要的:
 - §2 的**目标解析**(`-t work:购物车` 按标题匹配)
 - §3 的**输出格式化**(`-F`、表格对齐、退出码)
 - **session 的遍历和清理**(`ls` / `kill` / `info` / `kill-server`)—— lib 里没有
-  `Server` 类,这类运维活就归 CLI([sdk/server.md §5](../sdk/server.md#5-lib-不管有哪些-session))
+  `Server` 类,这类运维活就归 CLI([sdk/session.md §5](../sdk/session.md#5-lib-不管有哪些-session))
 
 | 文件 | 内容 | 对应 |
 | --- | --- | --- |
 | README.md(本文) | 概念映射、`-t` 目标语法、配置、退出码 | [api/README.md](../api/README.md) |
 | [tabs.md](tabs.md) | `tabs` `new-tab` `select-tab` `goto` `back` … | [api/tabs.md](../api/tabs.md) |
-| [agent.md](agent.md) | `click` `type` `observe` `capture` `log` `send` | [api/agent.md](../api/agent.md) |
+| [act.md](act.md) | `click` `type` `observe` `capture` `send` | [api/act.md](../api/act.md) |
+| [log.md](log.md) | `log` `bundle` | [api/log.md](../api/log.md) |
 | [events.md](events.md) | `watch` `log -f` | [api/events.md](../api/events.md) |
 | [server.md](server.md) | `new` `ls` `attach` `share` `kill` `runtime` | [api/server.md](../api/server.md) |
 
@@ -32,7 +33,7 @@ tmux 给多路复用与持久化,ttyd 给 web 暴露,概念见 [works/05](../wor
 | session | **session** | 一整套 kasm + Chrome + sessiond |
 | window | **tab** | 浏览器标签页,见 [tabs.md](tabs.md) |
 | pane | — | 不做:一块 VNC 屏同时只显示一个 tab |
-| `send-keys` | `click` / `type` / `key` / `send` | 往里面打东西,见 [agent.md](agent.md) |
+| `send-keys` | `click` / `type` / `key` / `send` | 往里面打东西,见 [act.md](act.md) |
 | `capture-pane` | `capture` / `observe` | 把里面的内容抓出来 |
 | scrollback | `log` | 操作日志 |
 | `~/.tmux.conf` | `~/.webmuxd.conf` | 见 §5 |
@@ -66,7 +67,7 @@ webmuxd 不猜,因为点错浏览器的代价比敲错终端大。
 | `-t TARGET` | 目标,见 §2 |
 | `--json` | 输出 API 的**原始响应**,不做格式化 —— 方便和 API 混着用 |
 | `-F FORMAT` | 自定义输出模板,占位符见 [tabs.md §2](tabs.md#2-列出) |
-| `--note "..."` | 写进操作日志,对应 API 的 `note`,见 [agent.md §3](agent.md#3-note-参数) |
+| `--note "..."` | 写进操作日志,对应 API 的 `note`,见 [act.md §3](act.md#3-note-参数) |
 | `--user NAME` | 操作的署名,进日志。默认 `WEBMUXD_USER`,再没有就是 `cli` |
 | `-L NAME` / `-S PATH` | 换 socket,语义同 tmux,见 [server.md §4](server.md#4-socket) |
 | `-H URL` | 指向远端 server,见 [server.md §6](server.md#6-远端) |
@@ -84,8 +85,9 @@ webmuxd observe -t work --json | jq '.elements[] | select(.role=="button")'
 server start-server  kill-server  server  info            → server.md
 tab    new-tab  tabs  select-tab  kill-tab  move-tab
        goto  back  forward  reload                        → tabs.md
-操作   click  type  key  scroll  wait  send               → agent.md
-看     capture  observe  url  status  log  bundle         → agent.md
+操作   click  type  key  scroll  wait  send               → act.md
+看     capture  observe  url  status                      → act.md
+日志   log  bundle                                        → log.md
 流     watch  log -f                                      → events.md
 ```
 
@@ -154,13 +156,13 @@ esac
 | `kill-tab` | `DELETE /api/tabs/{id}` | [tabs.md](tabs.md) |
 | `move-tab` | `POST /api/tabs/reorder` | [tabs.md](tabs.md) |
 | `goto` `back` `forward` `reload` | `POST /api/tabs/{id}/...` | [tabs.md](tabs.md) |
-| `click` `type` `key` `scroll` `wait` `send` | `POST /api/act` | [agent.md](agent.md) |
-| `observe` | `GET /api/observe` | [agent.md](agent.md) |
-| `capture --text` | `GET /api/text` | [agent.md](agent.md) |
-| `capture --shot` | `GET /api/screenshot` | [agent.md](agent.md) |
-| `url` `status` | `GET /api/status` | [agent.md](agent.md) |
-| `log` | `GET /api/log` | [agent.md](agent.md) |
-| `bundle` | `GET /api/log/bundle` | [agent.md](agent.md) |
+| `click` `type` `key` `scroll` `wait` `send` | `POST /api/act` | [act.md](act.md) |
+| `observe` | `GET /api/observe` | [act.md](act.md) |
+| `capture --text` | `GET /api/text` | [act.md](act.md) |
+| `capture --shot` | `GET /api/screenshot` | [act.md](act.md) |
+| `url` `status` | `GET /api/status` | [act.md](act.md) |
+| `log` | `GET /api/log` | [log.md](log.md) |
+| `bundle` | `GET /api/log/bundle` | [log.md](log.md) |
 | `log -f` `watch` | `WS /api/events` | [events.md](events.md) |
 
 **多出来的东西**就是开头那三样:目标解析(§2)、输出格式化(§3)、

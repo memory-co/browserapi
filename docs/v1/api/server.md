@@ -42,7 +42,7 @@ WS   http://host:7800/s/work/api/events  → session work 的事件流
 ```
 
 **`/s/<name>/` 之后的部分原样转发**,所以 [README](README.md)、[tabs.md](tabs.md)、
-[agent.md](agent.md)、[events.md](events.md) 里的一切都直接适用,只是前面多一段。
+[act.md](act.md)、[events.md](events.md) 里的一切都直接适用,只是前面多一段。
 
 session 自己的端口仍然直连得到(`http://host:7900`),但走 server 只用开一个口。
 

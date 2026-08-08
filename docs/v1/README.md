@@ -23,10 +23,11 @@ CLI 是 lib 的一个用户,和你的代码平级。
 | 讲什么 | sdk(主体) | api(导出面) | cli |
 | --- | --- | --- | --- |
 | 全局约定、错误、总表 | [README](sdk/README.md) | [README](api/README.md) | [README](cli/README.md) |
-| **tab bar** —— 列表、切换、导航 | [tabs](sdk/tabs.md) | [tabs](api/tabs.md) | [tabs](cli/tabs.md) |
-| **agent browser** —— 观测、动作、日志 | [agent](sdk/agent.md) | [agent](api/agent.md) | [agent](cli/agent.md) |
+| **tab** —— 句柄、列表、切换、导航 | [tab/](sdk/tab/) | [tabs](api/tabs.md) | [tabs](cli/tabs.md) |
+| **页面上做和看** —— 动作、定位、观测 | [tab/input](sdk/tab/input.md) · [tab/read](sdk/tab/read.md) | [act](api/act.md) | [act](cli/act.md) |
+| **操作日志** | [log](sdk/log.md) | [log](api/log.md) | [log](cli/log.md) |
 | **事件流** —— 实时推送 | [events](sdk/events.md) | [events](api/events.md) | [events](cli/events.md) |
-| **server** —— session 管理、代理、鉴权 | [server](sdk/server.md) | [server](api/server.md) | [server](cli/server.md) |
+| **session** —— 起停、runtime、代理、鉴权 | [session](sdk/session.md) | [server](api/server.md) | [server](cli/server.md) |
 
 每个文件的开头写着它对应哪几个,结尾有一张对照表。
 
@@ -36,7 +37,7 @@ CLI 是 lib 的一个用户,和你的代码平级。
   `obs[12]` 下标,这些是客户端的东西,导出去没意义。见 §3。
 - **api 有、sdk 没有**的只有一处,而且是故意的:session 的遍历和清理
   (`GET /api/sessions`、`GET /api/server`)。lib 里没有 `Server` 类 ——
-  那是运维,归 CLI 的 `ls` / `kill`([sdk/server.md §5](sdk/server.md#5-lib-不管有哪些-session))。
+  那是运维,归 CLI 的 `ls` / `kill`([sdk/session.md §5](sdk/session.md#5-lib-不管有哪些-session))。
 - **api 有、cli 没有**的也很正常 —— `GET /api/tabs/{id}/favicon` 是给 UI 画图标的,
   终端里用不上。这类缺口在对照表最后一行明写「没覆盖的」,并说清怎么绕。
 - 分文件也只是尽量:cli 的会话命令和 server 命令都在
@@ -55,7 +56,7 @@ curl -X POST localhost:7900/api/act \
   -d '{"actions":[{"type":"click","text":"提交订单"}],"user":"claudecode"}'   # api
 ```
 
-三条落到的是**同一个定位引擎**([sdk/agent.md §2](sdk/agent.md#2-做tabact-和快捷方法)):
+三条落到的是**同一个定位引擎**([sdk/tab/read.md §2](sdk/tab/input.md#1-定位五种写法)):
 精确匹配优先 → 子串 → 大小写不敏感 → 仍然多于一个就报错并列出全部候选,绝不随便挑一个。
 定位不到时三边都把**候选**给你,只是形态不同 —— 异常属性、终端里几行字、JSON 的 `details`。
 

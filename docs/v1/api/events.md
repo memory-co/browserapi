@@ -4,7 +4,7 @@
 WS /api/events?after=118&types=tab.*,action.*
 ```
 
-一条 WS 推全部事件。tab 条的实时刷新、agent 的动作直播、日志滚动,都从这里来。
+一条 WS 推全部事件。tab 条的实时刷新、动作直播、日志滚动,都从这里来。
 
 `tab.*` 这几个是**怎么被采集到的**,见 [works/06](../works/06-tab-sync.md)。
 
@@ -46,7 +46,7 @@ WS /api/events?after=118&types=tab.*,action.*
 收到就按新的 `crop_top` 调整外面那层 `overflow:hidden` 壳,见
 [works/04 §2](../works/04-chrome-ui-externalization.md)。
 
-### action —— agent 直播用
+### action —— 动作直播用
 
 | type | 字段 | 什么时候 |
 | --- | --- | --- |

@@ -45,7 +45,7 @@ my_tab_bar.render(web.tabs, web.active)
 
 | 你想要 | 事件 |
 | --- | --- |
-| agent 直播:它现在打算干什么 | `action.started`(带 `note` 和 `user`) |
+| 直播:下一步打算干什么 | `action.started`(带 `note` 和 `user`) |
 | 动作结果、耗时、截图 | `action.done` |
 | 日志滚动 | `log.appended` |
 | 人上手了 | `human.active` / `human.idle` |
@@ -116,4 +116,4 @@ with web.watch() as w:        # 也可以显式管理
 `web.watch()` 只给你**这一个 session** 的事件。server 级的那条流
 (`session.created` / `session.died`,[api/server.md §4](../api/server.md#4-事件))
 lib 不给方法 —— 理由和没有 `Server` 类一样,见
-[server.md §5](server.md#5-lib-不管有哪些-session)。
+[server.md §5](session.md#5-lib-不管有哪些-session)。

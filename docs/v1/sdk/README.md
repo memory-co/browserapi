@@ -10,13 +10,20 @@ pip install webmuxd
 
 所以读的顺序是:**先看这里,api 那边当序列化格式查**。逐行对照见 §7。
 
+**只有一个操作对象:`Tab`。** 没有 "agent"、没有 "controller" ——
+打开网址拿到句柄,之后所有事都在句柄上做。
+
 | 文件 | 内容 | 导出成 |
 | --- | --- | --- |
-| README.md(本文) | `Webmuxd` 入口、tab 句柄、`user`、异常、并发 | [api/README.md](../api/README.md) |
-| [tabs.md](tabs.md) | tab 表在内存里怎么维护、`Tab` 句柄 | [api/tabs.md](../api/tabs.md) |
-| [agent.md](agent.md) | `observe()` `act()` `log()` | [api/agent.md](../api/agent.md) |
-| [events.md](events.md) | `watch()` | [api/events.md](../api/events.md) |
-| [server.md](server.md) | 起停、runtime、端口、分享链接 | [api/server.md](../api/server.md) |
+| README.md(本文) | `Webmuxd` 入口、`user`、异常、并发 | [api/README.md](../api/README.md) |
+| **[tab/](tab/)** | **句柄、属性、导航、动作、观测** | [api/tabs.md](../api/tabs.md) · [api/act.md](../api/act.md) |
+| [log.md](log.md) | `web.log()` `web.bundle()` | [api/log.md](../api/log.md) |
+| [events.md](events.md) | `web.watch()` | [api/events.md](../api/events.md) |
+| [session.md](session.md) | 起停、runtime、端口、分享链接 | [api/server.md](../api/server.md) |
+
+`tab/` 下面按用途分:[README](tab/README.md) 拿句柄和读属性、
+[navigate](tab/navigate.md) 走到哪、[input](tab/input.md) 往里做、
+[read](tab/read.md) 往外看。
 
 ## 1. 一个 `Webmuxd` = 一个 port = 一个 Chrome
 
@@ -39,7 +46,7 @@ webs = [Webmuxd(port=7900 + i) for i in range(4)]
 kasm 不行 —— 每个 session 自带一块 VNC 屏和一个 HTTP 口,**端口没法复用**。
 所以 lib 里没有「先拿 server 再列 session」那一层,你手里有几个 `Webmuxd` 就是几个。
 **也没有 `Server` 类** —— 遍历和清理是运维,交给 `webmuxd ls` / `webmuxd kill`,
-理由见 [server.md §5](server.md#5-lib-不管有哪些-session)。
+理由见 [server.md §5](session.md#5-lib-不管有哪些-session)。
 
 ## 2. tab 是句柄,不是"当前 tab"
 
@@ -158,7 +165,7 @@ WebmuxdError
 │  └─ NoPort          no_port
 └─ UsageError         你代码写错了 —— 重试多少次都一样
    ├─ BadRequest      bad_request
-   ├─ BlockedURL      blocked_url    特权页面,见 [tabs.md](tabs.md)
+   ├─ BlockedURL      blocked_url    特权页面,见 [tab/README.md](tab/README.md)
    ├─ ReadOnly        read_only
    └─ SessionExists   session_exists
 ```
@@ -207,7 +214,7 @@ except BusyHuman as e:
 
 | lib | 导出成 |
 | --- | --- |
-| `Webmuxd(port=, token=, runtime=)` | 确保 session 在跑 + base = `<host:port>/api`,见 [server.md](server.md) |
+| `Webmuxd(port=, token=, runtime=)` | 确保 session 在跑 + base = `<host:port>/api`,见 [server.md](session.md) |
 | `web.open(url)` | `POST /api/tabs {url}` —— 一次请求,建 + 导航 |
 | `web.tabs` `web.active` `tab.url` `tab.title` | **不请求** —— 内存,由 `WS /api/events` 维护 |
 | `web.sync()` | `GET /api/tabs` + `GET /api/status` |
@@ -225,5 +232,5 @@ except BusyHuman as e:
 
 反过来,**api 有而这里没有的东西**只有一处,而且是故意的:session 的遍历和清理
 (`GET /api/sessions`、`GET /api/server`)—— 那是运维,归 CLI,见
-[server.md §5](server.md#5-lib-不管有哪些-session)。除此之外再发现别的,
+[server.md §5](session.md#5-lib-不管有哪些-session)。除此之外再发现别的,
 那就是导出面跑到主体前面去了。

@@ -95,6 +95,6 @@ $ webmuxd back -t work
 **CLI 没覆盖的**:`GET /api/tabs/{id}/history`、`GET /api/tabs/{id}/favicon`、
 `goto {history_index}`、`POST /api/tabs/{id}/stop`。
 这几个是给画 tab 条的 UI 用的(长按后退弹历史、显示图标),终端里用不上。
-真要用就 `--json` 加 `curl`,或者走 [sdk/tabs.md](../sdk/tabs.md)。
+真要用就 `--json` 加 `curl`,或者走 [sdk/tab/README.md](../sdk/tab/README.md)。
 
 实时刷新 tab 条不该轮询 `tabs`,该用 [events.md](events.md)。
