@@ -1,4 +1,4 @@
-# browserapi v1 · 接口规格
+# webmux v1 · 接口规格
 
 设计稿在 [`../works`](../works/)。这里是接口本身。
 
@@ -8,14 +8,15 @@
 | [tabs.md](tabs.md) | **tab bar** —— 列表、新建、切换、关闭、导航、历史、favicon |
 | [agent.md](agent.md) | **agent browser** —— 观测、动作、定位、操作日志 |
 | [events.md](events.md) | WS 事件字典 |
+| [cli.md](cli.md) | 命令行,照着 tmux 设计 |
 
 ## 1. 约定
 
 **Base**:`http://<host>:7900/api`。查看页面和 API 同一个 origin,不用管跨域。
 
-**认证**:设了 `BAPI_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。
+**认证**:设了 `WEBMUX_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。
 
-另有一个只读 token `BAPI_VIEW_TOKEN`:能看画面、能读 `GET` 接口,**所有 `POST`/`DELETE` 返回 `403 read_only`**。
+另有一个只读 token `WEBMUX_VIEW_TOKEN`:能看画面、能读 `GET` 接口,**所有 `POST`/`DELETE` 返回 `403 read_only`**。
 把观看链接发给别人时用这个。
 
 **内容类型**:请求响应都是 `application/json`,截图和 favicon 例外(直接返回图片字节)。
@@ -80,6 +81,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `GET` | `/api/status` | Chrome 活着没、当前 tab、版本 |
 | `GET` | `/api/viewport` | 屏幕尺寸与 `crop_top`(外面裁 iframe 用) |
 | `POST` | `/api/reset` | 清 cookie、关多余 tab、回 about:blank |
+| `POST` | `/api/live-token` | 签发观看页面的一次性 token,`{ "read_only": true, "ttl_s": 3600 }` |
 | `GET` | `/api/openapi.json` | 由 schema 生成 |
 | `WS` | `/api/events` | 事件流,见 [events.md](events.md) |
 
@@ -123,7 +125,7 @@ SDK 里对应两个异常基类:`ActionError` 和 `PlatformError`。
 
 ## 5. 人在操作时的让路
 
-人在 VNC 里点了东西之后的 `BAPI_HUMAN_YIELD` 毫秒内(默认 3000),
+人在 VNC 里点了东西之后的 `WEBMUX_HUMAN_YIELD` 毫秒内(默认 3000),
 API 动作返回 `409 busy_human` 并带 `retry_after_ms`。
 
 ```jsonc
@@ -131,7 +133,7 @@ API 动作返回 `409 busy_human` 并带 `retry_after_ms`。
              "details": { "retry_after_ms": 2400 } } }
 ```
 
-设 `BAPI_HUMAN_YIELD=0` 关掉这个行为,谁快谁先。
+设 `WEBMUX_HUMAN_YIELD=0` 关掉这个行为,谁快谁先。
 不做显式的「接管/交还」开关——人点人的,API 跑 API 的,两边都进日志。
 
 ## 6. 版本

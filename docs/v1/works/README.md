@@ -1,4 +1,4 @@
-# browserapi —— 浏览器版的 tmux
+# webmux —— 浏览器版的 tmux
 
 一个基于 `kasm/chrome` 的容器。起来之后:
 
@@ -10,9 +10,9 @@
 
 ## tmux 对照
 
-| tmux | browserapi |
+| tmux | webmux |
 | --- | --- |
-| `tmux new -s work` | `docker run -d --name work -p 7900:7900 browserapi` |
+| `tmux new -s work` | `docker run -d --name work -p 7900:7900 webmux` |
 | `tmux attach -t work` | 浏览器打开 `http://localhost:7900` |
 | detach(`Ctrl-b d`) | 关掉网页,容器继续跑 |
 | `tmux send-keys` | `POST /api/act` 或 `b.click("登录")` |
@@ -27,12 +27,12 @@
 ## 60 秒上手
 
 ```bash
-docker run -d --name work -p 7900:7900 browserapi/operator:1.0
+docker run -d --name work -p 7900:7900 webmux/operator:1.0
 open http://localhost:7900        # 看到 Chrome,可以直接用鼠标点
 ```
 
 ```python
-from browserapi import Browser
+from webmux import Browser
 b = Browser("http://localhost:7900")
 
 b.goto("https://example.com")

@@ -187,7 +187,7 @@ SDK 的 `obs.as_prompt()` 把 `elements` 压成这样,直接进 prompt:
 ```jsonc
 { "type": "type", "label": "密码", "text_ref": "secret://vault/shop/pwd" }
 ```
-明文只在 agentd 内部出现一次。**日志、事件、截图里一律 `••••••`**。
+明文只在 muxd 内部出现一次。**日志、事件、截图里一律 `••••••`**。
 `input[type=password]` 里输入的内容自动打码,不用你标。
 
 ## 4. 定位
@@ -261,7 +261,7 @@ GET /api/log?limit=100&after=42&only=failed
 ] }
 ```
 
-**`note` 那一行是这套东西的核心。** browserapi 不产生思考,但它提供一个
+**`note` 那一行是这套东西的核心。** webmux 不产生思考,但它提供一个
 思考与后果对齐的存放位置。日志里长这样:
 
 ```
@@ -275,13 +275,13 @@ GET /api/log?limit=100&after=42&only=failed
 **人的操作也进日志**(`actor: "human"`),所以这是完整的操作路径,
 不是"只有 API 干过的事"。
 
-环形截断,保留 `BAPI_LOG_LIMIT` 条(默认 500),老的连截图一起删。
+环形截断,保留 `WEBMUX_LOG_LIMIT` 条(默认 500),老的连截图一起删。
 `GET /api/log/bundle` 打包成 zip,解开双击就能离线看。
 
 ## 7. 典型的 agent 循环
 
 ```python
-from browserapi import Browser
+from webmux import Browser
 b = Browser("http://localhost:7900", token=TOKEN)
 
 b.goto("https://shop.example.com")
@@ -289,7 +289,7 @@ b.goto("https://shop.example.com")
 while True:
     obs = b.observe()                       # 标注截图 + 元素表 + tab 列表
 
-    decision = my_llm(                      # ← 你的大脑,browserapi 不掺和
+    decision = my_llm(                      # ← 你的大脑,webmux 不掺和
         goal=goal,
         image=obs.screenshot,               # 图上已经画好 [12] [13] 编号
         elements=obs.as_prompt(),
