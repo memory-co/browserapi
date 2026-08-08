@@ -275,13 +275,13 @@ GET /api/log?limit=100&after=42&only=failed
 **人的操作也进日志**(`actor: "human"`),所以这是完整的操作路径,
 不是"只有 API 干过的事"。
 
-环形截断,保留 `WEBMUX_LOG_LIMIT` 条(默认 500),老的连截图一起删。
+环形截断,保留 `WEBMUXD_LOG_LIMIT` 条(默认 500),老的连截图一起删。
 `GET /api/log/bundle` 打包成 zip,解开双击就能离线看。
 
 ## 7. 典型的 agent 循环
 
 ```python
-from webmux import Browser
+from webmuxd import Browser
 b = Browser("http://localhost:7900", token=TOKEN)
 
 b.goto("https://shop.example.com")

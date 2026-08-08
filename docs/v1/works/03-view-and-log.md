@@ -107,6 +107,6 @@ curl localhost:7900/api/log/bundle > bundle.zip      # 日志 + 截图 + 一个�
 
 ## 7. 保留
 
-环形截断,`WEBMUX_LOG_LIMIT` 条(默认 500),老的连日志带截图一起删。
+环形截断,`WEBMUXD_LOG_LIMIT` 条(默认 500),老的连日志带截图一起删。
 500 条 × 100KB ≈ 50MB,不用管。**就是 tmux 的 `history-limit`,不是归档系统。**
 真要长期留就自己定时拉 `/api/log`。

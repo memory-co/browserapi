@@ -40,12 +40,12 @@
 ## 60 秒上手
 
 ```bash
-docker run -d --name work -p 7900:7900 webmux/operator:1.0
+docker run -d --name work -p 7900:7900 webmuxd/operator:1.0
 open http://localhost:7900        # 看到 Chrome,可以直接用鼠标点
 ```
 
 ```python
-from webmux import Browser
+from webmuxd import Browser
 b = Browser("http://localhost:7900")
 
 b.goto("https://example.com")

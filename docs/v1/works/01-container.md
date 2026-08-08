@@ -3,7 +3,7 @@
 ## 1. 一张图
 
 ```
-┌─ session 容器 (webmux/operator) ────────────────────────────┐
+┌─ session 容器 (webmuxd/operator) ────────────────────────────┐
 │                                                             │
 │   :7900  nginx ──┬─ /        查看页面                       │
 │                  ├─ /vnc/    → KasmVNC   :6901              │
@@ -15,10 +15,10 @@
 │      └─ 操作日志 → /data/log.jsonl + /data/shots/           │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
-
-上面是**一个 session**。webmuxd(server)在外面管着若干个这样的容器,
-见 [05](05-server-session-runtime.md)。
 ```
+
+上面是**一个 session**。`webmuxd`(server)在外面管着若干个这样的容器,
+见 [05](05-server-session-runtime.md)。
 
 **只暴露一个端口 7900。** 人看的页面和 API 在同一个 origin 下,省掉跨域、省掉两套鉴权、
 `docker run -p 7900:7900` 一句话就完事。
@@ -36,19 +36,19 @@
 docker run -d --name work \
   -p 7900:7900 \
   --shm-size=1g \                       # 少于 1G Chrome 会崩
-  -e WEBMUX_TOKEN=changeme \              # 不设则不鉴权(仅限本机玩)
-  -e WEBMUX_VIEWPORT=1280x800 \
-  -v webmux-work:/data \                  # 想保住登录态就挂卷
-  webmux/operator:1.0
+  -e WEBMUXD_TOKEN=changeme \              # 不设则不鉴权(仅限本机玩)
+  -e WEBMUXD_VIEWPORT=1280x800 \
+  -v webmuxd-work:/data \                  # 想保住登录态就挂卷
+  webmuxd/operator:1.0
 ```
 
 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `WEBMUX_TOKEN` | 空 | 设了则页面和 API 都要这个 token |
-| `WEBMUX_VIEWPORT` | `1280x800` | 屏幕分辨率 = 视口 |
-| `WEBMUX_START_URL` | `about:blank` | 启动打开的页面 |
-| `WEBMUX_PROXY` | 空 | Chrome 走的代理 |
-| `WEBMUX_LOG_LIMIT` | `500` | 操作日志保留多少条(像 tmux 的 `history-limit`) |
+| `WEBMUXD_TOKEN` | 空 | 设了则页面和 API 都要这个 token |
+| `WEBMUXD_VIEWPORT` | `1280x800` | 屏幕分辨率 = 视口 |
+| `WEBMUXD_START_URL` | `about:blank` | 启动打开的页面 |
+| `WEBMUXD_PROXY` | 空 | Chrome 走的代理 |
+| `WEBMUXD_LOG_LIMIT` | `500` | 操作日志保留多少条(像 tmux 的 `history-limit`) |
 
 ## 3. 镜像
 
@@ -57,12 +57,12 @@ ARG KASM_CHROME_TAG=1.16.0          # 锁 tag,别用 latest
 FROM kasmweb/chrome:${KASM_CHROME_TAG}
 
 USER root
-COPY dist/sessiond    /opt/webmux/sessiond
-COPY web/           /opt/webmux/web/        # 查看页面(纯静态)
-COPY nginx.conf     /etc/nginx/conf.d/webmux.conf
+COPY dist/sessiond    /opt/webmuxd/sessiond
+COPY web/           /opt/webmuxd/web/        # 查看页面(纯静态)
+COPY nginx.conf     /etc/nginx/conf.d/webmuxd.conf
 COPY startup.sh     /dockerstartup/custom_startup.sh
-RUN /opt/webmux/sessiond/bin/pip install -r /opt/webmux/sessiond/requirements.txt \
- && mkdir -p /data/shots && chown -R 1000:1000 /data /opt/webmux \
+RUN /opt/webmuxd/sessiond/bin/pip install -r /opt/webmuxd/sessiond/requirements.txt \
+ && mkdir -p /data/shots && chown -R 1000:1000 /data /opt/webmuxd \
  && chmod +x /dockerstartup/custom_startup.sh
 
 USER 1000
@@ -128,7 +128,7 @@ sessiond/
 
 不挂卷 = 容器删了全没,跟 `tmux kill-server` 一样。想留就挂 `-v`。
 
-日志和截图按 `WEBMUX_LOG_LIMIT` 环形截断,老的自动删,不会把磁盘撑爆 —— 就是 tmux 的 `history-limit`。
+日志和截图按 `WEBMUXD_LOG_LIMIT` 环形截断,老的自动删,不会把磁盘撑爆 —— 就是 tmux 的 `history-limit`。
 
 ## 6. 崩了怎么办
 

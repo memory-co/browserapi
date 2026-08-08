@@ -2,16 +2,16 @@
 
 **Python lib 就是 HTTP API 的一层薄封装**,不是第二套实现。API 有什么,lib 就有什么,名字一一对应。
 
-鉴权:设了 `WEBMUX_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。就这一种。
+鉴权:设了 `WEBMUXD_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。就这一种。
 
 ## 1. Python lib
 
 ```bash
-pip install webmux
+pip install webmuxd
 ```
 
 ```python
-from webmux import Browser
+from webmuxd import Browser
 
 b = Browser("http://localhost:7900", token="changeme")
 
@@ -31,7 +31,7 @@ b.screenshot("cart.png")
 顺手起容器(内部就是 `docker run`,不想用就别用):
 
 ```python
-b = Browser.start(name="work", port=7900, volume="webmux-work")
+b = Browser.start(name="work", port=7900, volume="webmuxd-work")
 print(b.view_url)      # http://localhost:7900 —— 拿去浏览器里看
 ```
 

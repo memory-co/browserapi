@@ -34,17 +34,17 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | tmux window | **tab** | 浏览器标签页 |
 | tmux pane | — | **不做**,理由见 §5 |
 | client | 观看页面 / CLI / lib | 都是 client |
-| `/tmp/tmux-$UID/default` | `$XDG_RUNTIME_DIR/webmux/default.sock` | 控制 socket |
+| `/tmp/tmux-$UID/default` | `$XDG_RUNTIME_DIR/webmuxd/default.sock` | 控制 socket |
 | `tmux -L name` / `-S path` | 同 | 换 socket = 换一套独立的 server |
 | attach / detach | 打开 / 关掉观看页面 | |
 | scrollback | 操作日志 | |
-| `~/.tmux.conf` | `~/.webmux.conf` | 同样的 `set -g` 写法 |
+| `~/.tmux.conf` | `~/.webmuxd.conf` | 同样的 `set -g` 写法 |
 | `send-keys` | `click` / `type` / `key` / `POST /api/act` | |
 | `capture-pane` | `capture` / `observe` / `GET /api/observe` | |
 | fork + exec 一个 shell | **runtime** | **唯一多出来的概念**,见 §4 |
 | **ttyd** `-p PORT` | server `:7800` / session `:7900` | |
 | **ttyd** 默认只读,`-W` 才可写 | `share` 默认只读,`--writable` 才可写 | 同款默认,见 §3.4 |
-| **ttyd** `-c user:pass` | `WEBMUX_TOKEN` | |
+| **ttyd** `-c user:pass` | `WEBMUXD_TOKEN` | |
 | **ttyd** `-b base-path` | `/s/<name>/` 代理路径 | |
 | **ttyd** `-t` 客户端选项 | 观看页面参数(`crop_top`、要不要自带 tab 条) | |
 | **ttyd** 一个进程一个命令 | 一个 session 一个浏览器 | |
@@ -54,7 +54,7 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 
 ### 3.1 和 tmux 一样的部分
 
-- **按需自启。** 第一次 `webmux new` 时自动拉起,永远不用手敲 `start-server`
+- **按需自启。** 第一次 `webmuxd new` 时自动拉起,永远不用手敲 `start-server`
   (有这个命令,但和 tmux 一样几乎用不到)。
 - **持有全部 session。** session 列表、名字、endpoint 都由它维护。
 - **一个 socket 一套 server。** 默认 `default.sock`;`-L ci` 或 `-S /path/x.sock`
@@ -72,11 +72,11 @@ webmuxd 拉 session 有三种(容器 / 进程 / 远端),server 负责挑一个�
 | session 的 runtime | server 挂了会怎样 |
 | --- | --- |
 | `process` | **跟着死**——它们是 server 的子进程,和 tmux 的 pane 一样 |
-| `container` | **活着**。server 重启后按 `webmux.session` label 重新发现并接管 |
+| `container` | **活着**。server 重启后按 `webmuxd.session` label 重新发现并接管 |
 | `remote` | **活着**,本来就不归它管 |
 
 这个不对称是故意的,而且是好事:生产用 `container`,server 升级重启不影响正在跑的任务;
-开发用 `process`,`kill-server` 一把清干净。**但要在 `webmux ls` 里明确显示 runtime**,
+开发用 `process`,`kill-server` 一把清干净。**但要在 `webmuxd ls` 里明确显示 runtime**,
 不然人不知道自己的 session 抗不抗得住 server 重启。
 
 **③ 它同时是 ttyd —— HTTP 监听是本体,不是可选项。**
@@ -86,19 +86,19 @@ tmux 的 server 只有一个 unix socket。webmuxd 的 server 还必须提供 HT
 
 | | 地址 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| 控制 socket | `$XDG_RUNTIME_DIR/webmux/default.sock` | 开 | CLI 走这个,靠文件权限 |
+| 控制 socket | `$XDG_RUNTIME_DIR/webmuxd/default.sock` | 开 | CLI 走这个,靠文件权限 |
 | HTTP | `127.0.0.1:7800` | **开** | 观看页面 + 管理 + 代理 |
 | HTTP 对外 | `0.0.0.0:7800` | 关 | `--listen`,**必须配 token** |
 
 **从 `127.0.0.1` 换到 `0.0.0.0` 是这个系统里最需要谨慎的一步操作**——
 那是把一个能操作浏览器、且很可能带着登录态的东西放到网上。
-没设 `WEBMUX_TOKEN` 时直接拒绝启动,不给"我待会再加"的机会。
+没设 `WEBMUXD_TOKEN` 时直接拒绝启动,不给"我待会再加"的机会。
 
 它代理到各个 session:
 
 ```
               ┌─────────────────────────────────────────┐
-              │  webmux server        :7800             │
+              │  webmuxd server        :7800             │
  CLI ────────►│                                         │
  浏览器 ──────►│  /api/sessions      管理               │
  lib ────────►│  /s/work/           → session work     │──► :7900
@@ -117,7 +117,7 @@ session 自己的端口仍然直连得到,但平时不用。
 webmuxd 的 server 同样:
 
 - ❌ 不做多租户、RBAC、配额
-- ❌ 不做数据库 —— 状态就是 `~/.webmux/` 下几个 json,崩了靠现场探活重建
+- ❌ 不做数据库 —— 状态就是 `~/.webmuxd/` 下几个 json,崩了靠现场探活重建
 - ❌ 不做容器池、预热、调度
 - ❌ 不做跨机器编排 —— 要多机就多开几个 server
 
@@ -130,8 +130,8 @@ ttyd 默认只读,要加 `-W` 才允许客户端敲键盘。这个默认是对�
 
 | | 谁用 | 鉴权 | 权限 |
 | --- | --- | --- | --- |
-| `webmux attach` | **你自己** | 控制 socket(文件权限) | 完整 |
-| `webmux share` | **给别人** | 一次性 token,带过期 | **默认只读** |
+| `webmuxd attach` | **你自己** | 控制 socket(文件权限) | 完整 |
+| `webmuxd share` | **给别人** | 一次性 token,带过期 | **默认只读** |
 
 `share` 出来的链接发给同事,他能实时看着你的浏览器跑,但点不了东西。
 要可操作得显式 `--writable`,而且 CLI 会打印一行警告。
@@ -177,7 +177,7 @@ class Runtime:
 
 ### 4.3 不静默降级
 
-`webmux new` 没给 `--runtime` 时:配置里的 `set -g runtime` → 没配就 `container` →
+`webmuxd new` 没给 `--runtime` 时:配置里的 `set -g runtime` → 没配就 `container` →
 **docker 不可用则报错并提示 `--runtime process`**。
 
 不自动降级。静默降级会让人以为自己有隔离,而实际上没有。
@@ -196,10 +196,10 @@ CDP 的 screencast 逐 target 出帧。那是另一个产品形态,v1 不做。
 
 | | container | process |
 | --- | --- | --- |
-| Chrome profile | 卷 `webmux-<name>:/data/profile` | `~/.webmux/<name>/profile` |
-| 操作日志 | `/data/log.jsonl` | `~/.webmux/<name>/log.jsonl` |
-| 截图 | `/data/shots/` | `~/.webmux/<name>/shots/` |
-| 下载 | `/data/downloads/` | `~/.webmux/<name>/downloads/` |
+| Chrome profile | 卷 `webmuxd-<name>:/data/profile` | `~/.webmuxd/<name>/profile` |
+| 操作日志 | `/data/log.jsonl` | `~/.webmuxd/<name>/log.jsonl` |
+| 截图 | `/data/shots/` | `~/.webmuxd/<name>/shots/` |
+| 下载 | `/data/downloads/` | `~/.webmuxd/<name>/downloads/` |
 
 **sessiond 只认一个 `--data-dir`,完全不知道自己跑在容器里还是进程里。**
 这是两种 runtime 行为一致的关键。
@@ -207,21 +207,21 @@ CDP 的 screencast 逐 target 出帧。那是另一个产品形态,v1 不做。
 server 自己的状态:
 
 ```
-~/.webmux/
+~/.webmuxd/
 ├── server.json              # 监听地址、启动时间
 ├── sessions/<name>.json     # 名字、runtime、endpoint、handle
 └── <name>/                  # process runtime 的数据目录
 ```
 
-这些文件是**线索,不是真相**。`webmux ls` 每次都调 `alive()` 现场核实,
+这些文件是**线索,不是真相**。`webmuxd ls` 每次都调 `alive()` 现场核实,
 死掉的标 `dead` 并提示清理:
 
 ```console
-$ webmux ls
+$ webmuxd ls
 work    container  7900  3 tabs  shop.example.com/cart   ●
 dev     process    7901  1 tab   localhost:3000
 prod    remote     -     5 tabs  intranet.corp/dash
-stale   process    7903  dead — webmux kill -t stale 清掉
+stale   process    7903  dead — webmuxd kill -t stale 清掉
 ```
 
 ## 7. 和 tmux 故意不一样的地方
@@ -239,16 +239,16 @@ stale   process    7903  dead — webmux kill -t stale 清掉
 ## 8. 用起来
 
 ```bash
-webmux new -s work                                    # container,server 自动起
-webmux new -s dev  --runtime process
-webmux new -s prod --runtime remote --endpoint https://browser.internal:7800
-webmux ls
-webmux click -t dev "登录"                            # runtime 对用起来不可见
-webmux kill-server                                    # process 的死,container 的活
+webmuxd new -s work                                    # container,server 自动起
+webmuxd new -s dev  --runtime process
+webmuxd new -s prod --runtime remote --endpoint https://browser.internal:7800
+webmuxd ls
+webmuxd click -t dev "登录"                            # runtime 对用起来不可见
+webmuxd kill-server                                    # process 的死,container 的活
 ```
 
 ```python
-from webmux import Session
+from webmuxd import Session
 
 s = Session.new("work")                                # container
 s = Session.new("dev", runtime="process")

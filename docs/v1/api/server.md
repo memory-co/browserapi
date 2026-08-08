@@ -14,7 +14,7 @@ server 同时扮演 tmux 的 server(控制 socket)和 ttyd(HTTP 暴露),
 
 | | 地址 | 默认 | 用途 |
 | --- | --- | --- | --- |
-| 控制 socket | `$XDG_RUNTIME_DIR/webmux/default.sock` | 开 | CLI 走这个,不占端口,靠文件权限(0600) |
+| 控制 socket | `$XDG_RUNTIME_DIR/webmuxd/default.sock` | 开 | CLI 走这个,不占端口,靠文件权限(0600) |
 | HTTP | `127.0.0.1:7800` | **开** | 观看页面 + 管理 + 代理到各 session |
 
 socket 和 tmux 一致:`-L name` 换名字、`-S /path` 指定路径,不同 socket 的 server 互不可见。
@@ -23,11 +23,11 @@ socket 和 tmux 一致:`-L name` 换名字、`-S /path` 指定路径,不同 sock
 所以问题不是"要不要开",而是**绑在哪**:
 
 ```bash
-webmux server                            # 127.0.0.1:7800,只有本机
-webmux server --listen 0.0.0.0:7800      # 对外,必须有 WEBMUX_TOKEN
+webmuxd server                            # 127.0.0.1:7800,只有本机
+webmuxd server --listen 0.0.0.0:7800      # 对外,必须有 WEBMUXD_TOKEN
 ```
 
-绑到 `0.0.0.0` **没设 `WEBMUX_TOKEN` 时拒绝启动**,不给"待会再加"的机会。
+绑到 `0.0.0.0` **没设 `WEBMUXD_TOKEN` 时拒绝启动**,不给"待会再加"的机会。
 这是整个系统里最需要谨慎的一步:那是把一个能操作浏览器、
 而且很可能带着登录态的东西放到网上。
 
@@ -75,7 +75,7 @@ session 自己的端口仍然直连得到(`http://host:7900`),但走 server 只�
     "handle": { "display": ":7", "pids": {"xvnc":4821,"chrome":4830,"sessiond":4835} } },
 
   { "name": "stale", "runtime": "process", "state": "dead",
-    "endpoint": null, "hint": "webmux kill -t stale 清掉" }
+    "endpoint": null, "hint": "webmuxd kill -t stale 清掉" }
 ] }
 ```
 
@@ -93,7 +93,7 @@ session 自己的端口仍然直连得到(`http://host:7900`),但走 server 只�
   "viewport": "1280x800",
   "port": 7900,                       // 不给则自动找空闲
   "proxy": "http://egress:3128",
-  "volume": "webmux-work",            // container 专用
+  "volume": "webmuxd-work",            // container 专用
   "endpoint": "https://..." }         // remote 专用
 ```
 → `201`
@@ -125,7 +125,7 @@ session 自己的端口仍然直连得到(`http://host:7900`),但走 server 只�
 
 ```jsonc
 { "version": "1.0",
-  "socket": "/run/user/1000/webmux/default.sock",
+  "socket": "/run/user/1000/webmuxd/default.sock",
   "listen": "0.0.0.0:7800",
   "started_at": "...", "uptime_s": 8241,
   "sessions": { "total": 3, "ready": 2, "dead": 1 },
@@ -168,7 +168,7 @@ server 级事件,和 session 级事件流([events.md](events.md))分开:
 | 走哪 | 怎么鉴权 |
 | --- | --- |
 | unix socket | 文件权限(0600,只有你自己)。**不需要 token** |
-| TCP 管理接口 | `Authorization: Bearer $WEBMUX_TOKEN` |
+| TCP 管理接口 | `Authorization: Bearer $WEBMUXD_TOKEN` |
 | TCP 代理 `/s/<name>/` | 同上,或该 session 的一次性 view token |
 
 **观看链接用一次性 token**,由 `POST /api/sessions/{name}/live-token` 签发

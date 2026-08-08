@@ -20,9 +20,9 @@
 经 server 代理时是 `http://<host>:7800/s/<name>/api`,**`/api` 之后的部分完全一样**
 ([server.md §2](server.md))。查看页面和 API 同一个 origin,不用管跨域。
 
-**认证**:设了 `WEBMUX_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。
+**认证**:设了 `WEBMUXD_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。
 
-另有一个只读 token `WEBMUX_VIEW_TOKEN`:能看画面、能读 `GET` 接口,**所有 `POST`/`DELETE` 返回 `403 read_only`**。
+另有一个只读 token `WEBMUXD_VIEW_TOKEN`:能看画面、能读 `GET` 接口,**所有 `POST`/`DELETE` 返回 `403 read_only`**。
 把观看链接发给别人时用这个。
 
 **内容类型**:请求响应都是 `application/json`,截图和 favicon 例外(直接返回图片字节)。
@@ -131,7 +131,7 @@ SDK 里对应两个异常基类:`ActionError` 和 `PlatformError`。
 
 ## 5. 人在操作时的让路
 
-人在 VNC 里点了东西之后的 `WEBMUX_HUMAN_YIELD` 毫秒内(默认 3000),
+人在 VNC 里点了东西之后的 `WEBMUXD_HUMAN_YIELD` 毫秒内(默认 3000),
 API 动作返回 `409 busy_human` 并带 `retry_after_ms`。
 
 ```jsonc
@@ -139,7 +139,7 @@ API 动作返回 `409 busy_human` 并带 `retry_after_ms`。
              "details": { "retry_after_ms": 2400 } } }
 ```
 
-设 `WEBMUX_HUMAN_YIELD=0` 关掉这个行为,谁快谁先。
+设 `WEBMUXD_HUMAN_YIELD=0` 关掉这个行为,谁快谁先。
 不做显式的「接管/交还」开关——人点人的,API 跑 API 的,两边都进日志。
 
 ## 6. 版本
