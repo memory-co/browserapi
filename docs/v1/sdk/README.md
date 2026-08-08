@@ -105,10 +105,12 @@ web.sync()       # 手动重新拉全量
 
 **WS 断开期间属性读会退化成直接 GET**(慢,但不骗你),同时后台一直在重连。
 
-`web.active` **没有兜底轮询,也不会慢半拍** —— 唯一会让它失准的是特权页面
-(`chrome://` 那一类),而那些页面被禁掉了:`tab.goto("chrome://settings")` 抛
-`BlockedURL`,人用快捷键捅出来的也会被导回 `about:blank`
-([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab怎么来的))。
+`web.active` **不是观测出来的,是 sessiond 记的** —— 它自己改这个字段,再把 Chrome
+拽过来对齐([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算))。
+所以它不会慢半拍,也没有兜底轮询。
+
+唯一会漂的是人按 `Ctrl+Tab` 这类快捷键 —— 记录说 A、画面是 B,下次有人进来
+或下次 `activate` 就对齐回来。
 
 ## 4. `user` —— 署名
 

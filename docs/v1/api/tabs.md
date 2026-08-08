@@ -107,9 +107,11 @@
 chrome://  chrome-untrusted://  devtools://  chrome-extension://  view-source:
 ```
 
-`about:blank` 是允许的(新建 tab 的默认页)。理由见 §5 —— 这些页面注入不进去,
-放着它们会让「当前是哪个 tab」变得不可靠。而且它们对调用方也没用:
-`chrome://settings` 里的东西该用容器的启动参数配,不该让 agent 去点。
+`about:blank` 是允许的(新建 tab 的默认页)。
+
+理由不是技术上做不到,是**不该做**:`chrome://settings` 里的东西该用容器的启动参数配,
+让 agent 跑去点它,等于让它在你背后改浏览器配置。`devtools://` 和 `view-source:`
+同理,对调用方没有价值。
 
 ### `POST /api/tabs/{id}/back` `/forward` `/reload` `/stop`
 
@@ -158,25 +160,42 @@ chrome://  chrome-untrusted://  devtools://  chrome-extension://  view-source:
 
 `opener` 配合 `reason` 能画出"从哪来的"——想做成子 tab 缩进、或者加个来源小箭头都行。
 
-## 5. 「当前是哪个 tab」怎么来的
+## 5. 「当前是哪个 tab」是 sessiond 说了算
 
-CDP 不发"tab 被激活了"这种事件。人在 VNC 里按 `Ctrl+Tab` 换了 tab,得靠 sessiond 自己发现。
+**不观测,记账。** CDP 不发"tab 被激活了"这种事件(Target 域只有 created /
+destroyed / infoChanged / crashed,`TargetInfo` 里根本没有"是不是当前"这一项)——
+所以别去猜,直接反过来:**`active` 是 sessiond 自己的一个字段,由它改,再把 Chrome 拽过来对齐。**
 
-做法:用 `Page.addScriptToEvaluateOnNewDocument` 给每个 tab 注入一段监听 `visibilitychange`
-的脚本,谁 `visible` 谁就是当前 tab(导航后自动重装)。注入走**独立世界**
-(`worldName`),所以页面自己的 CSP 拦不住它。
+改它的只有三种情况,每种 sessiond 都当场知道:
 
-真正进不去的只有**特权页面**(`chrome://` 那一类)——**所以它们被禁掉了**(§3):
+| 什么时候变 | 怎么知道的 |
+| --- | --- |
+| `POST /api/tabs/{id}/activate` | 就是它自己执行的 |
+| 新 tab 前台打开 | `Target.targetCreated`,按 `reason` 决定切不切(`ctrl_click` 不切) |
+| 当前 tab 被关掉 | `Target.targetDestroyed`,焦点按规则落到邻居 |
 
-- API 导航过去返回 `400 blocked_url`
-- 人在 VNC 里用快捷键捅出来一个(`Ctrl+H`、`F12`),sessiond **把那个 tab 导回
-  `about:blank`** 并在日志里记一条 `user: "human"` 的条目
+每次变完,以及**每次有观看者接进来**(查看页面一加载就开 `WS /api/events`,
+那就是"有人进来了"),sessiond 发一次 `Target.activateTarget` 把画面对齐到记录上。
+已经对着就是个空操作。
 
-代价是 agent 和人都碰不到 Chrome 的设置页;换来的是**「当前是哪个 tab」永远由事件驱动,
-没有轮询兜底、没有慢半拍**。这个交换是划算的:设置该在容器启动参数里配,
-不该让 agent 去 `chrome://settings` 里点。
+这跟 tmux 是一个路子:current window 是 server 记的,client 渲染 server 说的那个,
+没人去问终端"你现在显示的是哪个"。
 
-订阅怎么建起来的(`setAutoAttach` + 注入时机)见 [works/06 §2](../works/06-tab-sync.md#2-out--人点了-a-target_blank)。
+### 会漂,但会自愈
+
+人按 `Ctrl+Tab` / `Ctrl+1..9`,Chrome 换了 tab 而我们不知道 —— 记录说 A、画面是 B。
+
+- **人点不到 Chrome 自己的 tab 条**(被裁在可视区外,连命中测试都进不去),
+  所以漂移只来自键盘快捷键,以及绕开查看页面直连 VNC 端口的人(那种情况下
+  Chrome 的原生 UI 是完整可见可点的)
+- **下一次有人进来、或下一次 `activate`,就对齐回来了**
+
+拿这点漂移换掉了一整套注入监听 `visibilitychange` 的机制,划算。
+
+> `chrome://` 那类特权页面仍然禁(§3),但**理由不再是"注入不进去"** ——
+> 是 agent 不该去改浏览器设置,那些东西该在容器启动参数里配。
+
+新 tab 怎么被感知到,见 [works/06](../works/06-tab-sync.md)。
 
 ## 6. client
 

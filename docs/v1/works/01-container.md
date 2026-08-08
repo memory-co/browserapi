@@ -40,6 +40,12 @@ sessiond 认 `WEBMUXD_TOKEN`,没别的。
 `/s/<name>/`,凭证在那儿签、在那儿验([api/server.md §6](../api/server.md#6-鉴权))。
 容器不掺和,也不为了"能签只读链接"去改谁转发谁。
 
+> **一个已知后果**:裁掉 Chrome 的 tab 条和地址栏是**查看页面**那一层干的
+> ([04 §2](04-chrome-ui-externalization.md)),不是容器里干的。所以**绕过查看页面、
+> 直连 6901 的人,看到的是完整的 Chrome**,tab 条和地址栏都能点。
+> 他制造的状态漂移靠"下次进入时对齐"收敛,见
+> [api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)。
+
 ## 2. 起容器
 
 ```bash

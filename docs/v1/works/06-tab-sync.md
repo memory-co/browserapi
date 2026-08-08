@@ -71,15 +71,15 @@ WS ──► lib 内存里那张表 +1 ──► 你的 tab 条 +1
 
 ```
 Target.setDiscoverTargets{discover: true}
-Target.setAutoAttach{autoAttach: true, flatten: true, waitForDebuggerOnStart: true}
+Target.setAutoAttach{autoAttach: true, flatten: true, waitForDebuggerOnStart: false}
 ```
 
 - `setDiscoverTargets` —— 新 target 出生就发 `targetCreated`,关掉发 `targetDestroyed`
 - `setAutoAttach` + `flatten` —— 新 target 自动挂上一条 CDP session,
   不用自己 `attachToTarget` 一遍
-- `waitForDebuggerOnStart` —— **关键**:让新 target 停在第一行 JS 之前,
-  等我们注入完再 `Runtime.runIfWaitingForDebugger` 放行。不这么做,
-  页面自己的脚本可能先跑,注入就漏了开头那一段
+- `waitForDebuggerOnStart: false` —— **不拦**。它的用处是让新 target 停在第一行 JS
+  之前等我们注入,而现在没有 document-start 注入要做了(§3),
+  拦一下只会让页面白等
 
 **不轮询 `Target.getTargets`。** 事件是推的,毫秒级到;轮询只在断线重连之后
 拉一次全量对账([api/events.md §1](../api/events.md#1-信封) 的 `gap`)。
@@ -108,36 +108,35 @@ Target.setAutoAttach{autoAttach: true, flatten: true, waitForDebuggerOnStart: tr
 lib 把它转成句柄放进 `r.new_tabs`。**同一次变更从响应和 WS 两条路到达,值一样,
 合并是幂等的** —— 不闪、不回退([sdk/README §3](../sdk/README.md#3-tab-的状态在内存里))。
 
-## 3. 附加与注入(两条路共用)
+## 3. 附加之后做什么(两条路共用)
 
-不管 tab 从哪来,拿到 session 之后做的事一样:
+不管 tab 从哪来,拿到 session 之后就三行:
 
 ```
-Page.enable / Security.enable                      ← 之后 url/title/loading/锁 都是推的
-Page.addScriptToEvaluateOnNewDocument{             ← 每次导航自动重装
-    source, worldName: "webmuxd" }                 ← 独立世界,见下
-Runtime.addBinding{name: "__webmuxd",              ← 页面调它 → sessiond 收 bindingCalled
-    executionContextName: "webmuxd"}
-Runtime.runIfWaitingForDebugger                    ← 放行(配 waitForDebuggerOnStart)
+Page.enable         ← 之后 url / title / loading 都是推的
+Security.enable     ← 小锁
+Runtime.enable      ← favicon 要用
 ```
 
-**`worldName` = 独立世界**,和扩展 content script 待的地方是同一种:
+**没有 document-start 注入,没有独立世界,没有 binding 回程。**
 
-| | 主世界(页面的) | 独立世界(我们的) |
-| --- | --- | --- |
-| JS 全局、内置原型 | 页面的 | **各自一套**,互不可见 |
-| DOM | ← 同一棵 → | 同一棵,只是 JS wrapper 不同 |
-| 页面的 CSP | 管 | **不管** |
+早先这里有一整套:`addScriptToEvaluateOnNewDocument{worldName}` + `Runtime.addBinding` +
+`waitForDebuggerOnStart`(让新 target 停在第一行 JS 之前,等注入完再放行)。
+那套东西存在的理由**只有一个**:监听 `visibilitychange` 来判断当前是哪个 tab。
 
-用它就为一条:**页面的 CSP 拦不住独立世界**。注进主世界的话,
-`script-src 'self'` 那类站会直接把我们挡掉。顺带的好处是页面既看不见也覆盖不掉我们的东西。
+改成 sessiond 自己记账、用 `Target.activateTarget` 把 Chrome 拽过来对齐之后
+([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)),
+这个需求没了,整套跟着塌掉。
 
-注入脚本只干一件和 tab 有关的事:**报告本页 `visibilitychange`**,
-谁 `visible` 谁就是当前 tab —— CDP 没有"tab 被激活了"这种事件,只能这么补
-([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab怎么来的))。
+**favicon 也不需要常驻脚本**:`Page.loadEventFired` 之后一次性
 
-特权页面(`chrome://` 那类)注入不进去,所以它们**被禁掉了** ——
-于是这条路没有盲区,当前 tab 永远由事件驱动,不需要轮询兜底。
+```js
+Runtime.evaluate: document.querySelector("link[rel~=icon]")?.href
+```
+
+就够了。`Runtime.evaluate` 是调试器的能力,**不受页面 CSP 管**,
+所以连独立世界都省了。拿到 href 由 sessiond 在容器内代抓并缓存 ——
+目标站点可能只有容器访问得到。
 
 ## 4. 剩下那些字段从哪来
 
@@ -150,7 +149,7 @@ tab 条要画的东西,除了上面两条路给的 `id`/`opener`/`reason`,其余
 | `security` | `Security.securityStateChanged` |
 | `crashed` | `Inspector.targetCrashed` |
 | `can_go_back` / `can_go_forward` | **没有事件** —— 每次导航后拉一次 `Page.getNavigationHistory` |
-| `favicon` | 注入脚本读 `link[rel~=icon]`,sessiond 代抓并缓存 |
+| `favicon` | `load` 之后一次 `Runtime.evaluate` 读 `link[rel~=icon]`,sessiond 代抓并缓存 |
 | `index` / 顺序 | **sessiond 自己的列表**,CDP 没有挪 tab 的命令,见下 |
 
 **`reorder` 不进 Chrome。** CDP 没有"把 tab 在 tab 条里挪个位置"的命令,
@@ -163,13 +162,11 @@ v1 接受。
 
 | 要验的 | 怎么验 | 不成立的话 |
 | --- | --- | --- |
-| **没人连 VNC 时,窗口会不会被判成不可见** —— 那样**所有** tab 都 `hidden`,"谁 visible 谁是当前"就答不出来 | 断开所有 VNC 连接,切 tab,看还有没有 `visible` 的那个 | 全 hidden 时**不更新**,保留最后一次已知的当前 tab |
-| `Runtime.addBinding{executionContextName}` 对**之后新建**的执行上下文生不生效、够不够早 | 导航后立刻切 tab,看 `bindingCalled` 到不到 | 每次 `Runtime.executionContextCreated` 后补一次 `addBinding` |
-| `waitForDebuggerOnStart` 会不会把 `target=_blank` 开出来的页面卡住 | 点一堆 `_blank` 链接,看有没有卡在空白 | 去掉它,接受注入偶尔漏开头 |
+| `Target.setAutoAttach{flatten}` 拿到的 session 上,`Page`/`Security` 事件是不是都推得到 | 开几个 tab,导航,看 `frameNavigated` / `securityStateChanged` 齐不齐 | 缺哪个就对哪个退回按需 `Runtime.evaluate` 取 |
+| `targetCreated` 的 `openerId` 在 `target=_blank` 和 `window.open` 下是不是都给 | 两种各点一次,看 `openerId` 有没有 | 没有就 `opener` 留空,`reason` 退回笼统值 |
 
-第一条最要命:它不是"世界"的问题,是 `visibilityState` **本来就是整窗口语义**的问题。
-容器里没有人看着的时候,这套机制可能整个失效。
+都是"字段全不全"级别的,不影响这条路成不成立。
 
-> **不用验的**:「独立世界里能不能收到 `visibilitychange`」。事件派发在 DOM 层,
-> 一次派发会把**所有世界**注册的 listener 都调一遍 —— 扩展的 content script
-> 就是靠这个监听页面事件的。共享 DOM、隔离 JS 全局,这是独立世界的定义。
+> 早先这里列的三条(独立世界能不能收到 `visibilitychange`、`addBinding` 的绑定时机、
+> `waitForDebuggerOnStart` 会不会卡住页面)**全部作废** ——
+> 当前 tab 改成记账之后,那套注入机制整个不存在了。

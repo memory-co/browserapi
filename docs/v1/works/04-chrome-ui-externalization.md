@@ -159,22 +159,19 @@ ui.render(web.tabs, web.active)  # 值一直是新的
 ([works/02](02-lib-and-api.md))。TypeScript 写的前端拿不到这份内存,
 那才需要自己订 `tab.*` 做局部合并。
 
-### 4.1 「当前是哪个 tab」没有现成事件
+### 4.1 「当前是哪个 tab」不去观测,直接记账
 
-人在 VNC 里按 `Ctrl+Tab` 换了 tab,外面怎么知道?
+CDP 没有"tab 被激活了"这种事件。但也不用为此发明观测手段 —— **反过来做**:
+`active` 是 sessiond 自己的字段,它改完用 `Target.activateTarget` 把 Chrome 拽过来对齐。
 
-用 `Page.addScriptToEvaluateOnNewDocument` 给每个 tab 注入一段监听 `visibilitychange` 的脚本,
-谁 `visible` 谁就是当前 tab(导航后自动重装)。注入走**独立世界**(`worldName`),
-页面自己的 CSP 拦不住。
+能改它的只有 API 的 activate、新 tab 打开、当前 tab 被关 —— 三种 sessiond 都当场知道。
+观看者一接进来(查看页面加载就开 WS)再对齐一次。
 
-真正注入不进去的只有**特权页面**(`chrome://` `devtools://` 那一类),
-所以它们**直接被禁掉**:导航过去返回 `400 blocked_url`,人用快捷键捅出来一个就导回
-`about:blank`([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab怎么来的))。
+**人点不到 Chrome 自己的 tab 条**——它被裁在可视区外,连命中测试都进不去,
+点上去落在你画的那条 bar 上,也就是走 API。所以漂移只可能来自键盘快捷键,
+下次进入时自愈。细节见 [api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)。
 
-这样就**不需要轮询兜底**,「当前是哪个 tab」永远由事件驱动,不会慢半拍。
-代价是碰不到 Chrome 的设置页 —— 那些东西本来就该在容器启动参数里配。
-
-订阅怎么建、注入脚本怎么把状态送回来(`Runtime.addBinding`)—— 见 [06](06-tab-sync.md)。
+新 tab 怎么被感知到,见 [06](06-tab-sync.md)。
 
 ## 5. 基座实测记录
 

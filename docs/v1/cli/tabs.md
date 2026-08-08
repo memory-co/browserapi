@@ -65,8 +65,8 @@ $ webmuxd goto -t work chrome://settings
 ✗ blocked_url: chrome:// 这类页面被禁掉了
 ```
 
-退出码 2。原因见 [api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab怎么来的) ——
-注入不进去的页面会让「当前是哪个 tab」变得不可靠,所以直接不让去。
+退出码 2。不是技术上做不到,是**不该做** —— `chrome://settings` 里的东西该用容器的
+启动参数配,不该让人或 agent 跑去点它([api/tabs.md §3](../api/tabs.md#3-写))。
 
 ## 5. 后退不动就报错
 
