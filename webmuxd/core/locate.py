@@ -132,11 +132,13 @@ async def snapshot(cdp: CDP, session_id: str, *, max_elements: int = MAX_ELEMENT
         props = {p["name"]: p.get("value", {}).get("value")
                  for p in node.get("properties", [])}
 
-        interactive = role in INTERACTIVE_ROLES or props.get("focusable")
-        if not interactive:
+        is_control = role in INTERACTIVE_ROLES
+        if not (is_control or props.get("focusable")):
             continue
-        # 名字和 value 都空的纯装饰元素丢掉(规则 3)
-        if not name and value in (None, ""):
+        # 规则 3「名字和 value 都空的纯装饰元素丢掉」**只适用于靠 focusable
+        # 混进来的东西**(没名字的可点击 div 那类)。真正的表单控件即使没标签
+        # 也是有意义的 —— 一个裸 checkbox 你照样得能勾它。
+        if not is_control and not name and value in (None, ""):
             continue
         if node.get("backendDOMNodeId") is None:
             continue

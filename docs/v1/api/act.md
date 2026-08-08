@@ -79,7 +79,9 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
 1. **可交互优先**:role 属于 button / link / textbox / checkbox / radio / combobox /
    menuitem / tab / slider…,或挂了 click 监听,或 `contenteditable`
 2. **看得见**:bbox 非零、没被 `display:none`/`visibility:hidden`/零透明度藏起来、没被完全遮挡
-3. **去噪**:只套一层的嵌套可点击容器合并成最内层有名字的那个;名字和 value 都空的纯装饰元素丢掉
+3. **去噪**:只套一层的嵌套可点击容器合并成最内层有名字的那个;名字和 value 都空的纯装饰元素丢掉。
+   **但这条只管靠"可聚焦"混进来的东西** —— 真正的表单控件(checkbox / textbox / 这类
+   role 明确的)即使没有标签也留着,一个裸 checkbox 你照样得能勾它
 4. **默认给整页**,但标注 `in_viewport`,让模型知道"这个要滚下去才点得到"
 5. **上限 150**,截断了必须在 `notes` 里说清楚截掉了多少
 
@@ -224,6 +226,21 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
 **文字匹配语义**(定死,不猜):精确匹配优先 → 没有则子串匹配 → 大小写不敏感 →
 仍然多于一个就返回 `404 not_found` 并列出全部候选,**绝不随便挑一个**。
 要指定第几个就加 `"nth": 1`。
+
+### 4.1 `text` 什么时候是定位,什么时候是内容
+
+**这两种用法撞在同一个键上**,实现时才发现规格没点破:
+
+```jsonc
+{ "type": "click", "text": "提交订单" }                      // text = 点哪个
+{ "type": "type",  "label": "手机号", "text": "13800000000" } // text = 输什么
+```
+
+**规则:`type` 动作的 `text` 是内容,不参与定位**,它的定位只看
+`label` / `role`+`name` / `element` / `css` / `point`。其余动作的 `text` 是定位。
+
+一个动作要是既需要定位又需要文本内容,就只能这么切 —— 换个键名(比如 `value`)
+会和 `select` 的 `value` 再撞一次。
 
 `js` 和 `point` 是逃生舱:能用,但日志里会标黄——因为回看时
 "执行了一段 JS"和"在 (890,632) 点了一下"都看不出到底干了什么。
