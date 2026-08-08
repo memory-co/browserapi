@@ -50,6 +50,7 @@ print(b.text())
 | [01-container.md](01-container.md) | 容器怎么改、怎么起、状态存哪 |
 | [02-api-and-lib.md](02-api-and-lib.md) | HTTP API 与 Python lib(同一套东西的两个壳) |
 | [03-view-and-log.md](03-view-and-log.md) | 查看页面 + 操作日志(scrollback) |
+| [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chrome 的 tab 条和地址栏,改由外面用 API 自己画 |
 
 ## 明确不做
 
