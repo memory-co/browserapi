@@ -4,12 +4,15 @@
 
 ## 1. 概念映射
 
+**webmux 就是 tmux,只是 pane 里渲染的不是 tty 字符,是浏览器像素。**
+概念见 [works/05](../works/05-server-session-runtime.md)。
+
 | tmux | webmux | 实体 |
 | --- | --- | --- |
-| server | **docker** | 不跑 webmux 自己的常驻进程,见 §7 |
-| session | **session** | 一个容器 = 一个浏览器 |
+| server | **server** | 按需自启,持有全部 session,见 §7 |
+| session | **session** | 一整套 kasm + Chrome + muxd |
 | window | **tab** | 浏览器标签页 |
-| pane | — | 不做。浏览器没有对应物 |
+| pane | — | 不做:一块 VNC 屏同时只显示一个 tab |
 | `send-keys` | `click` / `type` / `key` / `send` | 往里面打东西 |
 | `capture-pane` | `capture` / `observe` | 把里面的内容抓出来 |
 | scrollback | `log` | 操作日志 |
@@ -33,7 +36,7 @@ webmux 不猜,因为点错浏览器的代价比敲错终端大。
 ## 3. 会话
 
 ```bash
-webmux new [-s NAME] [-p PORT] [-u URL] [-v WxH] [--volume VOL] [-d]
+webmux new [-s NAME] [--runtime R] [-p PORT] [-u URL] [-v WxH] [--volume VOL] [-d]
 webmux ls
 webmux attach -t NAME [-p] [--read-only]
 webmux kill -t NAME
@@ -50,8 +53,10 @@ $ webmux new -s scrape -u https://example.com
 scrape  →  http://localhost:7901
 
 $ webmux ls
-work    7900  3 tabs  shop.example.com/cart    ●
-scrape  7901  1 tab   example.com
+work    container  7900  3 tabs  shop.example.com/cart   ●
+dev     process    7901  1 tab   localhost:3000
+prod    remote     -     5 tabs  intranet.corp/dash
+stale   process    7903  dead — webmux kill -t stale 清掉
 
 $ webmux attach -t work        # 用默认浏览器打开观看页面
 $ webmux attach -t work -p     # 只打印 URL,不开浏览器(无 GUI 环境用)
@@ -65,7 +70,7 @@ http://localhost:7900?token=<view-token>
 - `-d` 建完不 attach(默认就是不 attach,`-d` 只是为了跟 tmux 的手感一致)
 - **detach 不需要命令**——关掉网页就是 detach,容器照跑
 - `has` 只返回退出码,给脚本用:`webmux has -t work || webmux new -s work`
-- `kill-server` 干掉所有 webmux 会话,不碰其他容器
+- `kill-server` 停掉 server。**`process` 的 session 跟着死,`container` 的活着**,见 §7
 
 ## 4. tab
 
@@ -176,29 +181,74 @@ $ webmux watch -t work --types 'tab.*'          # 事件流
 `log -f` 和 `watch` 都是流式,`Ctrl-C` 退出。
 `--json` 在所有读命令上可用,输出就是 API 的原始响应——**方便和 API 混着用**。
 
-## 7. 没有 webmux server
+## 7. server
 
-tmux 有个 server 进程管所有 session。webmux **不需要**:
-
-- 会话就是容器,`webmux ls` 直接 `docker ps --filter label=webmux.session`
-- 元数据存在容器 label 上(`webmux.session=work`、`webmux.port=7900`)
-- CLI 是个无状态的薄壳:会话级命令调 docker,其余命令调那个容器的 HTTP API
-
-所以没有 `webmux start-server`,也不存在 server 挂了会话全丢的问题。
-`docker ps` 看得到的就是全部真相。
-
-## 8. 远端
+和 tmux 一样,**按需自启,你几乎不会直接碰它**。
 
 ```bash
-webmux -H https://browser.internal:7900 tabs
-export WEBMUX_HOST=https://browser.internal:7900
+webmux start-server                      # 有这个命令,但基本用不到
+webmux kill-server
+webmux server --listen 0.0.0.0:7800      # 开 TCP,需要 WEBMUX_TOKEN
+webmux info                              # server 状态、探测到哪些 runtime
+```
+
+socket 语义和 tmux 完全一致:
+
+```bash
+webmux -L ci new -s build                # 换个 socket = 另一套互不可见的 server
+webmux -S /tmp/x.sock ls
+```
+
+`kill-server` 的效果**取决于 runtime**,这点必须知道:
+
+| session 的 runtime | `kill-server` 之后 |
+| --- | --- |
+| `process` | **跟着死**(是 server 的子进程,和 tmux 的 pane 一样) |
+| `container` | **活着**,server 重启后自动重新接管 |
+| `remote` | **活着**,本来就不归它管 |
+
+所以 `webmux ls` 一定会显示 runtime 那一列 —— 不然你不知道自己的 session 抗不抗得住重启。
+
+管理接口见 [server.md](server.md)。
+
+## 8. runtime
+
+session 怎么被拉起来,创建时选一次,之后所有命令都一样:
+
+```bash
+webmux new -s work                                     # container(默认)
+webmux new -s dev  --runtime process                   # 不要 docker,秒起,没隔离
+webmux new -s prod --runtime remote \
+                   --endpoint https://browser.internal:7800
+```
+
+```conf
+# ~/.webmux.conf
+set -g runtime container
+```
+
+docker 不可用又没给 `--runtime` 时**报错,不静默降级**:
+
+```console
+$ webmux new -s work
+✗ runtime_unavailable: docker 不可用
+  可以改用 --runtime process,但那样没有隔离(页面跑在你自己机器上)
+```
+
+## 9. 远端
+
+```bash
+webmux -H https://browser.internal:7800 ls
+export WEBMUX_HOST=https://browser.internal:7800
 export WEBMUX_TOKEN=...
 ```
 
-指定 `-H` 时**会话级命令不可用**(`new` / `ls` / `kill` 要 docker,远端没有),
-其余命令照常。`-H` 和 `-t` 互斥。
+`-H` 指向的是**一个远端 server**(不是单个 session),所以 `new` / `ls` / `kill`
+这些会话级命令**照常可用**——由那边的 server 执行。
 
-## 9. 配置
+这是相对早先设计的一个改进:以前 `-H` 指向单个容器,会话级命令就没法用了。
+
+## 10. 配置
 
 `~/.webmux.conf`,tmux 的 `set -g` 写法:
 
@@ -214,7 +264,7 @@ set -g attach-cmd   "firefox %u"      # %u = 观看 URL
 命令行参数 > 环境变量 > 配置文件 > 内置默认。
 配置项名字和容器的 `WEBMUX_*` 环境变量一一对应(`log-limit` ↔ `WEBMUX_LOG_LIMIT`)。
 
-## 10. 退出码
+## 11. 退出码
 
 给脚本用,不要靠解析输出:
 
@@ -227,20 +277,22 @@ set -g attach-cmd   "firefox %u"      # %u = 观看 URL
 | 4 | 元素找不到 / 不可点(`not_found` `not_clickable`) |
 | 5 | 超时 |
 | 6 | 忙(`busy` / `busy_human`) |
-| 7 | 容器出事了(`chrome_gone`) |
+| 7 | 这个 session 出事了(`chrome_gone`) |
 
 4/5/6 是**可重试**的,7 该告警——和 API 的错误二分一致([README §4](README.md#4-错误))。
 
-## 11. CLI ↔ API 对照
+## 12. CLI ↔ API 对照
 
 CLI 不做任何 API 没有的事,每条命令就是一次调用:
 
 | CLI | API |
 | --- | --- |
-| `new` | `docker run` |
-| `ls` | `docker ps --filter label=webmux.session` |
-| `attach` | `POST /api/live-token` → 打开观看页面 |
-| `kill` | `docker rm -f` |
+| `new` | `POST /api/sessions`([server.md](server.md)) |
+| `ls` | `GET /api/sessions` |
+| `attach` | `POST /api/sessions/{name}/live-token` → 打开观看页面 |
+| `kill` | `DELETE /api/sessions/{name}` |
+| `info` | `GET /api/server` |
+| `kill-server` | `POST /api/server/shutdown` |
 | `tabs` | `GET /api/tabs` |
 | `new-tab` | `POST /api/tabs` |
 | `select-tab` | `POST /api/tabs/{id}/activate` |

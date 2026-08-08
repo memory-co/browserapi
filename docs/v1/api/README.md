@@ -2,17 +2,23 @@
 
 设计稿在 [`../works`](../works/)。这里是接口本身。
 
+本文与 [tabs](tabs.md)/[agent](agent.md)/[events](events.md) 讲的是**单个 session** 的接口;
+[server.md](server.md) 讲的是**管理多个 session**。
+
 | 文件 | 内容 |
 | --- | --- |
 | README.md(本文) | 全局约定、端点总表、错误 |
 | [tabs.md](tabs.md) | **tab bar** —— 列表、新建、切换、关闭、导航、历史、favicon |
 | [agent.md](agent.md) | **agent browser** —— 观测、动作、定位、操作日志 |
 | [events.md](events.md) | WS 事件字典 |
+| [server.md](server.md) | **server** —— session 管理、代理、鉴权 |
 | [cli.md](cli.md) | 命令行,照着 tmux 设计 |
 
 ## 1. 约定
 
-**Base**:`http://<host>:7900/api`。查看页面和 API 同一个 origin,不用管跨域。
+**Base**:`http://<host>:7900/api` —— 直连某个 session。
+经 server 代理时是 `http://<host>:7800/s/<name>/api`,**`/api` 之后的部分完全一样**
+([server.md §2](server.md))。查看页面和 API 同一个 origin,不用管跨域。
 
 **认证**:设了 `WEBMUX_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。
 
@@ -24,8 +30,8 @@
 **幂等**:`POST` 接受 `Idempotency-Key` 头,10 分钟窗口内重放返回原结果。
 `POST /api/act` 尤其要用——网络重试导致的重复点击是真实事故。
 
-**并发**:**一个容器同时只跑一个动作**。并发调 `/api/act` 返回 `409 busy`,不排队、不交错。
-要真并发就多起容器。
+**并发**:**一个 session 同时只跑一个动作**。并发调 `/api/act` 返回 `409 busy`,不排队、不交错。
+要真并发就多起几个 session。
 
 ## 2. 一条贯穿全局的规则:tab 参数
 
@@ -74,7 +80,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `POST` | `/api/upload` | 传文件进去给 `upload` 动作用 |
 | `GET` | `/api/download/{name}` | 取下载的文件 |
 
-### 容器级
+### session 级
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -114,13 +120,13 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `timeout` | 408 | settle 或 wait_for 超时 | 重试或放宽条件 |
 | `nav_failed` | 502 | 页面打不开 | 检查 URL / 网络 |
 | `tab_gone` | 404 | tab 已经关了 | 重新拉 `/api/tabs` |
-| `busy` | 409 | 已有动作在跑 | 等,或多起容器 |
+| `busy` | 409 | 已有动作在跑 | 等,或多起几个 session |
 | `busy_human` | 409 | 人正在 VNC 里操作 | 见 §5 |
 | `read_only` | 403 | 用的是只读 token | — |
 | `chrome_gone` | 503 | Chrome 崩了(会自动重拉) | 等重启,别盲目重试动作 |
 | `bad_request` | 400 | 参数不对 | 改代码 |
 
-前五个是**调用方能自愈**的;`chrome_gone` 是容器出事了,该告警而不是重试。
+前五个是**调用方能自愈**的;`chrome_gone` 是这个 session 出事了,该告警而不是重试。
 SDK 里对应两个异常基类:`ActionError` 和 `PlatformError`。
 
 ## 5. 人在操作时的让路
