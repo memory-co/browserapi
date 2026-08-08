@@ -198,8 +198,8 @@ v1 接受。
 `targetCreated` 照样收得到,所以**不会漏**。坏的是显示:它浮在页面上,
 而 `crop_top` 是按"一个最大化窗口"算的。
 
-这件事单独一篇:[07](07-popup-windows.md) —— 结论是**不转化**,
-把它当成 tab 收进模型、切过去时顶成全屏;想真转成 tab 有个开关。
+这件事单独一篇:[07](07-popup-windows.md) —— 结论是**转化掉**:
+在页面层把 `window.open` 包一层、吃掉触发 popup 的 features,Chrome 就原生开成 tab 了。
 
 ## 6. 待实测
 

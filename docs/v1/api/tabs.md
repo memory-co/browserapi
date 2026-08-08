@@ -156,9 +156,9 @@ chrome://  chrome-untrusted://  devtools://  chrome-extension://  view-source:
 | `restored` | Chrome 崩溃重启后恢复的 |
 | `unknown` | 判不出来 —— 比如 `rel="noopener"` 的链接,它没有 `opener`,和人按 Ctrl+T 长得一样 |
 
-`window_open` 里混着一种特殊情况:带尺寸参数的 `window.open` 开出来的是**浏览器窗口**,
-不是 tab。它照样出现在 `/api/tabs` 里(切过去时会被顶成全屏),
-取舍见 [works/07](../works/07-popup-windows.md)。
+带尺寸参数的 `window.open` 在浏览器里本来会开成**一个窗口**而不是 tab。
+webmuxd 默认把它**转成 tab**(在页面层吃掉那几个 features),所以对你来说它就是个普通 tab,
+`reason` 记 `window_open`。取舍和退路见 [works/07](../works/07-popup-windows.md)。
 
 **这个字段是为你的 tab 条设计的。** 比如:`api` 建的不自动切过去(脚本自己会切),
 `link_target_blank` 自动切过去(符合人的预期),`user_ctrl_t` 高亮一下提示"这是人开的",
