@@ -65,7 +65,7 @@ curl -X POST localhost:7900/api/act \
 
 | | sdk | api | cli |
 | --- | --- | --- | --- |
-| 拿一个 tab | `tab = web.open(url)` 句柄 | 两个端点 + 一个 `{id}` | `new-tab` 打印一行 |
+| 拿一个 tab | `tab = web.open(url)` 句柄 | `201` + 一个 `{id}`,之后自己拼路径 | `new-tab` 打印一行 |
 | 读 `url` / `title` | **内存,0 往返** | 每次一个 `GET` | 每次一个 `GET` |
 | 定位失败 | `except NotFound as e: e.candidates` | `404` + `details.candidates` | 退出码 4 + 列候选 |
 | 观测 | `obs[12]`、`obs.as_prompt()` | 一坨 JSON 数组 | 几行紧凑文本 |

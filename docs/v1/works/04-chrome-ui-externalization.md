@@ -174,8 +174,7 @@ ui.render(web.tabs, web.active)  # 值一直是新的
 这样就**不需要轮询兜底**,「当前是哪个 tab」永远由事件驱动,不会慢半拍。
 代价是碰不到 Chrome 的设置页 —— 那些东西本来就该在容器启动参数里配。
 
-注入脚本怎么把状态送回来(`Runtime.addBinding`)、滚动怎么节流、
-人的操作怎么和 API 的操作区分开 —— 整条回程见 [06](06-sync-paths.md)。
+订阅怎么建、注入脚本怎么把状态送回来(`Runtime.addBinding`)—— 见 [06](06-tab-sync.md)。
 
 ## 5. 基座实测记录
 

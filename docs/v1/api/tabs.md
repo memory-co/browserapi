@@ -176,8 +176,7 @@ CDP 不发"tab 被激活了"这种事件。人在 VNC 里按 `Ctrl+Tab` 换了 t
 没有轮询兜底、没有慢半拍**。这个交换是划算的:设置该在容器启动参数里配,
 不该让 agent 去 `chrome://settings` 里点。
 
-完整的同步机制(注入脚本怎么回传、人的操作怎么抓)见
-[works/06](../works/06-sync-paths.md)。
+订阅怎么建起来的(`setAutoAttach` + 注入时机)见 [works/06 §2](../works/06-tab-sync.md#2-out--人点了-a-target_blank)。
 
 ## 6. client
 

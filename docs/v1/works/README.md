@@ -65,7 +65,7 @@ print(tab.text())
 | [03-view-and-log.md](03-view-and-log.md) | 查看页面 + 操作日志(scrollback) |
 | [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chrome 的 tab 条和地址栏,改由外面用 API 自己画 |
 | [05-server-session-runtime.md](05-server-session-runtime.md) | server / session / runtime 三层概念,与 tmux 的完整对照 |
-| [06-sync-paths.md](06-sync-paths.md) | **一进一出两条路径** —— 命令怎么进去、人在画面里干的事怎么同步出来 |
+| [06-tab-sync.md](06-tab-sync.md) | **tab 的一进一出** —— `open()` 怎么落到 Chrome,人点出来的新 tab 怎么被感知 |
 
 规格在上一级([`..`](../)):[`api`](../api/) HTTP · [`cli`](../cli/) 命令行 · [`sdk`](../sdk/) Python。
 本目录是**为什么**,那三个目录是**做成什么样**。

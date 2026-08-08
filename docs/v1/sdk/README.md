@@ -85,7 +85,7 @@ lib 就是那个 client。
 ([api/events.md §1](../api/events.md#1-信封)),所以右边那一列没法省。
 
 左边那一列**人在画面里操作也会更新** —— 他点个 `target=_blank` 的链接,
-你内存里就多一个 tab。怎么做到的见 [works/06](../works/06-sync-paths.md)。
+你内存里就多一个 tab。怎么做到的见 [works/06](../works/06-tab-sync.md)。
 
 ### 动作的响应也回灌内存
 
@@ -206,7 +206,7 @@ except BusyHuman as e:
 | lib | 导出成 |
 | --- | --- |
 | `Webmuxd(port=, token=, runtime=)` | 确保 session 在跑 + base = `<host:port>/api`,见 [server.md](server.md) |
-| `web.open(url)` | `POST /api/tabs` + `POST /api/tabs/{id}/goto` |
+| `web.open(url)` | `POST /api/tabs {url}` —— 一次请求,建 + 导航 |
 | `web.tabs` `web.active` `tab.url` `tab.title` | **不请求** —— 内存,由 `WS /api/events` 维护 |
 | `web.sync()` | `GET /api/tabs` + `GET /api/status` |
 | `tab.click/type/key/...`、`tab.act()` | `POST /api/act`(带 `tab`、`user`) |

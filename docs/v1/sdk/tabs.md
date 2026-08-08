@@ -19,8 +19,8 @@ web.tab(title="购物车")         # 按标题,唯一匹配才行,否则抛 NotF
 
 **这几个都不发请求** —— 表在内存里。按标题匹配也是本地做的,线上只认 id。
 
-`web.open()` 收了 `POST /api/tabs` 和 `POST /api/tabs/{id}/goto` 两次调用,
-因为「开个新标签页去某个网址」本来就是一件事。想只开不导航就 `web.open()` 不给 url。
+`web.open()` 就是 `POST /api/tabs {url}` 一次请求 —— 建 tab 和导航在线上本来就是一步。
+想只开不导航就不给 url。
 
 ## 2. 句柄上能干什么
 
@@ -121,7 +121,7 @@ web.reorder(["t_7", "t_3"])    # 少给的自动排在后面
 | `web.tabs` `web.active` `tab.<属性>` | **不请求** —— 内存,由 `WS /api/events` 维护 |
 | `web.tab(title=)` `web.tab(index)` | 本地匹配,线上只认 id |
 | `web.sync()` | `GET /api/tabs` + `GET /api/status` |
-| `web.open(url)` | `POST /api/tabs` + `POST /api/tabs/{id}/goto` |
+| `web.open(url)` | `POST /api/tabs {url}` |
 | `tab.activate()` | `POST /api/tabs/{id}/activate` |
 | `tab.close()` | `DELETE /api/tabs/{id}` |
 | `tab.goto(url, wait=, timeout=)` | `POST /api/tabs/{id}/goto` |
