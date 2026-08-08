@@ -1,18 +1,18 @@
-# webmuxd v1 · 接口规格
+# webmuxd v1 · HTTP 接口规格
 
-设计稿在 [`../works`](../works/)。这里是接口本身。
+设计稿在 [`../works`](../works/)。这里是**线上格式本身** —— 任何语言的 client 都照这个来。
+命令行在 [`../cli`](../cli/),Python 在 [`../sdk`](../sdk/);那两边不做本目录没有的事。
 
 本文与 [tabs](tabs.md)/[agent](agent.md)/[events](events.md) 讲的是**单个 session** 的接口;
 [server.md](server.md) 讲的是**管理多个 session**。
 
-| 文件 | 内容 |
-| --- | --- |
-| README.md(本文) | 全局约定、端点总表、错误 |
-| [tabs.md](tabs.md) | **tab bar** —— 列表、新建、切换、关闭、导航、历史、favicon |
-| [agent.md](agent.md) | **agent browser** —— 观测、动作、定位、操作日志 |
-| [events.md](events.md) | WS 事件字典 |
-| [server.md](server.md) | **server** —— session 管理、代理、鉴权 |
-| [cli.md](cli.md) | 命令行,照着 tmux 设计 |
+| 文件 | 内容 | 另外两边 |
+| --- | --- | --- |
+| README.md(本文) | 全局约定、端点总表、错误 | [cli](../cli/README.md) · [sdk](../sdk/README.md) |
+| [tabs.md](tabs.md) | **tab bar** —— 列表、新建、切换、关闭、导航、历史、favicon | [cli](../cli/tabs.md) · [sdk](../sdk/tabs.md) |
+| [agent.md](agent.md) | **agent browser** —— 观测、动作、定位、操作日志 | [cli](../cli/agent.md) · [sdk](../sdk/agent.md) |
+| [events.md](events.md) | WS 事件字典 | [cli](../cli/events.md) · [sdk](../sdk/events.md) |
+| [server.md](server.md) | **server** —— session 管理、代理、鉴权 | [cli](../cli/server.md) · [sdk](../sdk/server.md) |
 
 ## 1. 约定
 
@@ -127,7 +127,9 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `bad_request` | 400 | 参数不对 | 改代码 |
 
 前五个是**调用方能自愈**的;`chrome_gone` 是这个 session 出事了,该告警而不是重试。
-SDK 里对应两个异常基类:`ActionError` 和 `PlatformError`。
+
+这个二分是给 client 用的:SDK 映射成异常树([sdk/README §3](../sdk/README.md#3-异常)),
+CLI 映射成退出码([cli/README §6](../cli/README.md#6-退出码))。
 
 ## 5. 人在操作时的让路
 

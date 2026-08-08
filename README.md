@@ -9,4 +9,5 @@
 - 给智能体用的观测层:标注截图 + 元素表,直接喂多模态模型
 - 操作日志就是 tmux 的 scrollback —— 它每一步看到什么、做了什么、页面变成什么样
 
-设计文档:[`docs/v1/works`](docs/v1/works/) · 接口规格:[`docs/v1/api`](docs/v1/api/)
+设计文档:[`docs/v1/works`](docs/v1/works/) —— 为什么这么做
+规格([`docs/v1`](docs/v1/)):[`api`](docs/v1/api/) HTTP · [`cli`](docs/v1/cli/) 命令行 · [`sdk`](docs/v1/sdk/) Python

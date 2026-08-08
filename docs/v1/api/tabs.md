@@ -159,27 +159,13 @@ CDP 不发"tab 被激活了"这种事件。人在 VNC 里按 `Ctrl+Tab` 换了 t
 这些 fallback 到轮询 `Target.getTargets`,延迟约 500ms。
 表现是:切到这类页面时,你的 tab 条高亮会慢半拍。
 
-## 6. Python lib
+## 6. client
 
-```python
-for t in b.tabs():
-    print(t.index, t.title, t.url, "●" if t.active else "")
+同一套东西的另外两个壳:
 
-t = b.new_tab("https://example.com")
-t.goto("https://example.com/cart")
-t.back(); t.reload()
-t.activate()
-t.close()
+- **Python** —— [sdk/tabs.md](../sdk/tabs.md):`b.tabs()`、`Tab` 对象、
+  `b.tab("t_7").click("确认")` 这种跨 tab 操作
+- **命令行** —— [cli/tabs.md](../cli/tabs.md):`webmuxd tabs`、`select-tab`、`-F` 格式化
 
-b.reorder(["t_7", "t_3"])
-
-# 实时同步你自己的 tab 条
-for e in b.watch("tab.*"):
-    ui.update(e)
-```
-
-跨 tab 操作,`tab()` 拿到的对象上直接调页面动作:
-
-```python
-b.tab("t_7").click("确认")      # 对非激活 tab 也有效,但人在画面上看不见
-```
+两边都没有本文的全部内容(favicon 字节、history、`stop` 只在 API 这层),
+各自的对照表里写了缺什么。

@@ -90,7 +90,8 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
 
 ### 1.3 给模型的紧凑表示
 
-SDK 的 `obs.as_prompt()` 把 `elements` 压成这样,直接进 prompt:
+`elements` 压成这样直接进 prompt(SDK 的 `obs.as_prompt()`
+见 [sdk/agent.md §1](../sdk/agent.md#1-看bobserve),CLI 的 `webmuxd observe` 也是这个排版):
 
 ```
 [12] button  "提交订单"
@@ -280,31 +281,18 @@ GET /api/log?limit=100&after=42&only=failed
 
 ## 7. 典型的 agent 循环
 
-```python
-from webmuxd import Browser
-b = Browser("http://localhost:7900", token=TOKEN)
+两个端点交替,不需要第三个:
 
-b.goto("https://shop.example.com")
-
-while True:
-    obs = b.observe()                       # 标注截图 + 元素表 + tab 列表
-
-    decision = my_llm(                      # ← 你的大脑,webmuxd 不掺和
-        goal=goal,
-        image=obs.screenshot,               # 图上已经画好 [12] [13] 编号
-        elements=obs.as_prompt(),
-        tabs=obs.tabs,                      # 让它知道有哪些 tab
-        history=b.log(limit=5),
-    )
-
-    if decision.done:
-        break
-
-    r = b.act(decision.actions,
-              note=decision.thought)        # ← 思考进日志
-    if not r.ok:
-        continue                            # r.candidates 喂回模型自我纠正
+```
+GET  /api/observe            → 标注截图 + 元素表 + tab 列表 + notes
+      ↓  喂给模型(图 + as_prompt 排版 + tabs + notes + 最近几条 log)
+POST /api/act  { actions, note }
+      ↓  ok:继续下一轮
+         !ok:把 candidates 喂回模型自我纠正,不用重新 observe
 ```
 
-`b.act()` 一次往返执行一串动作,`note` 把这一步的思考挂上去。
-跑的时候在 `http://localhost:7900` 里能实时看着它点。
+`note` 带上模型这一步的思考,它会落进操作日志(§6)。
+一次 `act` 执行一串动作,省掉每个动作一次往返。
+
+写成代码见 [sdk/agent.md §5](../sdk/agent.md#5-典型的-agent-循环)。
+跑的时候在观看页面里能实时看着它点。

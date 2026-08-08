@@ -66,7 +66,8 @@ print(b.text())
 | [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chrome 的 tab 条和地址栏,改由外面用 API 自己画 |
 | [05-server-session-runtime.md](05-server-session-runtime.md) | server / session / runtime 三层概念,与 tmux 的完整对照 |
 
-接口规格在 [`../api`](../api/)。
+规格在上一级([`..`](../)):[`api`](../api/) HTTP · [`cli`](../cli/) 命令行 · [`sdk`](../sdk/) Python。
+本目录是**为什么**,那三个目录是**做成什么样**。
 
 ## 明确不做
 
