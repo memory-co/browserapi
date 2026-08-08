@@ -17,13 +17,14 @@ pip install webmuxd
 | --- | --- | --- |
 | README.md(本文) | `Webmuxd` 入口、`user`、异常、并发 | [api/README.md](../api/README.md) |
 | **[tab/](tab/)** | **句柄、属性、导航、动作、观测** | [api/tabs.md](../api/tabs.md) · [api/act.md](../api/act.md) |
-| [log.md](log.md) | `web.log()` `web.bundle()` | [api/log.md](../api/log.md) |
+| **[log/](log/)** | 三类日志:动作、tab 生死、session | [api/log.md](../api/log.md) |
 | [events.md](events.md) | `web.watch()` | [api/events.md](../api/events.md) |
 | [session.md](session.md) | 起停、runtime、端口、分享链接 | [api/server.md](../api/server.md) |
 
 `tab/` 下面按用途分:[README](tab/README.md) 拿句柄和读属性、
 [navigate](tab/navigate.md) 走到哪、[input](tab/input.md) 往里做、
 [read](tab/read.md) 往外看。
+`log/` 下面按类型分:[tab](log/tab.md) 动作、[session](log/session.md) tab 生死和 session 事件。
 
 ## 1. 一个 `Webmuxd` = 一个 port = 一个 Chrome
 
@@ -221,7 +222,7 @@ except BusyHuman as e:
 | `tab.click/type/key/...`、`tab.act()` | `POST /api/act`(带 `tab`、`user`) |
 | `tab.observe()` | `GET /api/observe?tab=` |
 | `tab.text()` `tab.screenshot()` | `GET /api/text` `/api/screenshot` |
-| `web.log()` `web.bundle()` | `GET /api/log` `/api/log/bundle` |
+| `web.log()` `tab.log()` `web.bundle()` | `GET /api/log` `/api/log/bundle`,见 [log/](log/) |
 | `web.watch()` | `WS /api/events`(和内存共用同一条连接) |
 | `web.status()` `web.viewport()` `web.reset()` | `GET /api/status` `/api/viewport` `POST /api/reset` |
 | `web.share()` `web.view_url` | `POST /api/live-token` |

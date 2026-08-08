@@ -73,7 +73,7 @@ r = tab.act([
 ```
 
 **串行执行,遇错即停。** `note` 是这一步的思考,`user` 是署名,两个都进日志
-([../log.md](../log.md))。
+([../log.md](../log/))。
 
 ```python
 r.ok             # 全部成功才 True

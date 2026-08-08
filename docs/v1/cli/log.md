@@ -28,6 +28,24 @@ webmuxd bundle -t work -o out.zip        # 日志 + 截图 + 离线 HTML
 
 `log -f` 是流式的,`Ctrl-C` 退出;它订的是事件流不是轮询,见 [events.md](events.md)。
 
+## 三类日志
+
+`log` 默认给你全部三类,按 `kind` 筛:
+
+```bash
+webmuxd log -t work --kind action     # 谁做了什么(默认占绝大多数)
+webmuxd log -t work --kind tab        # tab 的生老病死
+webmuxd log -t work --kind session    # Chrome 重启、reset
+```
+
+容器里也可以直接 grep,一行一条 JSON:
+
+```bash
+grep '"kind":"tab"' /data/log.jsonl
+```
+
+类型的完整说明见 [api/log.md](../api/log.md) 和 [sdk/log/](../sdk/log/)。
+
 ## ↔ API 对照
 
 | CLI | API |
@@ -35,5 +53,6 @@ webmuxd bundle -t work -o out.zip        # 日志 + 截图 + 离线 HTML
 | `log -n N` | `GET /api/log?limit=N` |
 | `log --failed` | `GET /api/log?only=failed` |
 | `log --user X` | `GET /api/log?user=X` |
+| `log --kind tab` | `GET /api/log?kind=tab` |
 | `log -f` | `WS /api/events`,`action.*` + `log.appended` |
 | `bundle -o F` | `GET /api/log/bundle` |

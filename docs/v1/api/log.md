@@ -8,8 +8,7 @@
 两者共用 `seq`、字段也重叠,但会不会丢、能不能回看都不一样,
 对照表在 [events.md §2](events.md#2-它和日志不是一回事也不是一个层级)。**要回看就读这儿。**
 
-Python 侧见 [sdk/log.md](../sdk/log.md) 和 [sdk/tab/log.md](../sdk/tab/log.md),
-命令行见 [cli/log.md](../cli/log.md)。
+Python 侧见 [sdk/log/](../sdk/log/),命令行见 [cli/log.md](../cli/log.md)。
 
 ## 1. 拉
 
@@ -20,14 +19,14 @@ GET /api/log?limit=100&after=42&only=failed&user=claudecode&tab=t_3&kind=action
 | 参数 | 说明 |
 | --- | --- |
 | `limit` `after` | 分页,`after` 是 `seq` |
-| `tab` | 只要这个 tab 的 —— **落到磁盘上就是读一个文件**,不是过滤 |
+| `tab` | 只要这个 tab 的 |
 | `kind` | `action`(默认全给) / `tab`(生老病死) / `session`(chrome 重启、reset) |
 | `user` | 只看某个署名 |
 | `only` | `failed` 只看失败的 |
 
-不带 `tab` 时按 `seq` 归并所有 tab 的记录 + session 级记录,**全序是完整的** ——
-分文件是存储布局([works/03 §3.1](../works/03-view-and-log.md#31-一个-tab-一个文件)),
-不是把时间线切开。
+磁盘上就是**一个 `log.jsonl`**,一行一条,不分 tab 也不分类型
+([works/03 §3.1](../works/03-view-and-log.md#31-一个文件))。
+所有筛选都是过滤,`seq` 全局单调。
 
 ```jsonc
 { "entries": [
@@ -70,21 +69,22 @@ GET /api/log?kind=tab
 ```
 
 **这是持久的,不是事件流。** `tab.created` / `tab.closed` 事件是内存里最近 1000 条
-([events.md §3](events.md#3-信封)),重启就没了;这份落盘,而且**不截断** ——
-所以"那个已经关掉的 tab 什么时候建的、谁建的、关的时候停在哪"永远查得到
-([works/03 §3.2](../works/03-view-and-log.md#32-sessionjsonl--这个-session-的目录))。
+([events.md §3](events.md#3-信封)),重启就没了;这份落盘,
+所以"那个已经关掉的 tab 什么时候建的、谁建的、关的时候停在哪"查得到 ——
+直到被切走那一刀带走(§4)。
 
 `GET /api/tabs` 只给**活着的** tab;要历史就查这里。
 
 ## 4. 保留
 
-**每个 tab** 环形截断 `WEBMUXD_LOG_LIMIT` 条(默认 500),老的连截图一起删;
-已关闭 tab 的目录留最近 `WEBMUXD_TAB_KEEP` 个(默认 50)。
-`kind=tab` 那份**不截断**。
+满 `WEBMUXD_LOG_LIMIT` 条(默认 5000)**切一刀**:当前文件改名 `log.1.jsonl`,开新的,
+**只留上一刀**,再切时连同那批截图一起删。所以在线记录永远在 5000~10000 条之间。
+
+**`kind=tab` 没有额外保护**,一起滚。真要长期留一份 tab 的生死账就自己定时拉。
 
 ```
 GET /api/log/bundle              # 全部
-GET /api/log/bundle?tab=t_7      # 一个 tab —— 打包它那个目录
+GET /api/log/bundle?tab=t_7      # 只打包这个 tab 的条目和截图
 ```
 
 zip 解开双击就能离线看。

@@ -1,7 +1,7 @@
 # lib · session 起停与 runtime
 
 导出成 [api/server.md](../api/server.md)。管的是 session **怎么起来、怎么停**;
-浏览器里发生什么在 [tab/](tab/),日志在 [log.md](log.md)。
+浏览器里发生什么在 [tab/](tab/),日志在 [log.md](log/)。
 
 ## 1. 构造即"确保在跑"
 

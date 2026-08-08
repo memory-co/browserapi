@@ -25,7 +25,7 @@ CLI 是 lib 的一个用户,和你的代码平级。
 | 全局约定、错误、总表 | [README](sdk/README.md) | [README](api/README.md) | [README](cli/README.md) |
 | **tab** —— 句柄、列表、切换、导航 | [tab/](sdk/tab/) | [tabs](api/tabs.md) | [tabs](cli/tabs.md) |
 | **页面上做和看** —— 动作、定位、观测 | [tab/input](sdk/tab/input.md) · [tab/read](sdk/tab/read.md) | [act](api/act.md) | [act](cli/act.md) |
-| **操作日志** | [log](sdk/log.md) | [log](api/log.md) | [log](cli/log.md) |
+| **操作日志** —— 动作 / tab 生死 / session | [log/](sdk/log/) | [log](api/log.md) | [log](cli/log.md) |
 | **事件流** —— 同步机制,只有画 UI 的才碰 | [events](sdk/events.md) | [events](api/events.md) | [events](cli/events.md) |
 | **session** —— 起停、runtime、代理、鉴权 | [session](sdk/session.md) | [server](api/server.md) | [server](cli/server.md) |
 

@@ -100,8 +100,7 @@ set -g image        webmuxd/operator:1.0
 set -g port-base    7900
 set -g viewport     1280x800
 set -g tab-max      10           # 超了挤掉最不活跃的
-set -g log-limit    500          # 每个 tab
-set -g tab-keep     50           # 已关闭 tab 留几个
+set -g log-limit    5000         # 满了切一刀,只留上一刀
 set -g human-yield  3000
 set -g runtime      container
 set -g attach-cmd   "firefox %u"      # %u = 观看 URL

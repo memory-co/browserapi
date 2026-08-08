@@ -8,7 +8,7 @@
 见 [works/02](../works/02-lib-and-api.md)。所以本目录只描述线上长什么样;
 遇到「为什么是这个语义」的问题,答案在 sdk 那边。命令行在 [`../cli`](../cli/)。
 
-本文与 [tabs](tabs.md)/[act](act.md)/[log](log.md)/[events](events.md) 讲的是**单个 session**;
+本文与 [tabs](tabs.md)/[act](act.md)/[log](log/)/[events](events.md) 讲的是**单个 session**;
 [server.md](server.md) 讲的是**管理多个 session**。
 
 | 文件 | 内容 | 主体在 | 命令行 |
@@ -16,7 +16,7 @@
 | README.md(本文) | 全局约定、端点总表、错误 | [sdk](../sdk/README.md) | [cli](../cli/README.md) |
 | [tabs.md](tabs.md) | tab 的增删改查、导航、历史、favicon | [sdk](../sdk/tab/README.md) | [cli](../cli/tabs.md) |
 | [act.md](act.md) | 在页面上**做**和**看** —— 动作、定位、观测 | [sdk](../sdk/tab/input.md) | [cli](../cli/act.md) |
-| [log.md](log.md) | 操作日志 | [sdk](../sdk/log.md) | [cli](../cli/log.md) |
+| [log.md](log/) | 操作日志 | [sdk](../sdk/log/) | [cli](../cli/log.md) |
 | [events.md](events.md) | WS 事件字典 | [sdk](../sdk/events.md) | [cli](../cli/events.md) |
 | [server.md](server.md) | session 管理、代理、鉴权 | [sdk](../sdk/session.md) | [cli](../cli/server.md) |
 
@@ -86,7 +86,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `POST` | `/api/act` | **执行动作**(单个或一串) |
 | `GET` | `/api/screenshot` | 截图,`?full_page=` 要整页 |
 | `GET` | `/api/text` | 页面正文 |
-| `GET` | `/api/log` | 操作日志,详见 [log.md](log.md) |
+| `GET` | `/api/log` | 操作日志,详见 [log.md](log/) |
 | `GET` | `/api/log/bundle` | 日志 + 截图 + 离线 HTML 的 zip |
 | `POST` | `/api/upload` | 传文件进去给 `upload` 动作用 |
 | `GET` | `/api/download/{name}` | 取下载的文件 |

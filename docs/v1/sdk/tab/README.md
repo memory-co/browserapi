@@ -17,10 +17,10 @@ print(tab.url, tab.title)
 | [navigate.md](navigate.md) | **走到哪** | `goto` `back` `forward` `reload` `stop` `activate` `close` `history` |
 | [input.md](input.md) | **往里做** | `click` `type` `key` `select` `check` `scroll` `upload` `wait_for` `js` `act` |
 | [read.md](read.md) | **往外看** | `observe` `screenshot` `text` `extract` |
-| [log.md](log.md) | **干过什么** | `tab.log()` `tab.bundle()` |
 
-这个 tab 自己的记录在 [log.md](log.md) —— 磁盘上就是一个文件。
-跨 tab 归并、以及 tab 的生老病死,在 [../log.md](../log.md)。
+这个 tab 干过什么在 [../log/tab.md](../log/tab.md),它怎么生怎么死在
+[../log/session.md](../log/session.md) —— 日志不分 tab,是一个文件筛出来的
+([../log/README.md](../log/README.md))。
 
 ## 1. 拿句柄
 
@@ -93,7 +93,7 @@ except TabGone as e:
 ```
 
 被挤掉的 tab **记录还在**:`tab.log()` 照样读得到,`web.log(kind="tab")` 里
-有它的建和关。目录比 tab 活得久([../log.md §6](../log.md#6-会被截断))。
+有它的建和关 —— 直到被切掉那一刀带走([../log/README.md §2](../log/README.md#2-存哪怎么切))。
 
 开着的 tab 越多,内存和磁盘越吃 —— 上限就是为这个设的
 ([works/03 §7](../../works/03-view-and-log.md#7-保留))。

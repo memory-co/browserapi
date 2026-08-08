@@ -64,7 +64,7 @@ tab.click(el)
 | `tab.screenshot()` | **现拍一张**,干净的 | 存档、给人看、diff |
 | `obs.screenshot` | observe 那次拍的,**画了 `[12]` 编号** | 喂多模态模型 |
 | `obs.plain_screenshot` | observe 那次拍的,没画编号 | 想要同一时刻的干净版 |
-| `e.shot` | **每个动作后自动拍的**,在日志里 | 回看当时长什么样,见 [../log.md](../log.md) |
+| `e.shot` | **每个动作后自动拍的**,在日志里 | 回看当时长什么样,见 [../log.md](../log/) |
 
 ```python
 png = tab.screenshot()                    # → bytes
@@ -132,7 +132,7 @@ while True:
         feedback = r.candidates             # 喂回去自我纠正
 ```
 
-`note` 把这一步的思考挂进日志([../log.md](../log.md))。
+`note` 把这一步的思考挂进日志([../log.md](../log/))。
 跑的时候在观看页面里能实时看着它点,人随时可以自己上手 ——
 那些操作会以 `user="human"` 进同一份日志。
 
@@ -145,7 +145,7 @@ while True:
 | `tab.text()` | `GET /api/text` |
 | `tab.screenshot(full_page=)` | `GET /api/screenshot?full_page=` |
 | `obs.screenshot` / `obs.plain_screenshot` | `GET /api/observe/{id}/screenshot[?annotate=false]` |
-| `e.shot` | `GET /api/log/{seq}/shot`,见 [../log.md](../log.md) |
+| `e.shot` | `GET /api/log/{seq}/shot`,见 [../log.md](../log/) |
 | 要像素时自动切前台 | 客户端做的:先 `POST /api/tabs/{id}/activate` |
 | `tab.extract(loc, mode=)` | `POST /api/act` 的 `extract` 动作 |
 

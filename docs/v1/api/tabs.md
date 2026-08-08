@@ -146,13 +146,13 @@ LRU:按"最后一次被激活、或被操作"排,最久没动的先走。
              "details": { "reason": "evicted", "final_url": "https://help.example.com" } } }
 ```
 
-**它的记录还在。** `/api/log?kind=tab` 里那两行不会消失,`?tab=t_4` 也还能读到
-它当时干了什么 —— 目录比 tab 活得久
-([works/03 §7](../works/03-view-and-log.md#7-保留))。要恢复就拿 `final_url` 自己重开。
+**它的记录还在。** `/api/log?kind=tab` 里有它的建和关,`?tab=t_4` 还能读到
+它当时干了什么 —— 直到日志切走那一刀([works/03 §7](../works/03-view-and-log.md#7-保留))。
+要恢复就拿 `final_url` 自己重开。
 
 **这条会咬人**:脚本手里攥着的句柄可能在它脚下死掉。所以它在事件、日志、异常里
 **都标了 `reason`**,不会让你以为是自己关的。真不够用就把 `WEBMUXD_TAB_MAX` 调大 ——
-但那是在拿内存和磁盘换([works/03 §7](../works/03-view-and-log.md#7-保留))。
+但每个活着的 tab 是一个渲染进程([works/03 §7](../works/03-view-and-log.md#7-保留))。
 
 ### `POST /api/tabs/reorder` 拖拽排序
 

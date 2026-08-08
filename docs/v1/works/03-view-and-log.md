@@ -36,63 +36,63 @@
 
 ## 3. 右边:操作日志(这就是"操作路径能看到")
 
-### 3.1 一个 tab 一个文件
+### 3.1 一个文件
 
 ```
 /data/
-├── session.jsonl              ← 目录:tab 什么时候建的、什么时候销毁的
-└── tabs/
-    ├── t_3/
-    │   ├── log.jsonl          ← 这个 tab 的操作记录
-    │   └── shots/0042.webp
-    └── t_7/
-        ├── log.jsonl
-        └── shots/
+├── log.jsonl        ← 当前这一刀
+├── log.1.jsonl      ← 上一刀
+└── shots/0042.webp  ← 按 seq 命名
 ```
 
-**为什么按 tab 分,而不是一个大文件:**
+**不分 tab、不分类型,全在一个 jsonl 里。** 要哪部分就筛哪部分:
 
-- **tmux 的 `history-limit` 是每个 pane 的**,不是每个 session 的。tab 就是我们的 pane,
-  按 tab 分才是忠实映射。
-- **一个话痨 tab 不该把别的 tab 的历史挤掉。** 全局一个 500 条的环,
-  一个刷新循环跑十分钟就把整个 session 的记录冲干净了。
-- `GET /api/log?tab=t_7` 从"过滤"变成"读一个文件";
-  `bundle?tab=t_7` 从"筛一遍"变成"打包一个目录"。
-- tab 关掉之后它的目录**还在**,所以"那个已经关掉的 tab 当时干了什么"查得到。
+```bash
+grep '"tab":"t_7"'    /data/log.jsonl     # 某个 tab 干过什么
+grep '"kind":"tab"'   /data/log.jsonl     # tab 的生老病死
+grep '"ok":false'     /data/log.jsonl     # 失败的
+```
 
-**`seq` 仍然全局单调。** 每条记录都带,所以跨文件按 seq 归并就能还原全序 ——
-分文件是存储布局,不是把时间线切开。事件流用的是同一个计数器。
+**一行一条 JSON,就是为了这个。** 曾经想过按 tab 分文件(读一个 tab = 读一个文件),
+但在一万行的量级上筛一遍的成本可以忽略,而分文件要额外维护一套目录生命周期 ——
+不值。tab 数本来也有上限(§7)。
 
-### 3.2 `session.jsonl` —— 这个 session 的目录
+**`seq` 全局单调**,和事件流共用一个计数器,所以两边对得齐。
 
-**tab 的生老病死落在这儿**,不是只有一个转瞬即逝的 WS 事件:
+### 3.2 三类记录
+
+每条都有 `kind`,只有三种:
+
+| `kind` | 记什么 |
+| --- | --- |
+| `action` | **有人做了一件事** —— 点击、输入、导航、观测 |
+| `tab` | **tab 的生和死** —— 建了、关了、被挤掉了,带 `reason` 和 `final_url` |
+| `session` | **整个 session 的事** —— Chrome 崩了重拉、`reset` |
+
+**没有第四类。** 页面自己的变化(标题变了、loading 变了)不进日志 ——
+没有人"做"它们,它们只是事件(§5)。
 
 ```jsonc
-{ "seq": 118, "at": "...", "kind": "tab", "event": "opened",
-  "tab": "t_7", "url": "https://help.example.com", "title": "帮助中心",
-  "reason": "link_target_blank", "opener": "t_3", "user": "human" }
-
-{ "seq": 402, "at": "...", "kind": "tab", "event": "closed",
-  "tab": "t_7", "final_url": "https://help.example.com/ticket/9", "user": "api" }
-
-{ "seq": 511, "at": "...", "kind": "session", "event": "chrome_restarted", "restarts": 1 }
+{ "seq": 118, "kind": "tab", "event": "opened", "tab": "t_7",
+  "url": "https://help.example.com", "reason": "link_target_blank", "user": "human" }
+{ "seq": 402, "kind": "tab", "event": "closed", "tab": "t_7",
+  "final_url": "...", "reason": "evicted" }
+{ "seq": 511, "kind": "session", "event": "chrome_restarted", "restarts": 1 }
 ```
 
-问"这个 tab 什么时候建的、谁建的、活了多久、关的时候停在哪",**读这一个文件就够了**。
-
-它**不做环形截断** —— 每个 tab 才两行,开关十万个 tab 也就十来 MB。
-目录比细节活得久:tab 的 `log.jsonl` 可能已经被清掉了,但"它存在过"这件事一直在。
+问"这个 tab 什么时候建的、谁建的、活了多久、关的时候停在哪",
+`grep '"kind":"tab"'` 就够了。
 
 ### 3.3 每条动作记录
 
 ```jsonc
-// /data/tabs/t_3/log.jsonl 里的一条
+// /data/log.jsonl 里的一条
 { "seq": 42, "at": "14:22:03", "kind": "action", "tab": "t_3",
   "action": "click", "target": { "text": "登录" },
   "hit": { "role": "button", "name": "登录", "bbox": [820,612,140,40] },
   "ok": true, "ms": 412,
   "after": { "url": "/login", "changed": "出现『请输入手机号』" },
-  "shot": "shots/0042.webp",          // 相对本 tab 目录
+  "shot": "shots/0042.webp",          // 按 seq 命名
   "user": "claudecode", "note": null }
 ```
 
@@ -164,7 +164,7 @@ GET /api/events            (WS)
 
 ```bash
 curl localhost:7900/api/log > log.jsonl                    # 全部,按 seq 归并
-curl 'localhost:7900/api/log?tab=t_7' > t_7.jsonl          # 一个 tab,直接读文件
+curl 'localhost:7900/api/log?tab=t_7' > t_7.jsonl          # 一个 tab
 curl 'localhost:7900/api/log?kind=tab' > lifecycle.jsonl   # 只要 tab 的生老病死
 curl localhost:7900/api/log/bundle > bundle.zip            # 日志 + 截图 + 离线 HTML
 curl 'localhost:7900/api/log/bundle?tab=t_7' > t_7.zip     # 打包一个 tab 的目录
@@ -179,20 +179,17 @@ curl 'localhost:7900/api/log/bundle?tab=t_7' > t_7.zip     # 打包一个 tab �
 | | 限额 | 超了怎么办 |
 | --- | --- | --- |
 | **同时开着的 tab** | `WEBMUXD_TAB_MAX` 个(默认 10) | **挤掉最不活跃的那个**(LRU) |
-| 每个 tab 的 `log.jsonl` | `WEBMUXD_LOG_LIMIT` 条(默认 500) | 环形截断,老的连截图一起删 |
-| 已关闭 tab 的目录 | `WEBMUXD_TAB_KEEP` 个(默认 50) | 整个目录删掉 |
-| `session.jsonl` | 不截断 | —— |
+| **日志条数** | `WEBMUXD_LOG_LIMIT` 条(默认 5000) | **切一刀**:改名 `log.1.jsonl`,开新的;只留上一刀 |
 
-**三层是同一个形状**:有界、老的先走、不做归档 —— 就是 `history-limit` 那套,
-只不过分别作用在 tab、条目、目录上。
+所以在线记录**永远在 5000~10000 条之间**,按每条 ~100KB 截图算,磁盘约 1GB 封顶。
+切掉那一刀时,它那批 seq 的截图一起删。
+
+**两层是同一个形状**:有界、老的先走、不做归档 —— 就是 `history-limit` 那套。
 
 ### 为什么 tab 也要有上限
 
-上一节那个磁盘账 `500 条 × ~100KB × 活着的 tab` **只有在 tab 数有界时才封得住**。
-内存那边更直接:每个活着的 tab 是一个渲染进程。
-
-而**没有上限时最容易失控的恰恰不是人**,是:页面自己 `window.open` 一串
-(而我们还把 popup 全转成了 tab,[07](07-popup-windows.md))、
+内存那边很直接:每个活着的 tab 是一个渲染进程。而**最容易失控的恰恰不是人**,
+是页面自己 `window.open` 一串(而我们还把 popup 全转成了 tab,[07](07-popup-windows.md))、
 或者一个 agent 循环里每轮开一个新 tab 忘了关。
 
 LRU 而不是 FIFO,是因为**先开的不等于最没用的** —— 一个开着不动的登录态 tab
@@ -202,20 +199,10 @@ LRU 而不是 FIFO,是因为**先开的不等于最没用的** —— 一个开�
 - **正在跑动作的不挤**(会让那个动作变成一半)
 - **先建后挤**(新建的不会被自己挤掉)
 
-**它的记录活得比它久。** 被挤掉的 tab 目录照样按 `WEBMUXD_TAB_KEEP` 保留,
-`session.jsonl` 里那两行永不删 —— 所以"那个被挤掉的 tab 当时在干什么"查得到,
-`final_url` 也在,想恢复自己重开。
-
 **这条会咬人**:脚本手里的句柄可能在它脚下死掉。所以事件、日志、异常三处
 **都标 `reason: "evicted"`**,不会让你以为是自己关的
-([api/tabs.md §3](../api/tabs.md#3-写))。
-
-**`WEBMUXD_LOG_LIMIT` 现在是每 tab 的**,不是全局的 —— 这是 §3.1 那次拆分的直接后果,
-也正是 tmux `history-limit` 的语义。配上 tab 上限,磁盘就封住了:
-`500 条 × ~100KB × (10 + 50) ≈ 3GB` 封顶。
-
-删掉一个已关闭 tab 的目录之后,`session.jsonl` 里它那两行**还在** ——
-你仍然知道它存在过、什么时候关的、关的时候停在哪,只是逐步的动作没了。
+([api/tabs.md §3](../api/tabs.md#3-写))。被挤掉的 tab 的记录还在日志里,
+`final_url` 也在,想恢复自己重开 —— 直到那一刀切走。
 
 **这是 tmux 的 `history-limit`,不是归档。** 真要长期留就自己定时拉 `/api/log`,
 或者 `bundle` 下来。
