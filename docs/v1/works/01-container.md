@@ -5,17 +5,23 @@
 ```
 ┌─ session 容器 (webmuxd/operator) ────────────────────────────┐
 │                                                             │
-│   :7900  nginx ──┬─ /        查看页面                       │
-│                  ├─ /vnc/    → KasmVNC   :6901              │
-│                  └─ /api/    → sessiond  :7070              │
+│  :7900 ─► sessiond ─┬─ /       查看页面(静态)             │
+│                     ├─ /api/   自己处理                     │
+│                     ├─ /vnc/   ──转发──► KasmVNC :6901      │
+│                     │                        ▲              │
+│                     │                        │ X11          │
+│                     └───────CDP───────► Chrome (headful,    │
+│                                         127.0.0.1:9222)     │
 │                                                             │
-│   sessiond ──CDP──► Chrome (headful, 127.0.0.1:9222)        │
-│      │                  │                                   │
-│      │                  └─ X11 ─► KasmVNC ─► 人的鼠标键盘   │
-│      └─ 操作日志 → /data/log.jsonl + /data/shots/           │
-│                                                             │
+│  操作日志 → /data/log.jsonl + /data/shots/                  │
 └─────────────────────────────────────────────────────────────┘
+
+   人的鼠标键盘 ──► :7900/vnc/ ──► sessiond ──► KasmVNC ──► X11 ──► Chrome
+                                     └─ 顺手 tee 出「人动了」(见 06)
 ```
+
+**没有 nginx。** sessiond 自己就是那个门:静态页面、API、以及把 `/vnc/` 转给 KasmVNC。
+理由见 §1.1。
 
 上面是**一个 session**。`webmuxd`(server)在外面管着若干个这样的容器,
 见 [05](05-server-session-runtime.md)。
@@ -25,10 +31,49 @@
 
 | 内部端口 | 用途 | 是否出容器 |
 | --- | --- | --- |
-| 7900 | nginx,唯一入口 | ✅ |
-| 6901 | KasmVNC | ❌ 只经 nginx |
-| 7070 | sessiond | ❌ 只经 nginx |
+| 7900 | **sessiond,唯一入口** | ✅ |
+| 6901 | KasmVNC | ❌ 只经 sessiond |
 | 9222 | Chrome CDP | ❌ 锁 `127.0.0.1`,永不出容器 |
+
+### 1.1 为什么不用 nginx,也不把 KasmVNC 直接暴露
+
+三个候选:
+
+| | 跳数 | 端口/session | share 链接的凭证 | 人的输入 sessiond 看得见吗 |
+| --- | --- | --- | --- | --- |
+| nginx 转发 | 2 | 1 | 一套 | ❌ 得再加一跳才行 |
+| **sessiond 转发** | **2** | **1** | **一套** | **✅ 免费** |
+| KasmVNC 直接暴露 | 1 | **2** | **两套**,见下 | ❌ |
+
+**"KasmVNC 直接对外"最省一跳,代价是凭证变两套。**
+
+KasmVNC 本身**就支持同一个端口上多个观看者,也有只读权限的概念** —— 画面确实能被它
+自己挡成只读,不需要我们代劳。差价不在"能不能只读",在**凭证形态**:
+
+| | `webmuxd share` 要的 | KasmVNC 给的 |
+| --- | --- | --- |
+| 形态 | 一次性 token,塞在 URL 的 `?t=` 里 | 用户 + 口令 |
+| 过期 | `--ttl 1h`,到点自己失效 | 持久,得手动删 |
+| 管的范围 | **画面 + API 一起** | 只有画面 |
+
+要对上就得:每签一个链接建一个临时 KasmVNC 用户、到点再删,而且外人还得**同时**被两边
+放行(画面归 KasmVNC,API 归我们的 token)。一个链接两套凭证、两处过期 ——
+而"默认只读、`--writable` 才可写"是抄 ttyd 的核心特性
+([05](05-server-session-runtime.md)),它最不该有第二个失效路径。
+
+附带还有:一个 session 从一个端口变两个(API 得自己再找一个,而"一个 session 一个端口"
+已经是硬约束),以及查看页面和 API 跨域。
+
+**那为什么不是 nginx?** 因为 sessiond 反正要在门口收 API,让它顺手转发 `/vnc/`,
+跳数和 nginx 一样,却少一个进程、少一份配置,而且**人在 VNC 里的输入就从它眼前过** ——
+[06 §3.2](06-sync-paths.md) 要的那个 tee 变成免费的,不用为它单独加一跳。
+
+所以选它不是因为"直接暴露不行",而是因为**一个端口、一个 origin、一套凭证、tee 白得**
+这四样凑在一起,压过了省下的那一跳。
+
+**唯一的代价**是 Python 转发 framebuffer 流量的开销。这是个实测题,见 [06 §6](06-sync-paths.md#6-待实测);
+真扛不住的退路是把 server→client 那个方向交给内核转发,只留 client→server 的输入过 sessiond
+—— 输入那个方向本来就只有鼠标键盘,小得可以忽略。
 
 ## 2. 起容器
 
@@ -58,8 +103,7 @@ FROM kasmweb/chrome:${KASM_CHROME_TAG}
 
 USER root
 COPY dist/sessiond    /opt/webmuxd/sessiond
-COPY web/           /opt/webmuxd/web/        # 查看页面(纯静态)
-COPY nginx.conf     /etc/nginx/conf.d/webmuxd.conf
+COPY web/           /opt/webmuxd/web/        # 查看页面(纯静态,sessiond 自己发)
 COPY startup.sh     /dockerstartup/custom_startup.sh
 RUN /opt/webmuxd/sessiond/bin/pip install -r /opt/webmuxd/sessiond/requirements.txt \
  && mkdir -p /data/shots && chown -R 1000:1000 /data /opt/webmuxd \
@@ -67,7 +111,7 @@ RUN /opt/webmuxd/sessiond/bin/pip install -r /opt/webmuxd/sessiond/requirements.
 
 USER 1000
 EXPOSE 7900
-HEALTHCHECK --interval=10s --start-period=25s CMD curl -fsS localhost:7070/healthz || exit 1
+HEALTHCHECK --interval=10s --start-period=25s CMD curl -fsS localhost:7900/healthz || exit 1
 ```
 
 **要给 Chrome 加调试端口,根本不用改镜像。** kasm 的 `custom_startup.sh` 里有
@@ -105,7 +149,8 @@ docker run -e APP_ARGS="--remote-debugging-port=9222 \
 
 ```
 sessiond/
-├── server.py     HTTP + WS(全部 API)
+├── server.py     HTTP + WS(静态页面 + 全部 API,唯一入口)
+├── vnc.py        /vnc/ 转发给 KasmVNC,顺手 tee 出人的输入(见 06)
 ├── browser.py    CDP 连接、动作执行
 ├── observe.py    AX 树 → 元素表 → 标注截图
 └── log.py        操作日志(append + 环形截断)
@@ -135,7 +180,7 @@ sessiond/
 | 情况 | 行为 |
 | --- | --- |
 | Chrome 崩溃 | sessiond 检测到 CDP 断开,**自动重启 Chrome**(profile 还在,页面丢失),日志记一条 `chrome_restarted` |
-| sessiond 崩溃 | supervisor 拉起,Chrome 不受影响 |
+| sessiond 崩溃 | supervisor 拉起,Chrome 不受影响。**但门也没了** —— 画面和 API 一起断,直到它起来 |
 | 容器 OOM | 容器退出;挂了卷的话 profile 和日志还在,`docker start` 回来 |
 
 没有"unhealthy 状态机",没有 draining。崩了就重启,该丢的丢,像 tmux 里某个 pane 的进程死了一样。

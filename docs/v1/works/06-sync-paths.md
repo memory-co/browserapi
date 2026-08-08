@@ -106,8 +106,9 @@ v1 接受这个不一致 —— 修它得去模拟 `Ctrl+Shift+PgUp/PgDn`,不值
 
 ## 3. OUT —— 状态怎么出来
 
-人在画面里点了一下,输入是 **VNC → X → Chrome** 直接进去的,**sessiond 不在这条链路上**。
-所以状态只能事后抓。三个来源,各管一摊:
+人在画面里点了一下,输入是 **VNC → X → Chrome** 进去的。sessiond 虽然在转发这条 websocket,
+但它看到的只是**协议层的坐标和按键**,不是"页面里发生了什么" ——
+点中了哪个元素、跳到哪个 URL、开了几个 tab,还得另外抓。三个来源,各管一摊:
 
 | 字段 / 事件 | 来源 |
 | --- | --- |
@@ -164,17 +165,20 @@ Page.addScriptToEvaluateOnNewDocument({ source, worldName: "webmuxd" })
 1. **相关性**:sessiond 知道自己刚派发了什么。注入脚本报上来的输入,
    如果落在"我刚发的那一下"的时间窗和坐标附近,就是 API 的;否则是人的。
    够用,但边界模糊。
-2. **VNC tee**(权威):人的输入本来就是以 VNC 协议消息的形式经过容器的。
-   让 `/vnc/` 这条 websocket **穿过 sessiond** 再到 KasmVNC,sessiond 就能旁路看到
-   `PointerEvent` / `KeyEvent`。这条不依赖页面、不依赖注入,PDF 预览页、
-   `about:blank`、任何页面都成立。
+2. **VNC tee**(权威):人的输入本来就是以 VNC 协议消息的形式经过容器的,
+   而 `/vnc/` 这条 websocket **本来就穿过 sessiond**([01 §1.1](01-container.md#11-为什么不用-nginx也不把-kasmvnc-直接暴露))
+   —— 它是容器里唯一的门。所以旁路看一眼 `PointerEvent` / `KeyEvent` 是**免费的**,
+   不用为它加任何一跳。这条不依赖页面、不依赖注入,PDF 预览页、`about:blank`、
+   任何页面都成立。
 
 `human.active` / `busy_human` 的让路窗口([api/README §5](../api/README.md#5-人在操作时的让路))
 以 **2** 为准;日志里"人点了什么"用 **1** 补上元素身份,
 拿不到就退回坐标(`👤 人点了 (612,340)`)。
 
-> **这条要改 [01](01-container.md) 的拓扑**:现在是 `nginx → KasmVNC`,
-> 要变成 `nginx → sessiond → KasmVNC`。代价是 VNC 流量多一跳转发。
+> 早先这里写的是"要多加一跳"——那是把 tee 加在 nginx **之上**。
+> 正确的做法是**替掉 nginx**:sessiond 反正要在门口收 API,让它顺手转发 `/vnc/`,
+> 跳数和原来的 `nginx → KasmVNC` 一样,却少一个进程,tee 白得。
+> 完整权衡(以及为什么不把 KasmVNC 直接暴露)见 [01 §1.1](01-container.md#11-为什么不用-nginx也不把-kasmvnc-直接暴露)。
 
 ### 3.3 特权页面被 ban 之后,这条路没有盲区
 
@@ -246,8 +250,10 @@ t3  lib 自己决定等不等   → SDK 不替你 sleep
 | --- | --- | --- | --- |
 | 1 | `worldName` 独立世界里能不能拿到 `visibilitychange` | 开一个 CSP 严格的站,切 tab 看有没有 `bindingCalled` | 退回主世界注入,CSP 站上失准 |
 | 2 | `Runtime.addBinding` 在 `worldName` 下的绑定时机 | 导航后立刻滚动,看第一条报不报得上来 | 每次 `Page.frameNavigated` 后补一次 `addBinding` |
-| 3 | VNC 穿 sessiond 转发的延迟代价 | 对比直连 KasmVNC 的手感 | 退回 §3.2 的相关性办法,精度差一点 |
+| 3 | **Python 转发 framebuffer 的开销** | 满屏视频跑一会儿,看 sessiond 的 CPU 和画面手感,和直连 KasmVNC 对比 | server→client 方向改内核转发,只留输入方向过 sessiond(输入只有鼠标键盘,可忽略) |
 | 4 | `Input.dispatchMouseEvent` 投给后台 target 是否真的不抢焦点 | 后台 tab 点一下,看画面动没动 | 后台动作改成先 activate 再点,并在日志标出来 |
 | 5 | `crop_top` 变化(书签栏、全屏)能不能被 `outerHeight-innerHeight` 及时抓到 | `Ctrl+Shift+B` 开书签栏 | 加一个低频轮询兜底 |
+
+| 6 | KasmVNC 的多用户 / 只读权限,能不能签出**带过期的一次性**凭证 | 翻 `kasmvncpasswd` 和它的用户管理接口 | 能的话,"直接暴露 KasmVNC" 重新变成选项,[01 §1.1](01-container.md#11-为什么不用-nginx也不把-kasmvnc-直接暴露) 那张表要重算 |
 
 前两条决定 OUT 路径成不成立,应该最先做。
