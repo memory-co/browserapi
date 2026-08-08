@@ -19,10 +19,15 @@ from webmuxd.errors import TabGone
 class Session:
     def __init__(self, id: str, api_url: str, *, vnc_url: str = "",
                  token: str | None = None, user: str = "api",
-                 owned: bool = False, manager: Any = None) -> None:
+                 owned: bool = False, manager: Any = None,
+                 vnc_login: dict | None = None) -> None:
         self.id = id
         self.api_url = api_url.rstrip("/")
         self.vnc_url = vnc_url
+        #: 人要用画面得先登录 —— KasmVNC 的用户名写死,密码是起的时候定的。
+        #: 拿不到就是空的(接管别人起的 session 时我们并不知道)。
+        self.vnc_user = (vnc_login or {}).get("vnc_user", "")
+        self.vnc_password = (vnc_login or {}).get("vnc_password", "")
         self.user = user
         self._t = Transport(self.api_url, token=token)
         self._manager = manager

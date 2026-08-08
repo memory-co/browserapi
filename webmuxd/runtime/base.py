@@ -40,7 +40,13 @@ class Handle:
 
     @property
     def vnc_url(self) -> str:
-        return f"http://127.0.0.1:{self.vnc_port}"
+        """没有画面时是空的 —— 装作有画面比没画面更糟。
+
+        KasmVNC 走的是自签名 https,所以 scheme 由 runtime 说了算。
+        """
+        if not self.vnc_port:
+            return ""
+        return f"{self.detail.get('vnc_scheme', 'http')}://127.0.0.1:{self.vnc_port}"
 
 
 class Runtime(Protocol):

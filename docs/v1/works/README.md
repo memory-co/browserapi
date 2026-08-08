@@ -41,7 +41,7 @@
 ## 60 秒上手
 
 ```bash
-docker run -d --name work -p 6901:6901 -p 7900:7900 webmuxd/operator:1.0
+docker run -d --name work -p 6901:6901 -p 7900:7900 webmuxd/kasm-chromium:0.1.0
 open http://localhost:6901        # 画面:看到 Chromium,可以直接用鼠标点
 ```
 

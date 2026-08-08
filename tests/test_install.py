@@ -81,7 +81,9 @@ def test_missing_docker_does_not_fail_the_whole_install(record_file, monkeypatch
 def test_a_failed_pull_is_recorded_not_fatal(record_file, monkeypatch):
     """拉不到镜像**不代表 docker 不能用** —— 记下来,别把整条命令判死。"""
     monkeypatch.setattr("webmuxd.cli.install.shutil.which", lambda _n: "/usr/bin/docker")
-    monkeypatch.setattr("webmuxd.cli.install._run", lambda args: "29.0.0")
+    # docker 在、版本问得到,但本机还没有那个镜像
+    monkeypatch.setattr("webmuxd.cli.install._run",
+                        lambda args: None if "inspect" in args else "29.0.0")
 
     class R:
         returncode, stdout, stderr = 1, "", "no such image"

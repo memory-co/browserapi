@@ -158,9 +158,15 @@ def cmd_new(args: argparse.Namespace) -> int:
                         token=os.environ.get("WEBMUXD_TOKEN"))
     reg.put(handle)
     _out(args, {"id": args.id, "api_port": handle.api_port,
-                "vnc_port": handle.vnc_port},
-         f"{args.id}  →  画面 {handle.vnc_url if handle.vnc_port else '(无)'}"
-         f"   API {handle.api_url}")
+                "vnc_port": handle.vnc_port,
+                "vnc_url": handle.vnc_url, "api_url": handle.api_url,
+                "vnc_user": handle.detail.get("vnc_user", ""),
+                "vnc_password": handle.detail.get("vnc_password", "")},
+         f"{args.id}  →  画面 {handle.vnc_url or '(无)'}   API {handle.api_url}")
+    if not args.json and handle.detail.get("vnc_password"):
+        # 密码是起的时候现生成的,**这是唯一会说出来的一次**
+        print(f"       登录 {handle.detail.get('vnc_user')} / "
+              f"{handle.detail['vnc_password']}   (自签名证书,浏览器会拦一下)")
     for note in handle.detail.get("notes") or []:
         print(f"  ⚠ {note}", file=sys.stderr)
     return 0

@@ -1,92 +1,119 @@
 # 跑一遍看看
 
-需要 docker。**别的什么都不用装** —— chromium 和 python 都在镜像里。
+```bash
+pip install webmuxd
+webmuxd install
+```
+
+`install` 只做一件正经事:**确认 docker 能用**,然后把底座
+`kasmweb/chromium` 拉下来、在上面 build 一层 `python + webmuxd`。
+第一次要几分钟(底座 4 GB 左右),之后再跑就是秒回。
+
+```console
+$ webmuxd install
+探测环境…
+  python      3.11.2                                   ✓
+  docker      29.7.2                                   ✓
+拉底座 kasmweb/chromium:1.18.0 …(4 GB 左右,第一次会久)
+build webmuxd/kasm-chromium:0.1.0 …(在底座上加 python + webmuxd)
+  ✓ 镜像就绪
+
+可用的 runtime:container  remote
+默认:container
+记录写到 /home/you/.webmuxd.json
+```
+
+## 起一个
+
+```console
+$ webmuxd new -s demo -p 7900 --vnc-port 6901 --runtime container
+demo  →  画面 https://127.0.0.1:6901   API http://127.0.0.1:7900
+       登录 kasm_user / SryefzYQ6lF4   (自签名证书,浏览器会拦一下)
+```
+
+**浏览器打开那个 https 地址,用打印出来的账号密码登进去** —— 你会看到一个
+完整的 Chromium 桌面,鼠标键盘直接能用。密码是这次启动现生成的,只说这一次。
+
+同时,代码从另一个口驱动**同一个浏览器**:
+
+```console
+$ webmuxd new-tab -t demo -u https://example.com
+✓ t_2  Example Domain
+
+$ webmuxd click -t demo "Learn more"
+✓ click → link "Learn more"  811ms
+  → https://www.iana.org/help/example-domains   出现『We provide a web service on t…』
+```
+
+第二条命令跑的时候盯着 VNC 那个窗口看 —— **页面会在你眼前跳过去。**
+这就是这东西的全部意义:人和代码看的是同一个画面,不是两份。
+
+```console
+$ webmuxd observe -t demo          # 喂给模型的元素表
+$ webmuxd log     -t demo          # 它都干了什么
+$ webmuxd kill    -t demo          # 收工
+```
+
+## 用库
+
+CLI 只是薄薄一层,**库才是主体**:
+
+```python
+from webmuxd import Webmuxd
+
+web  = Webmuxd(user="me")                                      # 空壳管理实例
+sess = web.session(id="demo", port=7900, vnc_port=6901,        # 一个浏览器
+                   runtime="container")
+print(sess.vnc_url, sess.vnc_user, sess.vnc_password)          # 人从这儿进去看
+
+tab = sess.open("https://example.com")                         # 一个页面
+tab.click("Learn more")                                        # 按人看得见的字操作
+print(tab.observe().as_prompt())
+```
+
+`session(id=...)` 是幂等的 —— 同一个 id 再调一次拿到同一个 session,不会起第二个。
+端口必须自己传,不会替你分配([sdk/session.md](docs/v1/sdk/session.md))。
+
+定位不到或者有歧义的时候,它**给候选而不是替你挑一个**:
+
+```python
+r = tab.act([{"type": "click", "text": "订单"}])
+r.ok          # False
+r.failed      # {'error': 'not_found', 'message': '「订单」 匹配到 2 个,不确定是哪个 …'}
+r.candidates  # [{'name': '提交订单', …}, {'name': '取消订单', …}]
+```
+
+## 不想开容器
+
+`runtime="process"` 直接在本机拉起 chromium,秒起,**但没有隔离**
+(页面跑在你自己机器上),而且**没有 Xvnc 就没有画面**。
+`examples/quickstart.py` 走的是这条,自带一个页面服务器,不联网:
 
 ```bash
 docker build -t webmuxd-dev -f docker/dev.Dockerfile docker/
 docker run --rm -v "$PWD":/src webmuxd-dev python /src/examples/quickstart.py
 ```
 
-大概 15 秒,你会看到:
+## 对外只有两个口
 
 ```
-① 管理实例 —— 空壳,不起任何浏览器
-② 起一个 session(一个 kasm/Chromium)  API :59667
-③ 开一个 tab  http://127.0.0.1:56069/
-   标题 '结算'   URL http://127.0.0.1:56069/
-   (这两个是读内存,没发请求)
-④ 按可见文字操作 —— 不用写选择器
-   命中 button '提交订单'   329ms
-   页面变化:出现『订单已提交』
-⑤ 有歧义时给候选,而不是替你挑一个
-   ok=False  not_found:「订单」 匹配到 2 个,不确定是哪个 —— 加 nth 或换个说法
-   候选:'提交订单'、'取消订单'
-⑥ 观测 —— 一次调用拿到喂给模型的全部东西
-   [1] textbox  "手机号" = "13800000000"
-   [2] button   "提交订单"
-   [3] button   "取消订单"
-   标注截图 6612 字节
-⑦ 回看它干了什么
-    10 claudecode type {'label': '手机号', 'text': '13800000000'} → 手机号
-    14 claudecode click {'text': '提交订单'} → 提交订单
-       出现『订单已提交』
-    18 claudecode click {'text': '订单'}  ✗ not_found
+        6901  KasmVNC ──→ 人
+        7900  webmuxd ──→ 代码
+        ──────────────────────────
+        9222  CDP     ──→ 出不去(只绑容器内 127.0.0.1)
 ```
 
-脚本在 [examples/quickstart.py](examples/quickstart.py),自带页面服务器,不联网。
-
-## 这四行是全部
-
-```python
-from webmuxd import Webmuxd
-
-web  = Webmuxd(user="claudecode")                   # 空壳管理实例
-sess = web.session(id="work", port=7900, runtime="process")   # 一个浏览器
-tab  = sess.open("https://example.com")             # 一个页面
-tab.click("提交订单")                                # 按人看得见的字操作
-```
-
-`session(id=...)` 是幂等的 —— 同一个 id 再调一次拿到同一个 session,
-不会起第二个浏览器。端口必须自己传,不会替你分配
-([sdk/session.md](docs/v1/sdk/session.md))。
-
-## 命令行
-
-同一套东西,CLI 也有:
-
-```bash
-docker run --rm -it -v "$PWD":/src webmuxd-dev sh
-cd /src
-python -m webmuxd install                    # 探一遍环境,记到 ~/.webmuxd.json
-python -m webmuxd new -s demo -p 7900 --runtime process
-python -m webmuxd new-tab -t demo -u https://example.com
-python -m webmuxd click  -t demo 确定
-python -m webmuxd observe -t demo
-python -m webmuxd log    -t demo
-python -m webmuxd kill   -t demo
-```
-
-## 关于画面
-
-**这个镜像里没有 Xvnc,所以只有 API 没有画面。** 它会明说:
-
-```
-⚠ 本机没有 Xvnc,这个 session 只有 API 没有画面 —— 人看不了,`vnc_url` 是空的
-```
-
-人能看着、能上手接管的那个镜像(`runtime="container"`)还没做
-—— 见 [works/01](docs/v1/works/01-container.md)。现在能验证的是
-**操作和观测这条链路本身是通的**。
+调试口一次都不映射出来 —— 能连上它就等于绕过 API 直接控浏览器。
+两个口都**只绑 `127.0.0.1`**;要放到公网上是上层的决定,不是我们的默认。
 
 ## 现在还缺什么
 
 不藏着,免得你以为跑通了就都有了:
 
-- kasm 生产镜像(有桌面、有 VNC、人机同屏)
 - `:7800` 那个管理进程(`/api/sessions`、按 id 反代)
-- `container` runtime 没在这台机器上验证过(dev 镜像里没有 docker)
 - 上传下载、favicon、一次性观看链接:文档里有,代码里还没有
 - CLI 的 `share` `rename` `move-tab` `start-server`
+- 人在 VNC 里动手时的让路(`human_yield`)只有骨架,没验过
 
 ## 跑测试
 

@@ -82,12 +82,17 @@ class Webmuxd:
                 t = Transport(api, token=self.token)
                 owned = True                # 这次真的建起来了 → with 退出时归我们关
 
+            # scheme 是 runtime 说了算的 —— KasmVNC 走自签名 https,
+            # 报成 http 的话人点过去是连不上的
+            handle = (self._handles.get(id) or (None, None))[1]
             vnc = ""
             if vnc_port:
-                vnc = f"http://{self.host}:{vnc_port}"
+                scheme = (handle.detail.get("vnc_scheme") if handle else None) or "http"
+                vnc = f"{scheme}://{self.host}:{vnc_port}"
             sess = Session(id, api, vnc_url=vnc,
                            token=self.token, user=user or self.user,
-                           owned=owned, manager=self)
+                           owned=owned, manager=self,
+                           vnc_login=(handle.detail if handle else None))
             self._live[id] = sess
             return sess
 

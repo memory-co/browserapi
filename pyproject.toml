@@ -1,9 +1,20 @@
 [project]
 name = "webmuxd"
 version = "0.1.0"
-description = "tmux + ttyd for a browser: a persistent Chrome you can watch and drive"
+description = "tmux + ttyd for a browser: a persistent Chromium you can watch and drive"
+readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
+authors = [{ name = "Twwy", email = "twwy.zh@gmail.com" }]
+keywords = ["browser", "automation", "chromium", "cdp", "vnc", "agent", "kasm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
 dependencies = [
     "websockets>=12.0",
     "aiohttp>=3.9",
@@ -11,6 +22,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.urls]
+Homepage = "https://github.com/memory-co/webmuxd"
+Source = "https://github.com/memory-co/webmuxd"
 
 [project.scripts]
 webmuxd = "webmuxd.cli.__main__:main"

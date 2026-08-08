@@ -99,28 +99,63 @@ def test_container_command_carries_what_the_docs_say(monkeypatch):
 
     def fake(args, **kw):
         seen.setdefault("calls", []).append(args)
-        if args[1] == "info":
-            return FakeRun()
+        if "NetworkSettings.Ports" in " ".join(args):
+            return FakeRun(out='{"7900/tcp":[{"HostPort":"7900"}]}')
         return FakeRun()
 
     monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
     monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: "/usr/bin/docker")
     monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: True)
 
-    impl = ContainerRuntime(image="webmuxd/operator:1.0")
+    impl = ContainerRuntime(image="webmuxd/kasm-chromium:0.1.0")
     h = impl.start("work", api_port=7900, vnc_port=6901,
                    viewport="1280x800", volume="webmuxd-work", token="t0k")
 
     run = next(a for a in seen["calls"] if a[1] == "run")
     joined = " ".join(run)
-    assert "-p 6901:6901" in joined and "-p 7900:7900" in joined, \
-        "两个口都要映射 —— 一个 session 两个端口"
+    assert "-p 127.0.0.1:6901:6901" in joined and "-p 127.0.0.1:7900:7900" in joined, \
+        "两个口都要映射,而且**只绑 127.0.0.1** —— 放出去是上层的决定"
     assert "--shm-size=1g" in joined, "少于 1G Chromium 会崩"
     assert "webmuxd.session=work" in joined, "没打 label,server 重启后认不回来"
-    assert "WEBMUXD_TOKEN=t0k" in joined
+    assert "VNC_PW=t0k" in joined, "token 就是 KasmVNC 的密码,拿着它的人能看画面"
     assert "webmuxd-work:/data" in joined
-    assert run[-1] == "webmuxd/operator:1.0"
+    assert run[-1] == "webmuxd/kasm-chromium:0.1.0"
     assert h.detail["container_id"] == "deadbeef"
+
+
+def test_the_cdp_port_never_leaves_the_container(monkeypatch):
+    """**对外只有两个口:KasmVNC 给人,webmuxd API 给代码。**
+
+    调试口一旦映射出去,任何能连上的人就绕过了 API 那层直接控浏览器。
+    """
+    seen = {}
+
+    class FakeRun:
+        def __init__(self, rc=0, out="deadbeef"):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    def fake(args, **kw):
+        seen.setdefault("calls", []).append(args)
+        if "NetworkSettings.Ports" in " ".join(args):
+            return FakeRun(out='{"7900/tcp":[{"HostPort":"7900"}]}')
+        return FakeRun()
+
+    monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
+    monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: "/usr/bin/docker")
+    monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: True)
+
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+
+    run = next(a for a in seen["calls"] if a[1] == "run")
+    published = [run[i + 1] for i, a in enumerate(run) if a == "-p"]
+    assert not any(":9222" in p for p in published), \
+        f"CDP 口被映射出去了:{published}"
+    # 但浏览器那边确实开着调试口,只是只在容器内 127.0.0.1 上
+    assert "--remote-debugging-port=9222" in " ".join(run)
+
+    # 而 sessiond 是 exec 进容器里起的 —— 它和 Chromium 同一个 netns
+    assert any(a[1] == "exec" and "webmuxd.serve" in " ".join(a)
+               for a in seen["calls"]), "sessiond 没起在容器里"
 
 
 def test_container_discover_parses_published_ports(monkeypatch):
@@ -185,3 +220,21 @@ def test_manager_starts_a_session_that_is_not_there_yet():
         web.shutdown()          # process 的跟着死
     time.sleep(0.5)
     assert port_free(api), "shutdown 之后端口还占着 —— 进程没清干净"
+
+
+# ------------------------------------------------------------- 加料镜像
+
+def test_the_image_is_kasm_plus_a_pinned_webmuxd():
+    """底座是 kasm 官方的,我们只加 python + webmuxd。
+
+    **版本要钉死** —— 镜像里的 sessiond 和外面的库说的是同一套协议,
+    浮动版本等于让它们哪天悄悄对不上。
+    """
+    from webmuxd.runtime.container import BASE_IMAGE, dockerfile
+
+    df = dockerfile("0.1.0")
+    assert df.startswith(f"FROM {BASE_IMAGE}")
+    assert "kasmweb/chromium" in BASE_IMAGE, "桌面那一半不自己造"
+    assert 'webmuxd==0.1.0' in df, "没钉版本"
+    assert "USER 1000" in df.splitlines()[-2:][0] or df.rstrip().endswith("USER 1000"), \
+        "build 完要切回 kasm 那个非 root 用户"

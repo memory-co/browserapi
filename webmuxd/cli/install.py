@@ -16,7 +16,7 @@ import sys
 from typing import Any
 
 from webmuxd import env
-from webmuxd.runtime.container import IMAGE
+from webmuxd.runtime.container import BASE_IMAGE, IMAGE, ContainerRuntime
 from webmuxd.runtime.process import CHROMIUM_NAMES, VNC_NAMES
 
 OK, WARN, BAD = "✓", "⚠", "✗"
@@ -65,22 +65,36 @@ def _container(image: str, pull: bool, say) -> dict[str, Any]:
                 "why": "docker daemon 没起来,或者当前用户没权限"}
     say(f"  {'docker':<11} {ver:<40} {OK}")
 
-    info: dict[str, Any] = {"ok": True, "docker": docker, "image": image}
+    info: dict[str, Any] = {"ok": True, "docker": docker, "image": image,
+                            "base_image": BASE_IMAGE}
     if not pull:
         info["image_pulled"] = _has_image(docker, image)
         return info
+    if _has_image(docker, image):
+        say(f"  {'镜像':<11} {image:<40} {OK} 已经有了")
+        info["image_pulled"] = True
+        return info
 
-    say(f"拉镜像 {image} …")
-    r = subprocess.run([docker, "pull", image], capture_output=True, text=True)
+    # 底座是 kasm 官方的,拉;加料层是我们的,**本地 build,不推仓库** ——
+    # 就两条 RUN,没必要为它维护一个 registry。
+    say(f"拉底座 {BASE_IMAGE} …(4 GB 左右,第一次会久)")
+    r = subprocess.run([docker, "pull", BASE_IMAGE], capture_output=True, text=True)
     if r.returncode != 0:
         # **拉不到不代表 docker 不能用** —— 记下来,别把整条命令判死
         why = r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "拉取失败"
         say(f"  {WARN} 拉不到:{why[:80]}")
         info["image_pulled"] = False
         info["image_why"] = why[:200]
-    else:
-        info["image_pulled"] = True
+        return info
+
+    say(f"build {image} …(在底座上加 python + webmuxd)")
+    ok, err = ContainerRuntime(image=image, docker=docker).build(_version())
+    info["image_pulled"] = ok
+    if ok:
         say(f"  {OK} 镜像就绪")
+    else:
+        say(f"  {WARN} build 失败:{err.strip().splitlines()[-1][:80] if err.strip() else ''}")
+        info["image_why"] = err[:400]
     return info
 
 

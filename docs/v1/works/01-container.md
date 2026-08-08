@@ -3,7 +3,7 @@
 ## 1. 一张图
 
 ```
-┌─ session 容器 (webmuxd/operator) ────────────────────────────┐
+┌─ session 容器 (webmuxd/kasm-chromium) ───────────────────────┐
 │                                                             │
 │  :6901 ─► KasmVNC ──── X11 ────┐                            │
 │                                │                            │
@@ -46,57 +46,72 @@ sessiond 认 `WEBMUXD_TOKEN`,没别的。
 
 ## 2. 起容器
 
+这是 `runtime="container"` 实际拼出来的命令:
+
 ```bash
-docker run -d --name work \
-  -p 7900:7900 -p 6901:6901 \
-  --shm-size=1g \                       # 少于 1G Chromium 会崩
-  -e WEBMUXD_TOKEN=changeme \              # 不设则不鉴权(仅限本机玩)
-  -e WEBMUXD_VIEWPORT=1280x800 \
-  -v webmuxd-work:/data \                  # 想保住登录态就挂卷
-  webmuxd/operator:1.0
+docker run -d --name webmuxd-work \
+  --label webmuxd.session=work \
+  --shm-size=1g \                              # 少于 1G Chromium 会崩
+  -p 127.0.0.1:6901:6901 \                     # KasmVNC —— 给人
+  -p 127.0.0.1:7900:7900 \                     # webmuxd API —— 给代码
+  -e VNC_PW=<token> \
+  -e LAUNCH_URL=https://example.com \
+  -e APP_ARGS="--remote-debugging-port=9222 --start-maximized --window-size=1280,800" \
+  -v webmuxd-work:/data \                      # 想保住登录态就挂卷
+  webmuxd/kasm-chromium:0.1.0
 ```
 
-| 环境变量 | 默认 | 说明 |
+**前三个环境变量是 kasm 自己的,不是我们发明的** —— 用它现成的,
+就不用碰它的启动脚本([§3](#3-镜像))。
+
+| 环境变量 | 谁的 | 说明 |
 | --- | --- | --- |
-| `WEBMUXD_TOKEN` | 空 | 设了则页面和 API 都要这个 token |
-| `WEBMUXD_VIEWPORT` | `1280x800` | 屏幕分辨率 = 视口 |
-| `WEBMUXD_START_URL` | `about:blank` | 启动打开的页面 |
-| `WEBMUXD_PROXY` | 空 | Chromium 走的代理 |
-| `WEBMUXD_TAB_MAX` | `10` | 同时最多几个 tab,超了挤掉最不活跃的 |
-| `WEBMUXD_LOG_LIMIT` | `5000` | 日志满多少条切一刀(像 tmux 的 `history-limit`) |
-| `WEBMUXD_HUMAN_YIELD` | `3000` | 人在 VNC 里动过之后,API 让路多少毫秒 |
-| `WEBMUXD_VIEW_TOKEN` | 空 | 只读 token:能看画面、能读 `GET`,写操作一律 `403` |
+| `VNC_PW` | kasm | KasmVNC 的密码,用户名固定 `kasm_user`。这就是"拿着 token 的人能用" |
+| `LAUNCH_URL` | kasm | 启动打开的页面 |
+| `APP_ARGS` | kasm | 直接拼到 Chromium 命令行 —— 调试端口从这儿进去 |
+| `WEBMUXD_TAB_MAX` | 我们 | 同时最多几个 tab,超了挤掉最不活跃的 |
+| `WEBMUXD_LOG_LIMIT` | 我们 | 日志满多少条切一刀(像 tmux 的 `history-limit`) |
+| `WEBMUXD_HUMAN_YIELD` | 我们 | 人在 VNC 里动过之后,API 让路多少毫秒 |
+
+**端口只绑 `127.0.0.1`。** 要放出去是上层的决定,不该是我们的默认 ——
+这东西一旦对公网开着,拿到 VNC 密码就等于拿到一个已登录的浏览器。
 
 ## 3. 镜像
 
+**只有两条 RUN。** 底座已经是个能用的桌面了,我们不重复造:
+
 ```dockerfile
-ARG KASM_TAG=1.18.0                 # 锁 tag,别用 latest
-FROM kasmweb/chromium:${KASM_TAG}   # Chromium,不是 Chromium —— 见下
-
+FROM kasmweb/chromium:1.18.0        # 锁 tag,别用 latest
 USER root
-COPY dist/sessiond    /opt/webmuxd/sessiond
-COPY startup.sh     /dockerstartup/custom_startup.sh
-RUN /opt/webmuxd/sessiond/bin/pip install -r /opt/webmuxd/sessiond/requirements.txt \
- && mkdir -p /data/shots && chown -R 1000:1000 /data /opt/webmuxd \
- && chmod +x /dockerstartup/custom_startup.sh
-
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-pip \
+ && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir "webmuxd==0.1.0"
 USER 1000
-EXPOSE 7900
-HEALTHCHECK --interval=10s --start-period=25s CMD curl -fsS localhost:7900/healthz || exit 1
 ```
+
+`webmuxd install` 在本机 build 它,**不推 registry** —— 两条 RUN 不值得
+为它维护一个仓库,而版本钉死意味着谁 build 出来都是同一个。
+
+**没有 `COPY startup.sh`,也没有 `HEALTHCHECK`。** 镜像里不启动 sessiond ——
+容器起来之后由 runtime `docker exec` 进去起([§4](#4-sessiond))。
+镜像因此是"死"的:只有一个装好的包,没有我们的启动逻辑,
+出问题的时候你查的是 `docker exec` 那条命令,不是镜像层。
 
 **要给 Chromium 加调试端口,根本不用改镜像。** kasm 的 `custom_startup.sh` 里有
-`ARGS=${APP_ARGS:-$DEFAULT_ARGS}`,环境变量直接注入(实测于 `kasmweb/chromium:1.18.0`):
-
-```bash
-docker run -e APP_ARGS="--remote-debugging-port=9222 \
-                        --remote-debugging-address=127.0.0.1 \
-                        --disable-infobars --disable-session-crashed-bubble" ...
-```
+`ARGS=${APP_ARGS:-$DEFAULT_ARGS}`,环境变量直接注入。
 
 > **基座实测(2026-08-08,`kasmweb/chromium:1.18.0`)**
 > - `/dockerstartup/custom_startup.sh` 存在,权限 777
-> - `APP_ARGS` 环境变量可注入 Chromium 参数,**不用重建镜像**
+> - 注入参数的变量叫 **`APP_ARGS`**,不是 `CHROME_ARGS` —— 后者写了没用,
+>   会被静默忽略,容易以为生效了
+> - `LAUNCH_URL` 是启动页,`VNC_PW` 是 KasmVNC 密码(用户名 `kasm_user`)
+> - **`--remote-debugging-address` 已经不起作用**:给了 `0.0.0.0` 也照样只绑
+>   容器内 `127.0.0.1:9222`(实测 `/proc/net/tcp` 为 `0100007F:2406`)。
+>   这反而是我们要的 —— 调试口天然出不去
+> - `/dockerstartup/kasm_post_run_*.sh` 这几个 hook **在独立镜像里根本不触发**
+>   (只有 Kasm Workspaces 平台会调),所以别指望用它自启 sessiond
+> - **镜像里没有 pip**(有 python3.10,但 `ensurepip` 也没有),要 `apt install python3-pip`
 > - `custom_startup.sh` 有 `while true` 循环,Chromium 挂了会自动重拉
 > - `/dockerstartup/maximize_window.sh` **每 ~10 秒把窗口重新最大化**——
 >   任何在 X 层面挪窗口的做法都会被它撤销(见 [04 §5](04-chrome-ui-externalization.md))
@@ -106,7 +121,7 @@ docker run -e APP_ARGS="--remote-debugging-port=9222 \
 >
 > 换 tag 时复核这一段即可。
 
-**为什么是 Chromium 不是 Chromium。** Google Chrome 是专有软件,再分发受限;
+**为什么是 Chromium 不是 Chrome。** Google Chrome 是专有软件,再分发受限;
 我们要发一个镜像出去,捆 Chromium 就是许可问题。Chromium 是 BSD,随便发。
 
 代价是**专有编解码器**(H.264 / AAC)不在里面,所以有些站点的视频放不了。
@@ -122,19 +137,28 @@ docker run -e APP_ARGS="--remote-debugging-port=9222 \
 
 ## 4. sessiond
 
-容器里唯一自己写的进程,几百行的量级:
+容器里唯一自己写的进程:
 
 ```
-sessiond/
-├── server.py     HTTP + WS(全部 API)
-├── browser.py    CDP 连接、动作执行
-├── observe.py    AX 树 → 元素表 → 标注截图
-└── log.py        操作日志(append + 环形截断)
+webmuxd/serve/     app.py(路由) session.py(编排) __main__.py(入口)
+webmuxd/core/      cdp.py tabs.py locate.py act.py observe.py log.py shim.py
 ```
 
-底层用 **Playwright 的 `connect_over_cdp()`**,不裸写 CDP —— 等待可见/可点击、iframe、
-文件上传这些脏活它已经做对了。但 API 只暴露 webmuxd 自己的动作名,
-以后想换底层不影响调用方。
+**它跑在容器里,不在你机器上。** 起法是容器起来之后 exec 进去:
+
+```bash
+docker exec -d -u root <cid> bash -c \
+  'exec python3 -m webmuxd.serve --cdp http://127.0.0.1:9222 --port 7900 --data /data'
+```
+
+这样 sessiond 和 Chromium 在同一个 network namespace,**CDP 一步都不用出容器**。
+外面能碰到的只有 6901 和 7900 —— 这不是加固措施,是拓扑本身决定的。
+
+**不用 Playwright,直接 CDP。** 早先这里写的是 `connect_over_cdp()`。
+但我们要的东西它恰好不给或要绕:`Target.setDiscoverTargets` 的原始事件、
+`targetInfo.openerId`、自己决定 attach 时机 —— 而且它会建自己的 tab 模型,
+和我们的 tab 表打架([works/06](06-tab-sync.md))。它擅长的自动等待,
+我们本来就要自己定义。
 
 ## 5. 状态存哪
 

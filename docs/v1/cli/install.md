@@ -25,17 +25,22 @@ $ webmuxd install
 探测环境…
   python      3.11.2                                    ✓
   docker      29.7.2                                    ✓
-  chromium    /usr/bin/chromium-browser (Chromium 139)  ✓
-  Xvnc        找不到                                     ⚠ process runtime 只有 API 没有画面
-拉镜像 webmuxd/operator:1.0 …                            ✓  (2.1 GB)
+拉底座 kasmweb/chromium:1.18.0 …(4 GB 左右,第一次会久)
+build webmuxd/kasm-chromium:0.1.0 …(在底座上加 python + webmuxd)
+  ✓ 镜像就绪
+  chromium    找不到                                     ⚠ process runtime 用不了
 
-可用的 runtime:container  process
+可用的 runtime:container  remote
 默认:container
 记录写到 ~/.webmuxd.json
 ```
 
 **它是幂等的。** 再跑一次就是重新探一遍 —— 所以"检查"和"安装"是同一个命令,
-不需要单独的 `doctor`。装过的不重复装,变了的更新记录。
+不需要单独的 `doctor`。**镜像已经在本机就直接跳过**,不重复拉也不重复 build。
+
+**加料层是本机 build 的,不从 registry 拉。** 底座 `kasmweb/chromium` 是 kasm 官方的,
+我们只在上面加 python + 一个钉死版本的 webmuxd([works/01 §3](../works/01-container.md#3-镜像))
+—— 两条 RUN,不值得为它维护一个仓库。
 
 **探不到的东西不让整条命令失败。** docker 不通就把 `container` 记成不可用**并写下原因**,
 剩下的照常。一个能用 `process` 的机器不该因为没装 docker 就装不上。
@@ -49,7 +54,8 @@ $ webmuxd install
   "webmuxd": "0.1.0",
   "runtimes": {
     "container": { "ok": true,  "docker": "/usr/bin/docker",
-                   "image": "webmuxd/operator:1.0", "image_pulled": true },
+                   "base_image": "kasmweb/chromium:1.18.0",
+                   "image": "webmuxd/kasm-chromium:0.1.0", "image_pulled": true },
     "process":   { "ok": true,  "chromium": "/usr/bin/chromium-browser",
                    "vnc": null,
                    "notes": ["没有 Xvnc —— 这种 session 只有 API 没有画面"] },
