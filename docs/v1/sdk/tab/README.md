@@ -16,7 +16,7 @@ print(tab.url, tab.title)
 | README.md(本文) | 拿句柄、读属性、生命周期 | `web.open` `web.tab` `web.tabs` `tab.url` … |
 | [navigate.md](navigate.md) | **走到哪** | `goto` `back` `forward` `reload` `stop` `activate` `close` `history` |
 | [input.md](input.md) | **往里做** | `click` `type` `key` `select` `check` `scroll` `upload` `wait_for` `js` `act` |
-| [read.md](read.md) | **往外看** | `observe` `text` `screenshot` `extract` |
+| [read.md](read.md) | **往外看** | `observe` `screenshot` `text` `extract` |
 
 日志是整个 session 的,不在 tab 下 —— 见 [../log.md](../log.md)。
 
@@ -79,13 +79,16 @@ tab 被关掉之后,句柄上的**属性还能读**(最后一次的值),但**任
 
 ## 4. 跨 tab
 
-句柄互相独立,对**非激活** tab 操作是可以的:
+句柄互相独立。**输入类**的动作对非激活 tab 直接可用:
 
 ```python
 web.tab("t_7").click("确认")      # 人在画面上看不见,日志里标 background: true
 ```
 
 CDP 的输入投递给 target,不走屏幕焦点。但 VNC 画面只显示激活的那个。
+
+**要像素就不行** —— Chrome 不渲染后台 tab,所以 `observe()` / `screenshot()`
+会先把那个 tab 切到前台,画面会跳。见 [read.md §3](read.md#3-要像素就得切到前台)。
 
 ## 5. 新 tab 从哪来
 

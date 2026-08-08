@@ -103,6 +103,19 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
 [15] button  "删除"              (禁用)
 ```
 
+### 1.4 三个出图的地方
+
+| 端点 | 是什么 |
+| --- | --- |
+| `GET /api/screenshot?full_page=` | **现拍一张**,干净的 |
+| `GET /api/observe/{obs_id}/screenshot[?annotate=false]` | 那次观测拍的,默认**画了编号** |
+| `GET /api/log/{seq}/shot` | 每个动作后自动拍的,见 [log.md](log.md) |
+
+都直接返回图片字节,不是 JSON。
+
+`full_page` 拍的是整个滚动区域,**不是人在 VNC 画面上看到的东西** ——
+要"所见即所得"就别带它。
+
 ## 2. `POST /api/act` —— 做
 
 ```jsonc
@@ -182,7 +195,7 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
 | `drag` | `from`, `to` | |
 | `wait_for` | `text` / `css` / `url_contains` / `ms` | |
 | `extract` | 定位 + `mode`:`text`/`html`/`table`/`attr` | 取数据 |
-| `screenshot` | `full_page` | |
+| `screenshot` | `full_page` | 非激活 tab 会先被切到前台 |
 | `observe` | 同 §1 参数 | 在动作串中间插一次观测 |
 | `tab_new` / `tab_activate` / `tab_close` | `url` / `id` | **见 §5** |
 | `js` | `expression` | 逃生舱,日志标黄 |
@@ -242,8 +255,12 @@ tab 的增删和页面动作在这儿咬合。
 `$new` 这个占位符省掉了"先请求一次拿到 id 再发第二次请求"的往返。
 没有新 tab 时用 `$new` 会返回 `400 bad_request`。
 
-**对非激活 tab 操作是允许的**(CDP 输入投给 target,不走屏幕焦点),
+**对非激活 tab 的输入是允许的**(CDP 输入投给 target,不走屏幕焦点),
 但 VNC 画面只显示激活的那个,所以人看不见。这类动作在日志里标 `background: true`。
+
+**要像素的不行**:Chrome 不渲染后台 tab。`GET /api/observe`、`GET /api/screenshot`、
+以及动作串里的 `observe` / `screenshot` 指向非激活 tab 时,**先切前台再拍**,
+响应带 `activated: true`。见 [README §2](README.md#2-一条贯穿全局的规则tab-参数)。
 
 ## 6. 一个典型的循环
 

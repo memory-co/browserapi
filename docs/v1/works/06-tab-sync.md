@@ -208,6 +208,7 @@ v1 接受。
 | **重新 `setDiscoverTargets` 会不会把已存在的 target 各补一条 `targetCreated`** | 先开三个 tab,再重连 CDP,数收到几条 | 重连后**必须**用 `Target.getTargets` 重建全表,不能只靠事件 |
 | `Target.setAutoAttach{flatten}` 拿到的 session 上,`Page`/`Security` 事件是不是都推得到 | 开几个 tab,导航,看 `frameNavigated` / `securityStateChanged` 齐不齐 | 缺哪个就对哪个退回按需 `Runtime.evaluate` 取 |
 | `openerId` 在 `target=_blank` / `window.open` / `rel=noopener` 三种下分别给不给 | 三种各点一次 | 按 §2 那张表退 `unknown` |
+| **后台 target 的 `Page.captureScreenshot` 到底给什么** —— 空白?旧帧?还是挂住 | 开两个 tab,对后台那个截图 | 如果居然能拍到新帧,就不用"先切前台"那条规则了([api/README §2](../api/README.md#2-一条贯穿全局的规则tab-参数)) |
 
 第一条是"会不会漏"的底,先验它。另外两条是字段全不全,不影响这条路成不成立。
 

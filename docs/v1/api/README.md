@@ -52,9 +52,14 @@ GET  /api/observe?tab=t_7                           // 指定 tab
 
 Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 
-**对非激活 tab 的操作是可以的**——CDP 的输入投递给 target,不走屏幕焦点,
+**对非激活 tab 的输入是可以的**——CDP 的输入投递给 target,不走屏幕焦点,
 所以后台 tab 照样能点。但 VNC 画面只显示激活的那个,所以后台操作**人看不见**,
 日志里会标 `background: true`。
+
+**要像素的接口是例外。** Chrome 不渲染后台 tab,所以 `GET /api/observe` 和
+`GET /api/screenshot` 指向非激活 tab 时,sessiond **会先把它切到前台再拍**
+(响应里带 `activated: true`,并发一条 `tab.activated` 事件)。
+不这么做就只能拿到空白或上一帧,而"截图和人看到的画面对不上"是这东西最不能出的错。
 
 ## 3. 端点总表
 
@@ -79,7 +84,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | --- | --- | --- |
 | `GET` | `/api/observe` | **观测**:标注截图 + 元素表 + tab 列表 |
 | `POST` | `/api/act` | **执行动作**(单个或一串) |
-| `GET` | `/api/screenshot` | 截图 |
+| `GET` | `/api/screenshot` | 截图,`?full_page=` 要整页 |
 | `GET` | `/api/text` | 页面正文 |
 | `GET` | `/api/log` | 操作日志,详见 [log.md](log.md) |
 | `GET` | `/api/log/bundle` | 日志 + 截图 + 离线 HTML 的 zip |
