@@ -7,6 +7,9 @@
     tab  = sess.open("https://example.com")
 """
 
+from webmuxd.client import (  # noqa: F401
+    Webmuxd, Session, Tab, ActResult, Observation, Element,
+)
 from webmuxd.errors import (  # noqa: F401
     WebmuxdError,
     ActionError,
@@ -31,7 +34,8 @@ from webmuxd.errors import (  # noqa: F401
 )
 
 __version__ = "0.1.0"
-__all__ = ["__version__"] + [
+__all__ = ["__version__", "Webmuxd", "Session", "Tab", "ActResult",
+           "Observation", "Element"] + [
     "WebmuxdError", "ActionError", "PlatformError", "UsageError",
     "NotFound", "NotClickable", "Timeout", "NavFailed", "TabGone",
     "Busy", "BusyHuman", "ChromeGone", "SessionDead", "RuntimeUnavailable",

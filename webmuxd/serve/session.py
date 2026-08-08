@@ -165,6 +165,59 @@ class Session:
                           details={"reason": "closed"})
         return self.tabs.active
 
+    async def open_tab(self, url: str = "about:blank", *, activate: bool = True,
+                       wait: str = "load", timeout: float = 15.0):
+        """建 tab + 导航 + **等到页面可用**。
+
+        `POST /api/tabs {url}` 建完就返回的话,调用方紧接着 click 必然点空 ——
+        而"开个新标签页去某个网址"本来就是一件事(works/06 §1),
+        那就该像 `goto` 一样默认 `wait=load`。
+        """
+        tab = await self.tabs.open(url, activate=activate)
+        if wait != "none" and url and url != "about:blank":
+            with contextlib.suppress(Exception):
+                ex = await self.executor_for(tab.id)
+                await ex.run([{"type": "wait_for", "url_contains": "",
+                               "timeout_ms": 50}])
+                await self._wait_ready(tab.id, timeout)
+                await self.refresh_tab(tab.id)
+        return tab
+
+    async def refresh_tab(self, tab_id: str) -> None:
+        """从页面里把 url/title 拿准,不等 `targetInfoChanged`。
+
+        **响应要是权威的**:调用方拿到 201 就该能读 title,而不是再去等一条事件
+        (和"动作响应回灌内存"是同一条原则,sdk/README §3)。
+        """
+        sid = self._sessions.get(tab_id)
+        if not sid:
+            return
+        with contextlib.suppress(Exception):
+            r = await self.cdp.send(
+                "Runtime.evaluate",
+                {"expression": "JSON.stringify([document.title, location.href])",
+                 "returnByValue": True}, session_id=sid, timeout=5)
+            import json as _json
+            title, url = _json.loads(r["result"]["value"])
+            self.tabs.update(tab_id, title=title, url=url)
+
+    async def _wait_ready(self, tab_id: str, timeout: float) -> None:
+        sid = self._sessions.get(tab_id)
+        if not sid:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                r = await self.cdp.send(
+                    "Runtime.evaluate",
+                    {"expression": "document.readyState", "returnByValue": True},
+                    session_id=sid, timeout=5)
+                if r["result"].get("value") in ("interactive", "complete"):
+                    return
+            except Exception:
+                return
+            await asyncio.sleep(0.05)
+
     async def bring_to_front(self, tab_id: str) -> bool:
         """**要像素就得在前台。** 返回是否真的切了(响应里要说)。"""
         if self.tabs.active == tab_id:

@@ -1,0 +1,117 @@
+"""`Webmuxd` —— 管理实例(docs/v1/sdk/manager.md)。
+
+**`Webmuxd()` 是个空壳。** 构造它不起容器、不占端口、不跑任何浏览器 ——
+它只是"我要开始管 session 了"。**每 `session()` 一个新 id 才起一个 kasm。**
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+from typing import Any
+
+from webmuxd.client.session import Session
+from webmuxd.client.transport import Transport
+from webmuxd.errors import BadRequest, RuntimeUnavailable
+
+
+class Webmuxd:
+    def __init__(self, url: str | None = None, *, port: int | None = None,
+                 token: str | None = None, socket: str | None = None,
+                 name: str = "default", user: str = "api",
+                 host: str = "127.0.0.1") -> None:
+        self.user = user
+        self.host = host
+        self.token = token or os.environ.get("WEBMUXD_TOKEN") or None
+        #: 管理面自己的口 —— **和 session 的两个口无关**。
+        #: 不给就不占网络端口,管理走 socket、靠文件权限鉴权。
+        self.port = port
+        self.socket = socket
+        self.name = name
+        self._base = (url or (f"http://{host}:{port}" if port else None))
+        self._t = Transport(self._base, token=self.token) if self._base else None
+        self._live: dict[str, Session] = {}
+        self._lock = threading.Lock()
+
+    def __repr__(self) -> str:
+        where = self._base or f"socket:{self.name}"
+        return f"<Webmuxd {where} 管着 {len(self._live)} 个 session>"
+
+    # ------------------------------------------------------------------
+
+    def session(self, id: str, *, port: int | None = None,
+                vnc_port: int | None = None, runtime: str = "container",
+                user: str | None = None, **kw: Any) -> Session:
+        """拿一个 session。**幂等:同一个 id 永远给你同一个。**
+
+        没有 `create()` 也没有 `get()` —— "建"和"取"是同一件事,像 `tmux new -A -s`。
+
+        **端口必须你给,不自动分配**:端口是部署决定的,我们猜一个只会让你的
+        配置和实际对不上,而且一个 session 占两个口,自动分配还得替你猜第二个。
+        """
+        with self._lock:
+            have = self._live.get(id)
+            if have is not None:
+                # 同一个 id **返回同一个 Python 对象** —— 每个 Session 背后有一条 WS
+                # 和一份内存表,给两个就是两条连接、两份可能不一致的表。
+                if port is not None and have.api_url.endswith(f":{port}") is False:
+                    raise BadRequest(
+                        f"{id} 已经在 {have.api_url},和你给的 port={port} 对不上",
+                        code="bad_request")
+                return have
+
+            if port is None:
+                raise BadRequest(
+                    f"session {id!r} 还不存在,得给 port 和 vnc_port —— "
+                    "端口是部署决定的,我们不替你分配", code="bad_request")
+
+            api = f"http://{self.host}:{port}"
+            t = Transport(api, token=self.token)
+            if not t.alive():
+                raise RuntimeUnavailable(
+                    f"{api} 上没有在跑的 session,而 runtime={runtime!r} 的拉起还没接上",
+                    code="runtime_unavailable",
+                    details={"runtime": runtime,
+                             "hint": "先手工把 sessiond 起在那个端口上;"
+                                     "自动拉起要等 runtime 那一层"})
+            sess = Session(id, api,
+                           vnc_url=f"http://{self.host}:{vnc_port}" if vnc_port else "",
+                           token=self.token, user=user or self.user,
+                           owned=False, manager=self)
+            self._live[id] = sess
+            return sess
+
+    def sessions(self) -> list[Session]:
+        """这个管理实例手里的 session。
+
+        要列**这台机器上所有**的,得问管理面那个口 —— 那属于 runtime 那一层。
+        """
+        if self._t is not None:
+            try:
+                listing = self._t.get("/api/sessions")
+                return [self.session(s["id"], port=s.get("port"),
+                                     vnc_port=s.get("vnc_port"))
+                        for s in listing.get("sessions", [])]
+            except Exception:
+                pass
+        return list(self._live.values())
+
+    def kill(self, id: str) -> None:
+        sess = self._live.get(id)
+        if sess is not None:
+            sess.detach()
+        self._forget(id)
+
+    def _forget(self, id: str) -> None:
+        self._live.pop(id, None)
+
+    def info(self) -> dict:
+        if self._t is None:
+            return {"version": "0.1.0", "listen": None,
+                    "sessions": {"total": len(self._live)}}
+        return self._t.get("/api/server")
+
+    def shutdown(self) -> None:
+        for s in list(self._live.values()):
+            s.detach()
+        self._live.clear()

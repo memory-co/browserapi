@@ -166,8 +166,9 @@ async def h_tab_one(request: web.Request) -> web.Response:
 async def h_tab_new(request: web.Request) -> web.Response:
     s = _s(request)
     body = await _body(request)
-    tab = await s.tabs.open(body.get("url") or "about:blank",
-                            activate=body.get("active", True))
+    tab = await s.open_tab(body.get("url") or "about:blank",
+                           activate=body.get("active", True),
+                           wait=body.get("wait", "load"))
     out = tab.to_json(index=s.tabs.index_of(tab.id), active=tab.id == s.tabs.active)
     return _json(out, status=201)
 
