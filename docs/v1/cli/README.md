@@ -99,7 +99,8 @@ tab    new-tab  tabs  select-tab  kill-tab  move-tab
 set -g image        webmuxd/operator:1.0
 set -g port-base    7900
 set -g viewport     1280x800
-set -g log-limit    500
+set -g log-limit    500          # 每个 tab
+set -g tab-keep     50           # 已关闭 tab 留几个
 set -g human-yield  3000
 set -g runtime      container
 set -g attach-cmd   "firefox %u"      # %u = 观看 URL

@@ -18,7 +18,8 @@ print(tab.url, tab.title)
 | [input.md](input.md) | **往里做** | `click` `type` `key` `select` `check` `scroll` `upload` `wait_for` `js` `act` |
 | [read.md](read.md) | **往外看** | `observe` `screenshot` `text` `extract` |
 
-日志是整个 session 的,不在 tab 下 —— 见 [../log.md](../log.md)。
+这个 tab 自己的记录用 `tab.log()` / `tab.bundle()`(磁盘上就是一个文件),
+整个 session 的用 `web.log()` —— 见 [../log.md](../log.md)。
 
 ## 1. 拿句柄
 

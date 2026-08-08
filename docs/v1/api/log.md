@@ -8,8 +8,20 @@ Python 侧见 [sdk/log.md](../sdk/log.md),命令行见 [cli/log.md](../cli/log.m
 ## 1. 拉
 
 ```
-GET /api/log?limit=100&after=42&only=failed&user=claudecode&tab=t_3
+GET /api/log?limit=100&after=42&only=failed&user=claudecode&tab=t_3&kind=action
 ```
+
+| 参数 | 说明 |
+| --- | --- |
+| `limit` `after` | 分页,`after` 是 `seq` |
+| `tab` | 只要这个 tab 的 —— **落到磁盘上就是读一个文件**,不是过滤 |
+| `kind` | `action`(默认全给) / `tab`(生老病死) / `session`(chrome 重启、reset) |
+| `user` | 只看某个署名 |
+| `only` | `failed` 只看失败的 |
+
+不带 `tab` 时按 `seq` 归并所有 tab 的记录 + session 级记录,**全序是完整的** ——
+分文件是存储布局([works/03 §3.1](../works/03-view-and-log.md#31-一个-tab-一个文件)),
+不是把时间线切开。
 
 ```jsonc
 { "entries": [
@@ -37,8 +49,39 @@ GET /api/log?limit=100&after=42&only=failed&user=claudecode&tab=t_3
 
 不传 `note` 也能用,只是回看时少了最有用的一列。
 
-环形截断,保留 `WEBMUXD_LOG_LIMIT` 条(默认 500),老的连截图一起删。
-`GET /api/log/bundle` 打包成 zip,解开双击就能离线看。
+## 3. tab 的生老病死
+
+```
+GET /api/log?kind=tab
+```
+
+```jsonc
+{ "seq": 118, "kind": "tab", "event": "opened",  "tab": "t_7",
+  "url": "...", "title": "帮助中心", "reason": "link_target_blank",
+  "opener": "t_3", "user": "human" }
+{ "seq": 402, "kind": "tab", "event": "closed",  "tab": "t_7",
+  "final_url": "...", "user": "api" }
+```
+
+**这是持久的,不是事件流。** `tab.created` / `tab.closed` 事件是内存里最近 1000 条
+([events.md §1](events.md#1-信封)),重启就没了;这份落盘,而且**不截断** ——
+所以"那个已经关掉的 tab 什么时候建的、谁建的、关的时候停在哪"永远查得到
+([works/03 §3.2](../works/03-view-and-log.md#32-sessionjsonl--这个-session-的目录))。
+
+`GET /api/tabs` 只给**活着的** tab;要历史就查这里。
+
+## 4. 保留
+
+**每个 tab** 环形截断 `WEBMUXD_LOG_LIMIT` 条(默认 500),老的连截图一起删;
+已关闭 tab 的目录留最近 `WEBMUXD_TAB_KEEP` 个(默认 50)。
+`kind=tab` 那份**不截断**。
+
+```
+GET /api/log/bundle              # 全部
+GET /api/log/bundle?tab=t_7      # 一个 tab —— 打包它那个目录
+```
+
+zip 解开双击就能离线看。
 
 ## 2. `user` —— 署名,不是身份
 

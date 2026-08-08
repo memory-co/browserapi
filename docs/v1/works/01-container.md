@@ -64,7 +64,8 @@ docker run -d --name work \
 | `WEBMUXD_VIEWPORT` | `1280x800` | 屏幕分辨率 = 视口 |
 | `WEBMUXD_START_URL` | `about:blank` | 启动打开的页面 |
 | `WEBMUXD_PROXY` | 空 | Chrome 走的代理 |
-| `WEBMUXD_LOG_LIMIT` | `500` | 操作日志保留多少条(像 tmux 的 `history-limit`) |
+| `WEBMUXD_LOG_LIMIT` | `500` | **每个 tab** 保留多少条(像 tmux 的 `history-limit`) |
+| `WEBMUXD_TAB_KEEP` | `50` | 已关闭的 tab 留多少个目录,更老的整个删掉 |
 
 ## 3. 镜像
 
@@ -137,13 +138,19 @@ sessiond/
 | 内容 | 路径 | 挂卷后保留 |
 | --- | --- | --- |
 | Chrome profile(cookie / 登录态) | `/data/profile` | ✅ |
-| 操作日志 | `/data/log.jsonl` | ✅ |
-| 截图 | `/data/shots/` | ✅ |
+| **tab 的生老病死** | `/data/session.jsonl` | ✅ |
+| **每个 tab 的操作日志和截图** | `/data/tabs/<id>/log.jsonl` + `shots/` | ✅ |
 | 下载文件 | `/data/downloads/` | ✅ |
+
+**一个 tab 一个目录**,不是一个大 `log.jsonl` —— tmux 的 `history-limit` 是每个 pane 的,
+而且一个话痨 tab 不该把别的 tab 的历史挤掉。布局和保留策略见
+[03 §3.1](03-view-and-log.md#31-一个-tab-一个文件)。
 
 不挂卷 = 容器删了全没,跟 `tmux kill-server` 一样。想留就挂 `-v`。
 
-日志和截图按 `WEBMUXD_LOG_LIMIT` 环形截断,老的自动删,不会把磁盘撑爆 —— 就是 tmux 的 `history-limit`。
+**每个 tab** 的日志和截图按 `WEBMUXD_LOG_LIMIT` 环形截断,已关闭的 tab 目录留最近
+`WEBMUXD_TAB_KEEP` 个 —— 就是 tmux 的 `history-limit`,只不过和 tmux 一样是**按 pane 算的**。
+`session.jsonl` 不截断,它是目录,得比细节活得久([03 §7](03-view-and-log.md#7-保留))。
 
 ## 6. 崩了怎么办
 
