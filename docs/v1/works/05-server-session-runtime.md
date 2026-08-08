@@ -46,7 +46,7 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | **ttyd** `-p PORT` | server `:7800` / session `:6901`+`:7900` | |
 | **ttyd** 默认只读,`-W` 才可写 | `share` 默认只读,`--writable` 才可写 | 同款默认,见 §3.4 |
 | **ttyd** `-c user:pass` | `WEBMUXD_TOKEN` | |
-| **ttyd** `-b base-path` | `/s/<name>/` 代理路径 | |
+| **ttyd** `-b base-path` | `/s/<id>/` 代理路径 | |
 | **ttyd** `-t` 客户端选项 | 上层自己决定怎么裁、怎么画([04](04-chrome-ui-externalization.md)) | |
 | **ttyd** 一个进程一个命令 | 一个 session 一个浏览器 | |
 | **ttyd** `-m` 最大客户端 | 多人同看一个 session | |
@@ -270,23 +270,24 @@ webmuxd kill-server                                    # process 的死,containe
 from webmuxd import Webmuxd
 
 web  = Webmuxd()                                          # 管理实例,空壳
-sess = web.create()                                       # container(默认)
-sess = web.create(runtime="process")
-sess = web.create(runtime="remote", endpoint="https://browser.internal:7800")
+sess = web.session(id="work", port=7900, vnc_port=6901)   # container(默认)
+sess = web.session(id="dev",  port=7901, vnc_port=6902, runtime="process")
+sess = web.session(id="prod", runtime="remote",
+                   endpoint="https://browser.internal:7800")
 
 tab = sess.open("https://shop.example.com")
 tab.click("登录")
 ```
 
-**runtime 只在 `create()` 时出现一次,之后所有代码都一样。** 这是这层抽象的全部意义。
+**runtime 只在第一次 `session()` 时出现一次,之后所有代码都一样。** 这是这层抽象的全部意义。
 
 ### 三层概念,lib 里一个不少
 
 | | lib | CLI | api |
 | --- | --- | --- | --- |
 | **server** | `Webmuxd()` —— 空壳管理实例,`create` 之前不起任何东西 | 按需自启的 server | `/api/sessions` `/api/server` |
-| **session** | `Session` —— 一个 kasm 容器 | `-t NAME` | `/api/*`(session 内) |
-| **runtime** | `create(runtime=)`,之后不可见 | `--runtime` | `POST /api/sessions` 的字段 |
+| **session** | `Session` —— 一个 kasm 容器,`web.session(id=)` 拿 | `-t ID` | `/api/*`(session 内) |
+| **runtime** | `session(runtime=)`,之后不可见 | `--runtime` | `POST /api/sessions` 的字段 |
 
 **`Webmuxd()` 不占端口也不起浏览器** —— 给它 `port=` 才把管理面暴露出去,
 那对应的就是 `webmuxd server --listen`。不给就只走 socket,和 tmux 一样。

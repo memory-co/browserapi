@@ -4,8 +4,8 @@
 从 [`Webmuxd`](manager.md) 那儿拿:
 
 ```python
-sess = web.create(name="work")     # 新建一个
-sess = web.get("work")             # 拿已有的
+sess = web.session(id="work", port=7900, vnc_port=6901)     # 新建一个
+sess = web.session(id="work")     # 同一个 id → 同一个 session
 ```
 
 导出成 [api/README.md](../api/README.md) 那一组 session 内的接口。
@@ -73,4 +73,4 @@ lib 不做"代码里方便所以更宽松"这种事。
 | `sess.name` `sess.runtime` `sess.state` `sess.handle` | `GET /api/sessions/{name}` 的字段 |
 | `sess.open()` `sess.tabs` `sess.log()` | 见 [tab/](tab/) 和 [log/](log/) |
 
-建、列、杀在 [manager.md §4](manager.md#4--api-对照)。
+建、列、杀在 [manager.md §4](manager.md#5--api-对照)。

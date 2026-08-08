@@ -42,7 +42,7 @@
 sessiond 认 `WEBMUXD_TOKEN`,没别的。
 
 **只读、TTL、一次性分享链接是 server 那一层的事** —— 它反正要按名字代理
-`/s/<name>/`,凭证在那儿签、在那儿验([api/server.md §6](../api/server.md#6-鉴权))。
+`/s/<id>/`,凭证在那儿签、在那儿验([api/server.md §6](../api/server.md#6-鉴权))。
 
 ## 2. 起容器
 

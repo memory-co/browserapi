@@ -111,7 +111,7 @@ webmuxd 不产生思考,它只提供手和眼。循环长这样:
 
 ```python
 web  = Webmuxd(user="claudecode")
-sess = web.create()
+sess = web.session(id="work", port=7900, vnc_port=6901)
 tab  = sess.open("https://shop.example.com")
 
 while True:

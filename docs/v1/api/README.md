@@ -22,7 +22,7 @@
 ## 1. 约定
 
 **Base**:`http://<host>:7900/api` —— 直连某个 session。
-经 server 代理时是 `http://<host>:7800/s/<name>/api`,**`/api` 之后的部分完全一样**
+经 server 代理时是 `http://<host>:7800/s/<id>/api`,**`/api` 之后的部分完全一样**
 ([server.md §2](server.md))。画面在另一个口(KasmVNC),和 API 分开,见 [works/01 §1](../works/01-container.md#1-一张图)。
 
 **认证**:设了 `WEBMUXD_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。
@@ -157,10 +157,10 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 前五个是**调用方能自愈**的;`chrome_gone` 是这个 session 出事了,该告警而不是重试。
 
 session 管理还有几个码(`session_not_found` `session_exists` `runtime_unavailable`
-`no_port` `session_dead`),在 [server.md §5](server.md#5-错误)。
+`port_in_use` `session_dead`),在 [server.md §5](server.md#5-错误)。
 
 session 管理还有几个码(`session_not_found` `session_exists` `runtime_unavailable`
-`no_port` `session_dead`),在 [server.md §5](server.md#5-错误)。
+`port_in_use` `session_dead`),在 [server.md §5](server.md#5-错误)。
 
 这张表是 lib 那棵异常树的序列化([sdk/README §3](../sdk/README.md#5-异常)) ——
 `code` 对应类名,`details` 装的是异常上那些属性(`candidates`、`retry_after_ms`、`hint`)。

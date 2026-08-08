@@ -43,9 +43,9 @@ GET  http://host:7800/s/work/vnc/        → session work 的 KasmVNC(:6901)
 GET  http://host:7800/s/work/api/tabs    → session work 的 GET /api/tabs(:7900)
 ```
 
-**`/s/<name>/api/` 之后的部分原样转发**,所以 [README](README.md)、[tabs.md](tabs.md)、
+**`/s/<id>/api/` 之后的部分原样转发**,所以 [README](README.md)、[tabs.md](tabs.md)、
 [act.md](act.md)、[log.md](log.md) 里的一切都直接适用,只是前面多一段。
-`/s/<name>/vnc/` 是 KasmVNC 原样的东西,我们不碰。
+`/s/<id>/vnc/` 是 KasmVNC 原样的东西,我们不碰。
 
 **上层拿到的就是这两个 URL**:一个塞进 iframe 当画面(自己按 `crop_top` 裁,
 见 [works/04 §2](../works/04-chrome-ui-externalization.md)),一个用来调 API。
@@ -58,9 +58,9 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
 | --- | --- | --- |
 | `GET` | `/api/sessions` | 列表 |
 | `POST` | `/api/sessions` | 新建 |
-| `GET` | `/api/sessions/{name}` | 单个 |
-| `DELETE` | `/api/sessions/{name}` | 停掉 |
-| `POST` | `/api/sessions/{name}/rename` | 改名 |
+| `GET` | `/api/sessions/{id}` | 单个 |
+| `DELETE` | `/api/sessions/{id}` | 停掉 |
+| `POST` | `/api/sessions/{id}/rename` | 换个 id |
 | `GET` | `/api/server` | server 自己的状态 |
 | `POST` | `/api/server/shutdown` | 等价 `kill-server` |
 
@@ -68,19 +68,19 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
 
 ```jsonc
 { "sessions": [
-  { "name": "work", "runtime": "container", "state": "ready",
-    "endpoint": "http://127.0.0.1:7900",
+  { "id": "work", "runtime": "container", "state": "ready",
+    "endpoint": "http://127.0.0.1:7900", "port": 7900, "vnc_port": 6901,
     "proxy": "/s/work/",
     "tab_count": 3, "active_tab_url": "https://shop.example.com/cart",
     "created_at": "2026-08-08T14:20:11Z",
     "handle": { "container_id": "6d1b21f4cc07" } },
 
-  { "name": "dev", "runtime": "process", "state": "ready",
+  { "id": "dev", "runtime": "process", "state": "ready",
     "endpoint": "http://127.0.0.1:7901", "proxy": "/s/dev/",
     "tab_count": 1, "active_tab_url": "http://localhost:3000",
     "handle": { "display": ":7", "pids": {"xvnc":4821,"chrome":4830,"sessiond":4835} } },
 
-  { "name": "stale", "runtime": "process", "state": "dead",
+  { "id": "stale", "runtime": "process", "state": "dead",
     "endpoint": null, "hint": "webmuxd kill -t stale 清掉" }
 ] }
 ```
@@ -93,23 +93,27 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
 ### `POST /api/sessions`
 
 ```jsonc
-{ "name": "work",                     // 不给则自动生成,像 tmux 的 0/1/2
-  "runtime": "container",             // container | process | remote
+{ "id": "work",                       // 必填,你自己定
+  "port": 7900,                       // 必填,API 口
+  "vnc_port": 6901,                   // 必填,画面口
+  "runtime": "container",             // container | process | remote,默认 container
   "url": "https://example.com",       // 启动打开的页面
   "viewport": "1280x800",
-  "port": 7900,                       // 不给则自动找空闲
   "proxy": "http://egress:3128",
-  "volume": "webmuxd-work",            // container 专用
+  "volume": "webmuxd-work",           // container 专用
   "endpoint": "https://..." }         // remote 专用
 ```
 → `201`
 
 ```jsonc
-{ "name": "work", "runtime": "container", "state": "ready",
+{ "id": "work", "runtime": "container", "state": "ready",
   "endpoint": "http://127.0.0.1:7900", "proxy": "/s/work/",
   "vnc_url": "http://host:7800/s/work/vnc/",
   "api_url": "http://host:7800/s/work/api/" }
 ```
+
+**`port` 和 `vnc_port` 必填,服务端不自动分配** —— 端口是部署决定的,
+猜一个只会让调用方的配置和实际对不上。被占了返回 `409 port_in_use`。
 
 **runtime 不可用时报错,不降级**:
 
@@ -120,12 +124,12 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
                           "hint": "改用 runtime=process,但那样没有隔离" } } }
 ```
 
-### `DELETE /api/sessions/{name}`
+### `DELETE /api/sessions/{id}`
 
 停掉并清理。`remote` runtime **只删本地记录,不动对面**,响应里会说明:
 
 ```jsonc
-{ "name": "prod", "removed": true, "note": "remote session,对面仍在运行" }
+{ "id": "prod", "removed": true, "note": "remote session,对面仍在运行" }
 ```
 
 ### `GET /api/server`
@@ -164,10 +168,10 @@ server 级事件,和 session 内部那条同步流([works/06 §5](../works/06-ta
 
 | code | HTTP | 意思 |
 | --- | --- | --- |
-| `session_not_found` | 404 | 没这个名字 |
-| `session_exists` | 409 | 重名 |
+| `session_not_found` | 404 | 没这个 id |
+| `session_exists` | 409 | id 撞了 |
 | `runtime_unavailable` | 503 | 这个 runtime 起不来,带 `hint` |
-| `no_port` | 503 | 端口范围用完了 |
+| `port_in_use` | 409 | 你给的端口被占了 |
 | `session_dead` | 410 | 记录还在但探活失败,提示清理 |
 
 ## 6. 鉴权
@@ -176,9 +180,9 @@ server 级事件,和 session 内部那条同步流([works/06 §5](../works/06-ta
 | --- | --- |
 | unix socket | 文件权限(0600,只有你自己)。**不需要 token** |
 | TCP 管理接口 | `Authorization: Bearer $WEBMUXD_TOKEN` |
-| TCP 代理 `/s/<name>/` | 同上,或该 session 的一次性 view token |
+| TCP 代理 `/s/<id>/` | 同上,或该 session 的一次性 view token |
 
-**观看链接用一次性 token**,由 `POST /api/sessions/{name}/live-token` 签发
+**观看链接用一次性 token**,由 `POST /api/sessions/{id}/live-token` 签发
 (和 session 级的 `/api/live-token` 同一个东西,只是从 server 这边要):
 
 ```jsonc

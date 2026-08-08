@@ -6,14 +6,14 @@
 ## 1. 命令
 
 ```bash
-webmuxd new [-s NAME] [--runtime R] [-p PORT] [-u URL] [-v WxH]
+webmuxd new -s ID -p PORT --vnc-port PORT [--runtime R] [-u URL] [-v WxH]
             [--volume VOL] [--proxy URL] [--endpoint URL] [-d]
 webmuxd ls
-webmuxd attach -t NAME [-p]
-webmuxd share  -t NAME [--writable] [--ttl 1h]
-webmuxd kill   -t NAME
-webmuxd rename -t NAME NEW
-webmuxd has    -t NAME
+webmuxd attach -t ID [-p]
+webmuxd share  -t ID [--writable] [--ttl 1h]
+webmuxd kill   -t ID
+webmuxd rename -t ID NEW
+webmuxd has    -t ID
 
 webmuxd start-server
 webmuxd kill-server
@@ -24,11 +24,11 @@ webmuxd info
 ## 2. 会话
 
 ```console
-$ webmuxd new -s work
-work  →  http://localhost:7900
+$ webmuxd new -s work -p 7900 --vnc-port 6901
+work  →  画面 http://localhost:6901   API http://localhost:7900
 
-$ webmuxd new -s scrape -u https://example.com
-scrape  →  http://localhost:7901
+$ webmuxd new -s work -p 7900 --vnc-port 6901     # 再来一次 = 幂等,不报错
+work  →  已经在跑了
 
 $ webmuxd ls
 work    container  6901/7900  3 tabs  shop.example.com/cart   ●
@@ -48,8 +48,10 @@ http://localhost:7800/s/work/vnc/?t=...   (可操作,1 小时后过期)
 ⚠ 这个链接能操作你的浏览器,包括已登录的站点
 ```
 
-- `-p PORT` 不给就自动从 7900 往上找空闲端口。**一个 session 一个端口**,
-  kasm 复用不了 —— 这是和 tmux 差别最大的一处([works/05 §2](../works/05-server-session-runtime.md))
+- **`-p` 和 `--vnc-port` 必填,不自动分配** —— 端口是部署决定的,
+  我们猜一个只会让你的 compose 配置和实际对不上。一个 session **两个口**,
+  kasm 复用不了([works/05 §2](../works/05-server-session-runtime.md#2-对照表))
+- **`new` 是幂等的**:同一个 id 再建一次就是接管,不报错(像 `tmux new -A -s`)
 - `-d` 建完不 attach(默认就是不 attach,`-d` 只是为了跟 tmux 的手感一致)
 - **detach 不需要命令**——关掉网页就是 detach,容器照跑
 - `has` 只返回退出码,给脚本用:`webmuxd has -t work || webmuxd new -s work`
@@ -66,10 +68,9 @@ http://localhost:7800/s/work/vnc/?t=...   (可操作,1 小时后过期)
 session 怎么被拉起来,创建时选一次,之后所有命令都一样:
 
 ```bash
-webmuxd new -s work                                     # container(默认)
-webmuxd new -s dev  --runtime process                   # 不要 docker,秒起,没隔离
-webmuxd new -s prod --runtime remote \
-                   --endpoint https://browser.internal:7800
+webmuxd new -s work -p 7900 --vnc-port 6901             # container(默认)
+webmuxd new -s dev -p 7901 --vnc-port 6902 --runtime process   # 不要 docker,没隔离
+webmuxd new -s prod --runtime remote --endpoint https://browser.internal:7800
 ```
 
 ```conf
@@ -81,7 +82,7 @@ docker 不可用又没给 `--runtime` 时**报错,不静默降级**
 (对应 `503 runtime_unavailable`,退出码 1):
 
 ```console
-$ webmuxd new -s work
+$ webmuxd new -s work -p 7900 --vnc-port 6901
 ✗ runtime_unavailable: docker 不可用
   可以改用 --runtime process,但那样没有隔离(页面跑在你自己机器上)
 ```
@@ -134,13 +135,13 @@ export WEBMUXD_TOKEN=...
 
 | CLI | API |
 | --- | --- |
-| `new -s NAME --runtime R -u URL -p PORT -v WxH --volume V --proxy P --endpoint E` | `POST /api/sessions` `{name, runtime, url, port, viewport, volume, proxy, endpoint}` |
+| `new -s ID -p PORT --vnc-port PORT [--runtime -u -v --volume --proxy --endpoint]` | `GET /api/sessions/{id}`,404 就 `POST /api/sessions` `{id, port, vnc_port, ...}` |
 | `ls` | `GET /api/sessions` |
 | `has -t NAME` | `GET /api/sessions/{name}` → 退出码 3 |
 | `rename -t NAME NEW` | `POST /api/sessions/{name}/rename` |
 | `kill -t NAME` | `DELETE /api/sessions/{name}` |
 | `attach -t NAME` | 打开 `/s/{name}/vnc/`,不调管理接口 |
-| `share -t NAME [--writable] [--ttl]` | `POST /api/sessions/{name}/live-token` `{read_only, ttl_s}` |
+| `share -t ID [--writable] [--ttl]` | `POST /api/sessions/{id}/live-token` `{read_only, ttl_s}` |
 | `info` | `GET /api/server` |
 | `kill-server` | `POST /api/server/shutdown` |
 | `-L` / `-S` | 换 socket,不经 HTTP |

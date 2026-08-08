@@ -37,15 +37,15 @@ tmux 给多路复用与持久化,ttyd 给 web 暴露,概念见 [works/05](../wor
 | `capture-pane` | `capture` / `observe` | 把里面的内容抓出来 |
 | scrollback | `log` | 操作日志 |
 | `~/.tmux.conf` | `~/.webmuxd.conf` | 见 §5 |
-| ttyd `-p` / `-b` | server `:7800` + `/s/<name>/` | 见 [server.md](server.md) |
+| ttyd `-p` / `-b` | server `:7800` + `/s/<id>/` | 见 [server.md](server.md) |
 | ttyd 默认只读 / `-W` | `share` 默认只读,`--writable` 才可写 | 见 [server.md §2](server.md#2-会话) |
 
 ## 2. 目标语法 `-t`
 
-和 tmux 一样:`session[:tab]`
+和 tmux 一样:`session_id[:tab]`
 
 ```
--t work            会话 work 的当前 tab
+-t work            id 为 work 的 session 的当前 tab
 -t work:2          第 2 个 tab(按 index)
 -t work:t_7        指定 tab id
 -t work:购物车     按标题匹配(唯一匹配才行,否则报错列出候选)
@@ -97,7 +97,6 @@ tab    new-tab  tabs  select-tab  kill-tab  move-tab
 
 ```conf
 set -g image        webmuxd/operator:1.0
-set -g port-base    7900
 set -g viewport     1280x800
 set -g tab-max      10           # 超了挤掉最不活跃的
 set -g log-limit    5000         # 满了切一刀,只留上一刀
@@ -110,7 +109,7 @@ set -g attach-cmd   "firefox %u"      # %u = 观看 URL
 **只有一部分**配置项对应容器的环境变量(`viewport` `tab-max` `log-limit` `human-yield`
 ↔ `WEBMUXD_VIEWPORT` `WEBMUXD_TAB_MAX` `WEBMUXD_LOG_LIMIT` `WEBMUXD_HUMAN_YIELD`,
 见 [works/01 §2](../works/01-container.md#2-起容器))。
-`image` `port-base` `runtime` `attach-cmd` 是**客户端自己的**,不进容器。
+`image` `runtime` `attach-cmd` 是**客户端自己的**,不进容器。
 
 ## 6. 退出码
 
@@ -148,7 +147,7 @@ esac
 | `new` | `POST /api/sessions` | [server.md](server.md) |
 | `ls` | `GET /api/sessions` | [server.md](server.md) |
 | `attach` | 直接打开 `/s/{name}/vnc/`(socket 已鉴权) | [server.md](server.md) |
-| `share` | `POST /api/sessions/{name}/live-token` | [server.md](server.md) |
+| `share` | `POST /api/sessions/{id}/live-token` | [server.md](server.md) |
 | `kill` | `DELETE /api/sessions/{name}` | [server.md](server.md) |
 | `rename` | `POST /api/sessions/{name}/rename` | [server.md](server.md) |
 | `has` | `GET /api/sessions/{name}` | [server.md](server.md) |

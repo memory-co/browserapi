@@ -31,9 +31,10 @@ pip install webmuxd
 ```python
 from webmuxd import Webmuxd
 
-web  = Webmuxd()                              # ① 管理实例 —— 空壳,不起任何浏览器
-sess = web.create(name="work")                # ② 一个 session = 一个 kasm 容器
-tab  = sess.open("https://shop.example.com")  # ③ 一个 tab = 一个页面句柄
+web  = Webmuxd()                                   # ① 管理实例:空壳,不起任何浏览器
+sess = web.session(id="work", port=7900,           # ② 一个 session = 一个 kasm 容器
+                   vnc_port=6901, runtime="container")
+tab  = sess.open("https://shop.example.com")       # ③ 一个 tab = 一个页面句柄
 
 tab.click("登录", user="claudecode")
 print(tab.url, tab.title)
@@ -46,7 +47,11 @@ print(tab.url, tab.title)
 | **`Tab`** | **一个页面的句柄**,所有页面操作都在它上面 | [tab/](tab/) |
 
 **`Webmuxd()` 是个空壳。** 构造它不起容器、不占端口 —— 它只是"我要开始管 session 了"。
-**每 `create()` 一次才起一个 kasm。**
+**每 `session()` 一个新 id 才起一个 kasm。**
+
+`session()` 是**幂等**的:同一个 `id` 永远给你同一个 session,连 Python 对象都是同一个。
+`port` / `vnc_port` / `runtime` 只在第一次(需要新建时)有意义,而且
+**端口必须你给,我们不自动分配**([manager.md §1](manager.md#1-session--拿一个-session))。
 
 ```python
 web = Webmuxd()                  # 纯管理实例,走本机 socket
@@ -63,7 +68,7 @@ web = Webmuxd("https://browser.internal:7800", token=TOKEN)   # 连一个远端�
 | lib | CLI | api |
 | --- | --- | --- |
 | `Webmuxd()` | server(按需自启) | `/api/sessions` `/api/server` |
-| `web.create()` `web.sessions()` `web.kill()` | `new` `ls` `kill` | `POST` `GET` `DELETE /api/sessions` |
+| `web.session(id=)` `web.sessions()` `web.kill()` | `new` `ls` `kill` | `POST` `GET` `DELETE /api/sessions` |
 | `sess.open()` `sess.log()` | `new-tab` `log` | `/api/tabs` `/api/log` |
 | `tab.click()` | `click` | `POST /api/act` |
 
@@ -121,7 +126,8 @@ tab.click("登录", user="claudecode")
 sess.open(url, user="human")
 
 web  = Webmuxd(user="claudecode")               # 设默认,底下所有 session 继承
-sess = web.create(user="cursor")               # 也能按 session 覆盖
+sess = web.session(id="w2", port=7901, vnc_port=6902,
+                   user="cursor")              # 也能按 session 覆盖
 ```
 
 **它是署名,不是身份,也不是锁。** 安全边界是 token:
@@ -159,7 +165,7 @@ WebmuxdError
 │  ├─ ChromeGone      chrome_gone
 │  ├─ SessionDead     session_dead
 │  ├─ RuntimeUnavailable  runtime_unavailable   .hint
-│  └─ NoPort          no_port
+│  └─ PortInUse       port_in_use       你给的端口被占了
 └─ UsageError         你代码写错了 —— 重试多少次都一样
    ├─ BadRequest      bad_request
    ├─ BlockedURL      blocked_url    特权页面,见 [tab/README.md](tab/README.md)
@@ -193,7 +199,8 @@ except PlatformError:
 
 ```python
 web = Webmuxd()
-sessions = [web.create() for _ in range(4)]
+sessions = [web.session(id=f"w{i}", port=7900+i, vnc_port=6901+i)
+            for i in range(4)]
 with ThreadPoolExecutor(4) as pool:
     pool.map(run_one, sessions)          # 一个线程一个 session
 ```
@@ -219,7 +226,8 @@ except BusyHuman as e:
 | lib | 导出成 |
 | --- | --- |
 | `Webmuxd()` / `Webmuxd(port=)` | socket / `<host:port>/api`,见 [manager.md](manager.md) |
-| `web.create()` `web.sessions()` `web.get()` `web.kill()` | `POST` `GET` `GET` `DELETE /api/sessions[/{name}]` |
+| `web.session(id=, port=, vnc_port=)` | `GET /api/sessions/{id}`,404 就 `POST` |
+| `web.sessions()` `web.kill()` | `GET` `DELETE /api/sessions[/{id}]` |
 | `web.info()` `web.shutdown()` | `GET /api/server` `POST /api/server/shutdown` |
 | `sess.open(url)` | `POST /api/tabs {url}` |
 | `sess.tabs` `sess.active` `tab.url` `tab.title` | **不请求** —— 内存,由 `WS /api/events` 维护 |
