@@ -67,28 +67,34 @@ EXPOSE 7900
 HEALTHCHECK --interval=10s --start-period=25s CMD curl -fsS localhost:7070/healthz || exit 1
 ```
 
-**唯一需要对 kasm 基座动的手脚**,是接管 Chrome 的启动方式,让它带上调试端口:
+**要给 Chrome 加调试端口,根本不用改镜像。** kasm 的 `custom_startup.sh` 里有
+`ARGS=${APP_ARGS:-$DEFAULT_ARGS}`,环境变量直接注入(实测于 `kasmweb/chromium:1.18.0`):
 
 ```bash
-# startup.sh
-exec /opt/google/chrome/chrome \
-  --remote-debugging-port=9222 \
-  --remote-debugging-address=127.0.0.1 \
-  --user-data-dir=/data/profile \
-  --window-position=0,0 --window-size=${W},${H} \
-  --no-first-run --no-default-browser-check \
-  --password-store=basic \
-  --disable-session-crashed-bubble --disable-infobars \
-  "${BAPI_START_URL:-about:blank}"
+docker run -e APP_ARGS="--remote-debugging-port=9222 \
+                        --remote-debugging-address=127.0.0.1 \
+                        --disable-infobars --disable-session-crashed-bubble" ...
 ```
 
-> `kasmweb/chrome` 的启动钩子路径(`/dockerstartup/custom_startup.sh`)与用户 uid(1000)
-> 在版本间变过。**锁定 tag 后实测确认**;不成立就直接覆盖 `ENTRYPOINT` 自己拉 Xvnc + Chrome。
-> 这是唯一一处对基座的假设,出问题只需要改这一节。
+> **基座实测(2026-08-08,`kasmweb/chromium:1.18.0`)**
+> - `/dockerstartup/custom_startup.sh` 存在,权限 777
+> - `APP_ARGS` 环境变量可注入 Chrome 参数,**不用重建镜像**
+> - `custom_startup.sh` 有 `while true` 循环,Chrome 挂了会自动重拉
+> - `/dockerstartup/maximize_window.sh` **每 ~10 秒把窗口重新最大化**——
+>   任何在 X 层面挪窗口的做法都会被它撤销(见 [04 §5](04-chrome-ui-externalization.md))
+> - WM 是 xfwm4,默认分辨率 1024×768,Chrome 139
+> - **CDP 的 Host 头校验挡掉了容器外访问**,只能容器内连——印证了 agentd 必须跑在容器里
+> - 有 `wmctrl`/`xprop`/`xwininfo`/`xwd`,**没有 `xdotool`**
+>
+> 换 tag 或换成 `kasmweb/chrome` 时复核这一段即可。
 
-**不加 `--headless`**(要 GUI 才能被看见),**不加 `--no-sandbox`**(保留 Chrome 沙箱),
-**不用 CDP 的 `setDeviceMetricsOverride`** —— 那会让截图和人看到的画面对不上,
-而"人和脚本看同一个画面"是这东西的全部意义。视口就是屏幕分辨率。
+**不加 `--headless`**(要 GUI 才能被看见),**不用 CDP 的 `setDeviceMetricsOverride`**
+—— 那会让截图和人看到的画面对不上,而"人和脚本看同一个画面"是这东西的全部意义。
+视口就是屏幕分辨率。
+
+沙箱这条得改口:**kasm 镜像自带 `--no-sandbox`**(它自己的选择,写死在 `/usr/bin/chromium`
+包装脚本里),不是我们能顺手保留的。要恢复沙箱得改包装脚本并给容器相应权限,
+记为已知风险。
 
 ## 4. agentd
 

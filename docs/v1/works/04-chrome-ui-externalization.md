@@ -23,32 +23,55 @@ tab 列表和 URL 状态走 API 出来,由调用方在外面自己画。
 
 ## 2. 怎么把 Chrome 的 UI 弄没
 
-**把窗口整体往上挪,让 tab 条和工具栏移出屏幕顶部,窗口高度补上偏移量。**
+**在 iframe 上裁掉。** 画面本来就要被嵌进你的页面,那就让 iframe 往上偏移 `crop_top` 像素,
+外面套一层 `overflow:hidden` 的壳。tab 条和地址栏被裁在可视区之外,壳里只剩页面内容。
+
+```html
+<div style="overflow:hidden; height:680px">      <!-- 680 = 768 - 88 -->
+  <iframe src="https://host:6901/?..." 
+          style="width:1024px; height:768px; margin-top:-88px; border:0"></iframe>
+</div>
+```
 
 ```
-                    ┌─────────────────────┐  ← y = -78,屏幕外
-                    │ tab 条 / 地址栏     │
-X 屏幕顶部 y=0 ───► ├─────────────────────┤
-                    │   页面内容           │  ← VNC 里只看得到这块
-                    └─────────────────────┘  ← 窗口高 = 屏幕高 + 78
+        ┌─────────────────────┐  ← iframe 顶部,被壳裁掉
+        │ tab 条 / 地址栏     │     (88px)
+壳顶 ─► ├─────────────────────┤
+        │   页面内容           │  ← 你只看得到这块
+        └─────────────────────┘
 ```
 
-偏移量运行时算得出来,不用猜:
+好处:
+
+- **不碰 X、不碰窗口管理器、不碰 Chrome 启动参数**,没有任何被 clamp 或被看门狗推回去的风险(见 §5)
+- **鼠标坐标不用自己算**——iframe 整体位移,浏览器的命中测试自动对上
+- **tab 语义完全原生**:`target=_blank`、`window.open`、Ctrl+点击、tab 顺序,全是 Chrome 自己的行为,一行都不用模拟
+
+### crop_top 从哪来
+
+不要写死 88。agentd 用 CDP 量,通过 API 报出来:
 
 ```js
-window.outerHeight - window.innerHeight    // tab条 + 工具栏 的总高度
+window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
 ```
 
-然后 `Browser.setWindowBounds({left:0, top:-offset, width:W, height:H+offset})`。
+```jsonc
+// GET /api/viewport
+{ "screen": {"w":1024, "h":768}, "crop_top": 88, "page": {"w":1024, "h":680} }
+```
 
-这么做的好处是 **tab 语义完全原生**——`target=_blank`、`window.open`、Ctrl+点击、tab 顺序,
-全是 Chrome 自己的行为,一行都不用模拟。视口也正好等于屏幕分辨率,VNC 坐标和页面坐标 1:1。
+**它会在运行时变**,所以要发事件让外面重新裁:
 
-**唯一的地基风险**:kasm 里的窗口管理器可能把负坐标 clamp 回可见区。见 §5。
-真被 clamp 了就去掉 WM(Chrome 用 `--window-position=0,-78` 自己定位,没人管得着),
-或者退回 `--app=` 窗口模式(天生没 UI,但一窗口一页面,多 tab 得自己模拟)。
+```jsonc
+{ "type":"viewport.changed", "crop_top": 0 }    // 视频全屏了,UI 高度归零
+{ "type":"viewport.changed", "crop_top": 116 }  // 有人按了 Ctrl+Shift+B 开出书签栏
+```
 
-三条路对上层 API 完全透明,换方案不影响调用方。
+### 想要页面视口正好是某个尺寸
+
+屏幕高 = 想要的页面高 + `crop_top`。但 `crop_top` 得等 Chrome 起来才量得到,所以是两段式:
+容器按默认分辨率起 → agentd 量出 `crop_top` → `xrandr` 把 X 分辨率调成 `page_h + crop_top`。
+不介意差那几十像素的话,这步可以省。
 
 ## 3. 外面画 tab 条和地址栏需要什么 —— CDP 给不给
 
@@ -138,24 +161,36 @@ for e in b.watch("tab.*"):       # 实时同步你自己的 tab 条
 谁 `visible` 谁就是当前 tab(导航后自动重装)。`about:` 这类注入不进去的页面,
 fallback 到轮询 `Target.getTargets`。
 
-## 5. 动手前先跑这个实验
+## 5. 基座实测记录
 
-方案 A 全押在一件事上:**kasm 的 WM 允不允许窗口摆到负 Y**。我没实测过,不能拍胸脯。
+在 `kasmweb/chromium:1.18.0` 上实际跑过一遍(2026-08-08),记录如下。
+这些取代了之前对 kasm 镜像的猜测:
 
-```bash
-# 容器内,10 分钟出结论
-WID=$(xdotool search --class chrome | head -1)
-xdotool windowmove $WID 0 -78
-xdotool getwindowgeometry $WID
-#   Y 还是 -78  → 方案 A 成立,照 §2 做
-#   Y 被弹回 0  → 去掉 WM,或退 --app 窗口
-```
+| 事实 | 值 |
+| --- | --- |
+| 默认 X 分辨率 | 1024×768 |
+| Chrome 版本 | 139 |
+| 窗口管理器 | **xfwm4**(完整 xfce4 会话:xfdesktop / xfsettingsd / xfce4-notifyd) |
+| 启动钩子 | `/dockerstartup/custom_startup.sh` **存在,权限 777** |
+| **注入 Chrome 参数** | **`-e APP_ARGS="..."` 直接生效,不用改镜像** |
+| Chrome 拉起方式 | `custom_startup.sh` 里 `while true` 循环,进程没了就重拉 |
+| **窗口看门狗** | **`/dockerstartup/maximize_window.sh` 每 ~10 秒把窗口重新最大化一次** |
+| 沙箱 | 镜像自带 `--no-sandbox`(kasm 的选择) |
+| CDP | `APP_ARGS` 加 `--remote-debugging-port=9222` 即可用 |
+| CDP 外部访问 | **被 Chrome 的 Host 头校验挡掉**,只能容器内访问 → 印证了 agentd 必须在容器里 |
+| 可用 X 工具 | `wmctrl` / `xprop` / `xwininfo` / `xwd` 有;**`xdotool` 没有** |
 
-结论只影响 §2 怎么实现,不影响 §3/§4 的 API 设计。
+关于窗口偏移那条路(已放弃,存档):
+
+- `wmctrl -e 0,0,-78,...` **能**把窗口挪到负 Y,xfwm4 不 clamp
+- 但 Chrome 自己的 `--window-position=0,-88` 负值**不生效**(`--window-size` 生效)
+- 而且 `maximize_window.sh` 会周期性把窗口推回最大化,**任何 X 层面的偏移都会被反复撤销**
+
+最后一条是选 iframe 裁剪的直接理由:**页面层裁剪,看门狗管不着。**
 
 ## 6. 顺带会掉出来的东西(不影响架构,以后按需加)
 
-工具栏移出屏幕后,一批挂在工具栏上的原生 UI 会变成"看不见但仍然阻塞":
+tab 条和地址栏被裁掉之后,一批挂在工具栏上的原生 UI 会变成"看不见但仍然阻塞":
 下载气泡、权限请求(定位/通知/摄像头)、文件选择框、HTTP Basic 认证框、`alert`/`confirm`。
 
 这些**都是 CDP 能拦下来的**(`Browser.downloadWillBegin`、`Browser.setPermission`、
@@ -164,22 +199,22 @@ xdotool getwindowgeometry $WID
 
 **每个都是加一个 API 端点 + 一个事件类型,不动架构。** 碰到了再加,不用现在设计。
 
-两个可以顺手就避掉的:
-- 全屏播视频会重置窗口偏移 → 监听窗口状态变化,退出后重新施加偏移
-- `Ctrl+Shift+B` 开书签栏会让偏移量失准 → 启动禁用书签栏,并监听 `outerHeight-innerHeight` 变化自动重算
+两个会改变 `crop_top` 的,按 §2 发 `viewport.changed` 就行,不用特殊处理:
+- 视频全屏 → `crop_top` 变 0
+- `Ctrl+Shift+B` 开书签栏 → `crop_top` 变大
 
-一个根治不了的小瑕疵:人按 `Ctrl+L` 会把焦点送到屏幕外的地址栏,之后键盘输入丢失。
+一个小瑕疵:人按 `Ctrl+L` 会把焦点送到被裁掉的地址栏,之后键盘输入看起来"没反应"。
 检测到焦点离开内容区就 `window.focus()` 抢回来,能缓解;外面 UI 上放个「恢复焦点」按钮兜底。
 
 ## 7. 结论
 
 | 事项 | 结论 |
 | --- | --- |
-| 去掉 tab 条和地址栏 | **可行**,推荐窗口负偏移,两条退路保底 |
+| 去掉 tab 条和地址栏 | **可行**,iframe 裁剪,不碰 X 不碰 WM |
 | 外面感知 tab 增删改 | **可行**,`Target` 域完全够 |
 | 外面控制 tab | **可行** |
 | 页面内点链接开新 tab 被感知 | **可行**,还能标出 `opener` |
 | 重画地址栏所需信息 | **基本可行**,缺精确进度和 favicon 事件,能绕 |
-| 负坐标窗口定位 | **未验证**,先跑 §5 |
+| 注入 Chrome 参数 / 开 CDP | **已实测可行**,`APP_ARGS` 环境变量,不用改镜像 |
 
 **可行。** 先跑 §5 的实验定实现路子,再做 §3/§4 的 tab API。
