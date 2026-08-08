@@ -1,6 +1,11 @@
 # lib · 操作日志
 
-导出成 [api/log.md](../api/log.md)。
+导出成 [api/log.md](../api/log.md)。**单个 tab 的记录在 [tab/log.md](tab/log.md)**,
+这儿讲的是跨 tab 的那部分。
+
+**别和事件流搞混**:事件是内存里的变化通知(会丢),日志是磁盘上的账(不丢)。
+共用 `seq` 所以能对齐,但要回看只能读这儿 ——
+见 [api/events.md §1](../api/events.md#1-事件不是日志)。
 
 ```python
 for e in web.log(limit=100, after=42, only="failed"):

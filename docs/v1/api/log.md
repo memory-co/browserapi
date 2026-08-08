@@ -3,7 +3,13 @@
 `GET /api/log` —— 回看**这个 session 里发生过什么**,不分 tab。
 
 人在 VNC 里的操作也在里面,所以这是一条完整的路径,不是"只有 API 干过的事"。
-Python 侧见 [sdk/log.md](../sdk/log.md),命令行见 [cli/log.md](../cli/log.md)。
+
+**这不是事件流。** 日志是**落盘的账**,事件是**内存里的通知** ——
+两者共用 `seq`、字段也重叠,但会不会丢、能不能回看都不一样,
+对照表在 [events.md §1](events.md#1-事件不是日志)。**要回看就读这儿。**
+
+Python 侧见 [sdk/log.md](../sdk/log.md) 和 [sdk/tab/log.md](../sdk/tab/log.md),
+命令行见 [cli/log.md](../cli/log.md)。
 
 ## 1. 拉
 
@@ -64,7 +70,7 @@ GET /api/log?kind=tab
 ```
 
 **这是持久的,不是事件流。** `tab.created` / `tab.closed` 事件是内存里最近 1000 条
-([events.md §1](events.md#1-信封)),重启就没了;这份落盘,而且**不截断** ——
+([events.md §1](events.md#2-信封)),重启就没了;这份落盘,而且**不截断** ——
 所以"那个已经关掉的 tab 什么时候建的、谁建的、关的时候停在哪"永远查得到
 ([works/03 §3.2](../works/03-view-and-log.md#32-sessionjsonl--这个-session-的目录))。
 

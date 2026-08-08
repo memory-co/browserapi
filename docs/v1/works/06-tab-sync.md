@@ -82,7 +82,7 @@ Target.setAutoAttach{autoAttach: true, flatten: true, waitForDebuggerOnStart: fa
   拦一下只会让页面白等
 
 **不轮询 `Target.getTargets`。** 事件是推的,毫秒级到;轮询只在断线重连之后
-拉一次全量对账([api/events.md §1](../api/events.md#1-信封) 的 `gap`)。
+拉一次全量对账([api/events.md §1](../api/events.md#2-信封) 的 `gap`)。
 
 ### 会不会漏
 

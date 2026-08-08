@@ -50,7 +50,7 @@ CLI 自动带 `?after=<最后一条 seq>` 重连(服务端保留最近 1000 条)
 ```
 
 收到 `gap` 或 `chrome.restarted` 时,CLI 重新 `GET /api/tabs` + `GET /api/status`
-再继续跟——和 [api/events.md §3](../api/events.md#3-客户端该怎么写) 说的一样。
+再继续跟——和 [api/events.md §3](../api/events.md#4-客户端该怎么写) 说的一样。
 `--json` 模式下 `gap` 事件**照样吐给你**,该重拉全量的是你的下游脚本。
 
 ## 4. ↔ API 对照

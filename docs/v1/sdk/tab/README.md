@@ -17,9 +17,10 @@ print(tab.url, tab.title)
 | [navigate.md](navigate.md) | **走到哪** | `goto` `back` `forward` `reload` `stop` `activate` `close` `history` |
 | [input.md](input.md) | **往里做** | `click` `type` `key` `select` `check` `scroll` `upload` `wait_for` `js` `act` |
 | [read.md](read.md) | **往外看** | `observe` `screenshot` `text` `extract` |
+| [log.md](log.md) | **干过什么** | `tab.log()` `tab.bundle()` |
 
-这个 tab 自己的记录用 `tab.log()` / `tab.bundle()`(磁盘上就是一个文件),
-整个 session 的用 `web.log()` —— 见 [../log.md](../log.md)。
+这个 tab 自己的记录在 [log.md](log.md) —— 磁盘上就是一个文件。
+跨 tab 归并、以及 tab 的生老病死,在 [../log.md](../log.md)。
 
 ## 1. 拿句柄
 

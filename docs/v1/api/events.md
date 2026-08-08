@@ -8,7 +8,37 @@ WS /api/events?after=118&types=tab.*,action.*
 
 `tab.*` 这几个是**怎么被采集到的**,见 [works/06](../works/06-tab-sync.md)。
 
-## 1. 信封
+## 1. 事件不是日志
+
+两者长得像 —— 共用 `seq`、字段也重叠 —— 但**用途相反**:
+
+| | 事件流 `WS /api/events` | 操作日志 [`GET /api/log`](log.md) |
+| --- | --- | --- |
+| 是什么 | **变化的通知**:刚刚怎么了 | **做过什么的账**:谁、干了、结果如何 |
+| 存哪 | **内存**,最近 1000 条 | **磁盘**,一个 tab 一个 jsonl |
+| 怎么拿 | 推 | 拉 |
+| 会不会丢 | **会** —— 断线补不上就发 `gap`(§2) | 不会,只会从头被环形截断 |
+| 覆盖什么 | 一切变化,包括没人"做"的 | 只有**动作**和 **tab 生老病死** |
+
+**一次 `click` 的产出不对称:**
+
+```
+事件:action.started → page.navigated → tab.updated{title}
+      → tab.updated{loading:false} → action.done → log.appended     6 条
+日志:                                                                1 条
+```
+
+反过来,`tab.updated{loading:true}` 只有事件、没有日志 —— **没有人"做"它**,
+它只是页面自己在加载。
+
+**共用 `seq` 是刻意的**,不是巧合:拿一条日志的 `seq`,就能在事件流里找到它前后
+发生了什么。两边对得齐。
+
+> **别拿事件当账。** 它会丢、会被 1000 条挤掉、而且进程重启就没了。
+> 要回看就读日志 —— 那才是落盘的那份。
+> `log.appended` 是两者的接缝:它是"刚写了一条日志"这个**通知**。
+
+## 2. 信封
 
 每个事件都长这样:
 
@@ -26,7 +56,7 @@ WS /api/events?after=118&types=tab.*,action.*
 - 服务端每 15 秒发一个 WS ping
 - **大字段不内联**:截图只给 URL,不塞 base64,否则事件流会被撑爆
 
-## 2. 事件字典
+## 3. 事件字典
 
 ### tab —— 画 tab 条用
 
@@ -85,7 +115,7 @@ WS /api/events?after=118&types=tab.*,action.*
 | `status.changed` | `busy` | 忙/闲翻转 |
 | `gap` | `from`, `to` | 事件有丢失,见 §1 |
 
-## 3. 客户端该怎么写
+## 4. 客户端该怎么写
 
 ```python
 for e in events():
