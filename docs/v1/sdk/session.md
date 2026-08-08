@@ -113,7 +113,6 @@ webmuxd kill -t stale
 
 同理,server 级事件流(`session.created` / `session.died` / `session.adopted`,
 [api/server.md §4](../api/server.md#4-事件))lib 里没有对应方法。
-`web.watch()` 只给你这一个 session 的事件。
 
 ## 6. ↔ API 对照
 

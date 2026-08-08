@@ -22,7 +22,8 @@
   "favicon": "/api/tabs/t_3/favicon",            // null 表示还没拿到
   "opener": null,                                // 从哪个 tab 开出来的
   "created_at": "2026-08-08T14:22:01.402Z",
-  "crashed": false
+  "crashed": false,
+  "dialog": null                                 // 有弹窗挡着时是个对象,见 §3
 }
 ```
 
@@ -119,6 +120,30 @@ chrome://  chrome-untrusted://  devtools://  chrome-extension://  view-source:
 没得后退时 `back` 返回 `400 bad_request`,不是静默无操作——
 这样你的按钮禁用状态和实际行为不会对不上。
 
+### `POST /api/tabs/{id}/dialog` 回应弹窗
+
+页面弹 `alert` / `confirm` / `prompt` 时,**它会挡住那个页面等回应**。
+Tab 对象上因此多一个字段:
+
+```jsonc
+"dialog": { "kind": "confirm", "message": "确定要删除吗?" }   // 没有弹窗时为 null
+```
+
+```jsonc
+POST /api/tabs/{id}/dialog
+{ "accept": true, "text": "13800000000" }     // text 只对 prompt 有意义
+```
+
+没有待回应的弹窗时返回 `400 bad_request`。
+
+**这是请求/响应,不是通知。** 早先它只是一条事件 —— 那是错的:
+一个**挡住页面**的东西不能只用一条会丢的通知来表达,而且当时压根没定义怎么回应。
+现在它在 Tab 对象上(所以 `GET /api/tabs/{id}` 和 `observe()` 都看得见),
+回应走这个端点。
+
+**不自动回应。** 谁也不知道该点确定还是取消 —— 那是调用方的判断。
+弹窗挂着期间对该 tab 的动作返回 `409 busy`,`details.dialog` 告诉你为什么。
+
 ### tab 数量有上限
 
 **最多 `WEBMUXD_TAB_MAX` 个(默认 10)。** 超了就把**最不活跃的那个挤出去**,
@@ -163,7 +188,9 @@ LRU:按"最后一次被激活、或被操作"排,最久没动的先走。
 
 ## 4. 事件
 
-一条 WS 推全部,详见 [events.md](events.md)。tab 相关的四个:
+tab 的变化会推给查看页面和 lib([works/06 §5](../works/06-tab-sync.md#5-推给客户端))。
+那条 WS 是**内部机制**,不是给你调的;这里列出来是因为 `reason` 这个字段的语义你要知道。
+四个:
 
 ```jsonc
 { "seq": 118, "type":"tab.created",   "tab": { /* Tab */ },

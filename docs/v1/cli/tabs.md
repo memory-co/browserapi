@@ -97,4 +97,5 @@ $ webmuxd back -t work
 这几个是给画 tab 条的 UI 用的(长按后退弹历史、显示图标),终端里用不上。
 真要用就 `--json` 加 `curl`,或者走 [sdk/tab/README.md](../sdk/tab/README.md)。
 
-实时刷新 tab 条不该轮询 `tabs`,该用 [events.md](events.md)。
+要在别处实时刷一条 tab 条,轮询 `tabs` 就够用;想要实时的内部机制见
+[works/06 §5](../works/06-tab-sync.md#5-推给客户端)。

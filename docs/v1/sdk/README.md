@@ -18,7 +18,6 @@ pip install webmuxd
 | README.md(本文) | `Webmuxd` 入口、`user`、异常、并发 | [api/README.md](../api/README.md) |
 | **[tab/](tab/)** | **句柄、属性、导航、动作、观测** | [api/tabs.md](../api/tabs.md) · [api/act.md](../api/act.md) |
 | **[log/](log/)** | 三类日志:动作、tab 生死、session | [api/log.md](../api/log.md) |
-| [events.md](events.md) | `web.watch()` | [api/events.md](../api/events.md) |
 | [session.md](session.md) | 起停、runtime、端口、分享链接 | [api/server.md](../api/server.md) |
 
 `tab/` 下面按用途分:[README](tab/README.md) 拿句柄和读属性、
@@ -90,7 +89,7 @@ lib 就是那个 client。
 | 整张 `web.tabs` 表 | `log()` 操作日志 |
 
 **外挂 UI 画得出来的东西在内存里,画不出来的要请求。** 事件流里不塞大字段
-([api/events.md §3](../api/events.md#3-信封)),所以右边那一列没法省。
+(截图和元素表太大,不能塞进推送),所以右边那一列没法省。
 
 左边那一列**人在画面里操作也会更新** —— 他点个 `target=_blank` 的链接,
 你内存里就多一个 tab。怎么做到的见 [works/06](../works/06-tab-sync.md)。
@@ -103,8 +102,8 @@ lib 就是那个 client。
 
 ### 旧了会告诉你
 
-lib 按 [api/events.md §5](../api/events.md#5-客户端该怎么写) 那三条办事,
-不是"建议",是义务:字段级合并、收到 `gap` 或 `chrome.restarted` 自动重新拉全量。
+lib 内部订着一条 WS 维护这份内存([works/06 §5](../works/06-tab-sync.md#5-推给客户端)),
+**你碰不到它,也不需要碰**。它替你守着那几条:字段级合并、丢了通知就自动重新拉全量。
 
 ```python
 web.stale        # WS 断了 → True,内存不保证新鲜
@@ -223,7 +222,7 @@ except BusyHuman as e:
 | `tab.observe()` | `GET /api/observe?tab=` |
 | `tab.text()` `tab.screenshot()` | `GET /api/text` `/api/screenshot` |
 | `web.log()` `tab.log()` `web.bundle()` | `GET /api/log` `/api/log/bundle`,见 [log/](log/) |
-| `web.watch()` | `WS /api/events`(和内存共用同一条连接) |
+| 内存表的维护 | 内部订 `WS /api/events`,**不暴露** |
 | `web.status()` `web.viewport()` `web.reset()` | `GET /api/status` `/api/viewport` `POST /api/reset` |
 | `web.share()` `web.view_url` | `POST /api/live-token` |
 | `web.kill()` | `DELETE /api/sessions/{name}` —— 只能停你手里这个 |

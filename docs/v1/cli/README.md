@@ -19,7 +19,6 @@ CLI 比 lib 多出来的只有三样,都是终端才需要的:
 | [tabs.md](tabs.md) | `tabs` `new-tab` `select-tab` `goto` `back` … | [api/tabs.md](../api/tabs.md) |
 | [act.md](act.md) | `click` `type` `observe` `capture` `send` | [api/act.md](../api/act.md) |
 | [log.md](log.md) | `log` `bundle` | [api/log.md](../api/log.md) |
-| [events.md](events.md) | `watch` `log -f` | [api/events.md](../api/events.md) |
 | [server.md](server.md) | `new` `ls` `attach` `share` `kill` `runtime` | [api/server.md](../api/server.md) |
 
 ## 1. 概念映射
@@ -88,7 +87,7 @@ tab    new-tab  tabs  select-tab  kill-tab  move-tab
 操作   click  type  key  scroll  wait  send               → act.md
 看     capture  observe  url  status                      → act.md
 日志   log  bundle                                        → log.md
-流     watch  log -f                                      → events.md
+流     log -f                                          → log.md
 ```
 
 ## 5. 配置
@@ -164,7 +163,7 @@ esac
 | `url` `status` | `GET /api/status` | [act.md](act.md) |
 | `log` | `GET /api/log` | [log.md](log.md) |
 | `bundle` | `GET /api/log/bundle` | [log.md](log.md) |
-| `log -f` `watch` | `WS /api/events` | [events.md](events.md) |
+| `log -f` | 跟着日志滚 | [log.md](log.md) |
 
 **多出来的东西**就是开头那三样:目标解析(§2)、输出格式化(§3)、
 以及 session 的遍历和清理。前两样在客户端做,不进服务端;第三样是 lib 有意不做的运维面。

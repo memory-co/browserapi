@@ -146,19 +146,11 @@ loading 变了),日志记的是**有人做了一件事**。
 
 **共用一个 `seq`**,所以拿日志里某条的 seq 能在事件流里找到它前后发生了什么。
 
-页面靠 WS 实时更新;你的程序也能订阅:
+页面靠 WS 实时更新。**这条流不对外**:写脚本的人碰不到(lib 替他订了),
+模型更碰不到(它只看 `observe()` 和日志)。契约见
+[06 §5](06-tab-sync.md#5-推给客户端)。
 
-```python
-for e in web.watch():
-    print(e.action, e.ok)
-```
-
-```
-GET /api/events            (WS)
-{ "seq": 42, "action": "click", "text": "登录", "ok": true, "ms": 412 }
-```
-
-断线重连带 `?after=42` 续上。
+想在自己的程序里跟着日志滚,读日志就行 —— `webmuxd log -f` 或者定时拉 `/api/log`。
 
 ## 6. 导出
 

@@ -8,7 +8,7 @@
 见 [works/02](../works/02-lib-and-api.md)。所以本目录只描述线上长什么样;
 遇到「为什么是这个语义」的问题,答案在 sdk 那边。命令行在 [`../cli`](../cli/)。
 
-本文与 [tabs](tabs.md)/[act](act.md)/[log](log.md)/[events](events.md) 讲的是**单个 session**;
+本文与 [tabs](tabs.md)/[act](act.md)/[log](log.md) 讲的是**单个 session**;
 [server.md](server.md) 讲的是**管理多个 session**。
 
 | 文件 | 内容 | 主体在 | 命令行 |
@@ -17,7 +17,6 @@
 | [tabs.md](tabs.md) | tab 的增删改查、导航、历史、favicon | [sdk](../sdk/tab/README.md) | [cli](../cli/tabs.md) |
 | [act.md](act.md) | 在页面上**做**和**看** —— 动作、定位、观测 | [sdk](../sdk/tab/input.md) | [cli](../cli/act.md) |
 | [log.md](log.md) | 操作日志 | [sdk](../sdk/log/) | [cli](../cli/log.md) |
-| [events.md](events.md) | WS 事件字典 | [sdk](../sdk/events.md) | [cli](../cli/events.md) |
 | [server.md](server.md) | session 管理、代理、鉴权 | [sdk](../sdk/session.md) | [cli](../cli/server.md) |
 
 ## 1. 约定
@@ -75,6 +74,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `POST` | `/api/tabs/{id}/goto` | 导航 |
 | `POST` | `/api/tabs/{id}/back` `/forward` `/reload` `/stop` | 前进后退刷新停止 |
 | `GET` | `/api/tabs/{id}/history` | 历史条目,用来画前进后退长按菜单 |
+| `POST` | `/api/tabs/{id}/dialog` | 回应 alert / confirm / prompt |
 | `POST` | `/api/tabs/reorder` | 拖拽排序 |
 | `GET` | `/api/tabs/{id}/favicon` | 图标字节 |
 
@@ -100,7 +100,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `POST` | `/api/reset` | 清 cookie、关多余 tab、回 about:blank |
 | `POST` | `/api/live-token` | 签发观看页面的一次性 token,`{ "read_only": true, "ttl_s": 3600 }` |
 | `GET` | `/api/openapi.json` | 由 lib 的方法签名生成,不手写 |
-| `WS` | `/api/events` | 事件流,见 [events.md](events.md) |
+| `WS` | `/api/events` | **内部机制**,不是 v1 稳定面 —— 见下 |
 
 ```jsonc
 // GET /api/status
@@ -115,6 +115,18 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 
 `crop_top` 会变(视频全屏归零、开书签栏变大),变了会发 `viewport.changed` 事件。
 外面的 iframe 按它重新裁,见 [works/04 §2](../works/04-chrome-ui-externalization.md)。
+
+### `/api/events` 为什么不在这份规格里
+
+它存在,但它是**查看页面和 Python lib 之间的同步机制**,不是给你调的接口:
+
+- 写脚本、写 agent 的**碰不到** —— lib 已经替你订好了,`web.tabs` / `tab.url` 直接读内存
+- 模型**碰不到** —— 它的输入是 `observe()` 和[日志](log.md)
+- 要回看发生过什么,**读[日志](log.md)** —— 事件会丢、只留 1000 条、重启就没
+
+用别的语言画自己的 tab 条:**轮询 `GET /api/tabs` 就够用**;想要实时再订那条 WS,
+契约在 [works/06 §5](../works/06-tab-sync.md#5-推给客户端) ——
+但它**不在 v1 的兼容承诺里**,可能变。
 
 ## 4. 错误
 

@@ -50,6 +50,7 @@ web.tab(title="购物车")         # 按标题,唯一匹配才行,否则抛 NotF
 tab.id  tab.index  tab.active  tab.url  tab.title  tab.loading
 tab.security  tab.can_go_back  tab.can_go_forward
 tab.opener  tab.reason  tab.created_at  tab.crashed
+tab.dialog        # 有弹窗挡着时不是 None,见 navigate.md §5
 ```
 
 字段就是 [api/tabs.md §1](../../api/tabs.md#1-tab-对象) 的 Tab 对象,
@@ -121,8 +122,8 @@ CDP 的输入投递给 target,不走屏幕焦点。但 VNC 画面只显示激活
 ([api/tabs.md §4](../../api/tabs.md#4-事件)):
 
 ```python
-for e in web.watch("tab.created"):
-    print(e.tab.title, e.reason)     # api | link_target_blank | window_open
+for e in web.log(kind="tab"):
+    print(e.tab, e.event, e.reason)  # api | link_target_blank | window_open
                                      # ctrl_click | user_ctrl_t | restored | unknown
 ```
 

@@ -77,7 +77,22 @@ r.created        # Tab | None
 
 关掉之后句柄上的属性还能读,动作抛 `TabGone`([README §3](README.md#3-生命周期))。
 
-## 5. ↔ API 对照
+## 5. 弹窗挡住了
+
+页面弹 `alert` / `confirm` / `prompt` 时**会挡住这个 tab**,直到有人回应:
+
+```python
+if tab.dialog:                      # 读内存,不发请求
+    print(tab.dialog.kind, tab.dialog.message)
+    tab.answer(True)                # confirm/alert:确定
+    tab.answer(True, "13800000000") # prompt:带文本
+    tab.answer(False)               # 取消
+```
+
+**lib 不替你自动回应** —— 谁也不知道该点确定还是取消,那是你的判断。
+挂着期间对这个 tab 的动作抛 `Busy`,`.dialog` 告诉你为什么。
+
+## 6. ↔ API 对照
 
 | lib | 导出成 |
 | --- | --- |
@@ -88,6 +103,8 @@ r.created        # Tab | None
 | `tab.activate()` | `POST /api/tabs/{id}/activate` |
 | `tab.close()` | `DELETE /api/tabs/{id}` |
 | `tab.history()` | `GET /api/tabs/{id}/history` |
+| `tab.dialog` | Tab 对象的 `dialog` 字段(内存) |
+| `tab.answer(accept, text=)` | `POST /api/tabs/{id}/dialog` |
 
 也可以走 `tab.act([{"type":"goto", ...}])` 把导航和动作串在一次往返里,
 见 [input.md §3](input.md#3-act--一次往返一串动作)。

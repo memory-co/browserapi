@@ -150,7 +150,7 @@ tab.click(obs[action.index])        # 按模型给的编号点
 | `tab.screenshot()` | `GET /api/screenshot` |
 | `tab.text()` | `GET /api/text` |
 | `web.log()` | `GET /api/log` |
-| `web.watch()` | `WS /api/events` |
+| 内存表的维护 | 内部订 `WS /api/events`,不暴露给调用方 |
 | `web.upload_file()` | `POST /api/upload` |
 | `web.download()` | `GET /api/download/{name}` |
 | `web.reset()` | `POST /api/reset` |

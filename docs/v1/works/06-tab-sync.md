@@ -82,7 +82,7 @@ Target.setAutoAttach{autoAttach: true, flatten: true, waitForDebuggerOnStart: fa
   拦一下只会让页面白等
 
 **不轮询 `Target.getTargets`。** 事件是推的,毫秒级到;轮询只在断线重连之后
-拉一次全量对账([api/events.md §3](../api/events.md#3-信封) 的 `gap`)。
+拉一次全量对账(§5 的 `gap`)。
 
 ### 会不会漏
 
@@ -190,7 +190,56 @@ tab 条要画的东西,除了上面两条路给的 `id`/`opener`/`reason`,其余
 **代价**:人按 `Ctrl+Tab` 走的是 Chrome 的顺序,拖过序之后和你 bar 上的对不上。
 v1 接受。
 
-## 5. popup 窗口
+## 5. 推给客户端
+
+上面讲的都是 CDP → sessiond。sessiond 再把状态变化推给它的两个消费者:
+**查看页面**(画 tab 条)和 **Python lib**(维护那张内存表)。
+
+```
+WS /api/events?after=118&types=tab.*
+```
+
+**这是内部机制,不是产品面。** 写脚本的人碰不到(lib 替他订了),
+模型更碰不到(它只看 `observe()` 和[日志](../api/log.md))。
+所以它**不在 [api/](../api/) 的规格里** —— 契约就是这一节。
+
+### 信封
+
+```jsonc
+{ "seq": 119, "at": "2026-08-08T14:22:03.412Z", "type": "tab.updated",
+  /* ...各类型自己的字段 */ }
+```
+
+- `seq` **全局单调**,和[日志](../api/log.md)共用一个计数器,所以两边对得齐
+- 断线重连带 `?after=<最后收到的 seq>` 续传,服务端保留最近 **1000** 条
+- 超出保留范围先推 `{"type":"gap","from":...,"to":...}`
+- `?types=` 按前缀过滤,支持 `*`;服务端每 15 秒 ping
+- **大字段不内联**:截图只给 URL,否则流会被撑爆
+
+### 推什么
+
+| type | 什么时候 | 谁在用 |
+| --- | --- | --- |
+| `tab.created` `tab.updated` `tab.activated` `tab.closed` | tab 变了,`updated` **只发变化的字段** | tab 条、lib 内存表 |
+| `viewport.changed` | `crop_top` 变了(全屏、书签栏) | 查看页面重新裁 iframe |
+| `action.started` `action.done` `log.appended` | 动作前后、日志写了一条 | 查看页面右边那块面板 |
+| `page.navigated` `page.crashed` | 导航完成、渲染进程崩了 | 两者 |
+| `page.dialog` | 弹窗挡住了页面,**等回应** | 查看页面弹提示,见 [api/tabs.md §3](../api/tabs.md#3-写) |
+| `download.started` `download.done` | 下载 | 查看页面 |
+| `human.active` `human.idle` | 人在 VNC 里动了,让路窗口开合 | lib(抛 `BusyHuman`) |
+| `chrome.restarted` | Chrome 崩了被拉起,**tab 全丢** | 两者,必须重拉全量 |
+| `gap` | 事件有丢失 | 两者,必须重拉全量 |
+
+### 客户端必须守的三条
+
+1. **`gap` 和 `chrome.restarted` 重新拉全量。** 增量更新在这两种情况下一定错。
+2. **`tab.updated` 做字段级合并**,整条替换会让 tab 条闪、丢掉滚动位置。
+3. **不要靠事件维护唯一真相。** 事件是为了不用轮询,不是为了替代 `GET`。
+
+> 别的语言想画自己的 tab 条:**轮询 `GET /api/tabs` 就够用**,
+> 想要实时再订这条 WS —— 契约就是这一节,但它不在 v1 的兼容承诺里。
+
+## 6. popup 窗口
 
 `window.open('...', '_blank', 'width=500,height=400')` 开出来的是**一个新的浏览器窗口**,
 不是 tab。
@@ -201,7 +250,7 @@ v1 接受。
 这件事单独一篇:[07](07-popup-windows.md) —— 结论是**转化掉**:
 在页面层把 `window.open` 包一层、吃掉触发 popup 的 features,Chrome 就原生开成 tab 了。
 
-## 6. 待实测
+## 7. 待实测
 
 | 要验的 | 怎么验 | 不成立的话 |
 | --- | --- | --- |

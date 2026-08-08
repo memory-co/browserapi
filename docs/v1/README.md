@@ -26,7 +26,6 @@ CLI 是 lib 的一个用户,和你的代码平级。
 | **tab** —— 句柄、列表、切换、导航 | [tab/](sdk/tab/) | [tabs](api/tabs.md) | [tabs](cli/tabs.md) |
 | **页面上做和看** —— 动作、定位、观测 | [tab/input](sdk/tab/input.md) · [tab/read](sdk/tab/read.md) | [act](api/act.md) | [act](cli/act.md) |
 | **操作日志** —— 动作 / tab 生死 / session | [log/](sdk/log/) | [log](api/log.md) | [log](cli/log.md) |
-| **事件流** —— 同步机制,只有画 UI 的才碰 | [events](sdk/events.md) | [events](api/events.md) | [events](cli/events.md) |
 | **session** —— 起停、runtime、代理、鉴权 | [session](sdk/session.md) | [server](api/server.md) | [server](cli/server.md) |
 
 每个文件的开头写着它对应哪几个,结尾有一张对照表。
@@ -71,7 +70,7 @@ curl -X POST localhost:7900/api/act \
 | 定位失败 | `except NotFound as e: e.candidates` | `404` + `details.candidates` | 退出码 4 + 列候选 |
 | 观测 | `obs[12]`、`obs.as_prompt()` | 一坨 JSON 数组 | 几行紧凑文本 |
 | 图标 | `tab.favicon` → bytes,惰性取 | 一个 URL 字符串 | 没有 |
-| 断线 | `web.watch()` 自己重连并补全量 | 你自己带 `?after=` | `watch` 自己重连 |
+| 断线 | lib 自己重连并补全量 | 你自己重拉 `GET /api/tabs` | `log -f` 自己重连 |
 
 **这个落差就是为什么主体在 lib。** 让表达力最弱的那层当起点,
 另外两层只能跟着退化成 dict 搬运 —— [works/02 §1](works/02-lib-and-api.md#1-为什么是-lib-而不是-api)。

@@ -1,7 +1,7 @@
 # 07 · popup 窗口
 
 `window.open('...', '_blank', 'width=500,height=400')` 开出来的是**一个浏览器窗口**,
-不是 tab([06 §5](06-tab-sync.md#5-popup-窗口))。
+不是 tab([06 §5](06-tab-sync.md#6-popup-窗口))。
 
 webmuxd 只有**一块 VNC 屏**,屏上是 X 的整个画面。多一个窗口就是多一块浮在页面上的东西,
 而 `crop_top` 是按"一个最大化窗口"算的([04 §2](04-chrome-ui-externalization.md))。

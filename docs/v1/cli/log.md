@@ -26,7 +26,7 @@ webmuxd log -t work -f                   # 跟着滚,像 tail -f
 webmuxd bundle -t work -o out.zip        # 日志 + 截图 + 离线 HTML
 ```
 
-`log -f` 是流式的,`Ctrl-C` 退出;它订的是事件流不是轮询,见 [events.md](events.md)。
+`log -f` 是流式的,`Ctrl-C` 退出 —— 不是轮询,断了会自动续上。
 
 ## 三类日志
 
@@ -54,5 +54,5 @@ grep '"kind":"tab"' /data/log.jsonl
 | `log --failed` | `GET /api/log?only=failed` |
 | `log --user X` | `GET /api/log?user=X` |
 | `log --kind tab` | `GET /api/log?kind=tab` |
-| `log -f` | `WS /api/events`,`action.*` + `log.appended` |
+| `log -f` | 跟着日志滚,断线自动续 |
 | `bundle -o F` | `GET /api/log/bundle` |
