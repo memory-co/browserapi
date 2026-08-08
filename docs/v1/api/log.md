@@ -62,7 +62,7 @@ GET /api/log?kind=tab
 
 ```jsonc
 { "seq": 118, "kind": "tab", "event": "opened",  "tab": "t_7",
-  "url": "...", "title": "帮助中心", "reason": "link_target_blank",
+  "url": "...", "title": "帮助中心", "reason": "page",
   "opener": "t_3", "user": "human" }
 { "seq": 402, "kind": "tab", "event": "closed",  "tab": "t_7",
   "final_url": "...", "user": "api" }

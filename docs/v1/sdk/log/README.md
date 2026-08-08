@@ -18,7 +18,7 @@ sess.bundle("out.zip")          # 日志 + 截图 + 离线 HTML
 | --- | --- |
 | README.md(本文) | 有哪些类型、存哪、怎么切、和事件流的区别 |
 | [tab.md](tab.md) | `kind="action"` —— 谁在哪个 tab 上做了什么 |
-| [session.md](session.md) | `kind="tab"` / `kind="session"` —— tab 生老病死、Chrome 重启 |
+| [session.md](session.md) | `kind="tab"` / `kind="session"` —— tab 生老病死、Chromium 重启 |
 
 ## 1. 三类日志
 
@@ -27,8 +27,8 @@ sess.bundle("out.zip")          # 日志 + 截图 + 离线 HTML
 | `kind` | 记什么 | 一条长什么样 | 详见 |
 | --- | --- | --- | --- |
 | `action` | **有人做了一件事** —— 点击、输入、导航、观测 | `click "提交订单" → 命中 button "取消订单"` | [tab.md](tab.md) |
-| `tab` | **tab 的生和死** —— 建了、关了、被挤掉了 | `t_7 opened (link_target_blank, human)` | [session.md](session.md) |
-| `session` | **整个 session 的事** —— Chrome 崩了重拉、`reset` | `chrome_restarted (restarts: 1)` | [session.md](session.md) |
+| `tab` | **tab 的生和死** —— 建了、关了、被挤掉了 | `t_7 opened (page, human)` | [session.md](session.md) |
+| `session` | **整个 session 的事** —— Chromium 崩了重拉、`reset` | `chrome_restarted (restarts: 1)` | [session.md](session.md) |
 
 **没有第四类。** 页面自己的变化(标题变了、loading 变了)**不进日志** ——
 没有人"做"它们。那些只是内部的同步通知,不是账

@@ -30,7 +30,7 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | tmux / ttyd | webmuxd | 说明 |
 | --- | --- | --- |
 | tmux server | **server** | 按需自启,持有全部 session |
-| tmux session | **session** | 一整套 kasm + Chrome + sessiond |
+| tmux session | **session** | 一整套 kasm + Chromium + sessiond |
 | tmux window | **tab** | 浏览器标签页 |
 | tmux pane | — | **不做**,理由见 §5 |
 | client | 上层 UI / CLI / lib | 都是 client |
@@ -160,7 +160,7 @@ ttyd 默认只读,要加 `-W` 才允许客户端敲键盘。这个默认是对�
 ## 4. runtime —— 唯一多出来的概念
 
 tmux 里 pane 就是 fork+exec 一个 shell,只有一种拉法,所以它不需要这层。
-浏览器这一套(X + VNC + Chrome + sessiond)重得多,拉起方式有真实的分歧,所以要抽象。
+浏览器这一套(X + VNC + Chromium + sessiond)重得多,拉起方式有真实的分歧,所以要抽象。
 
 ### 4.1 接口
 
@@ -181,10 +181,10 @@ class Runtime:
 
 | | `container`(默认) | `process` | `remote` |
 | --- | --- | --- | --- |
-| 怎么拉 | `docker run` | 本机拉 Xvnc + Chrome + sessiond | 不拉,接现成的 |
+| 怎么拉 | `docker run` | 本机拉 Xvnc + Chromium + sessiond | 不拉,接现成的 |
 | 隔离 | ✅ | ❌ **页面跑在你自己机器上** | 看对面 |
 | 启动 | 几秒 | 秒起 | 立即 |
-| 依赖 | docker + 镜像 | 宿主机装了 Xvnc/Chrome | 一个 URL |
+| 依赖 | docker + 镜像 | 宿主机装了 Xvnc/Chromium | 一个 URL |
 | server 重启 | 活着,被重新收养 | 跟着死 | 活着 |
 | 适合 | 生产 | 开发 / CI / 没 docker | 已经有人部好了 |
 
@@ -204,7 +204,7 @@ class Runtime:
 ## 5. 为什么不做 pane
 
 tmux 的 pane 是分屏。webmuxd 不做,原因很具体:
-**一块 VNC 屏幕同时只显示一个 tab**——Chrome 的多个 tab 共用一个窗口。
+**一块 VNC 屏幕同时只显示一个 tab**——Chromium 的多个 tab 共用一个窗口。
 
 要做真正的分屏(几个 tab 并排各自独立看、独立点),得放弃 VNC 改用
 CDP 的 screencast 逐 target 出帧。那是另一个产品形态,v1 不做。
@@ -215,7 +215,7 @@ CDP 的 screencast 逐 target 出帧。那是另一个产品形态,v1 不做。
 
 | | container | process |
 | --- | --- | --- |
-| Chrome profile | 卷 `webmuxd-<name>:/data/profile` | `~/.webmuxd/<name>/profile` |
+| Chromium profile | 卷 `webmuxd-<name>:/data/profile` | `~/.webmuxd/<name>/profile` |
 | 操作日志 | `/data/log.jsonl` | `~/.webmuxd/<name>/log.jsonl` |
 | 截图 | `/data/shots/` | `~/.webmuxd/<name>/shots/` |
 | 下载 | `/data/downloads/` | `~/.webmuxd/<name>/downloads/` |

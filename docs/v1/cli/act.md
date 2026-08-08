@@ -83,7 +83,7 @@ $ webmuxd observe -t work                        # 元素表,喂模型也给人�
 ```
 
 **`observe` / `capture --shot` 指向非激活 tab 时会先把它切到前台**(画面会跳)——
-Chrome 不渲染后台 tab。纯输入的 `click` / `type` 不用切。
+Chromium 不渲染后台 tab。纯输入的 `click` / `type` 不用切。
 
 `observe` 的那几行就是 API 元素表的紧凑排版
 ([api/act.md §1.3](../api/act.md#13-给模型的紧凑表示));`--json` 拿原始响应,

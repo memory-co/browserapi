@@ -75,7 +75,7 @@ web.session(id="prod", runtime="remote", endpoint="https://browser.internal:7800
 | runtime | 是什么 | 什么时候用 |
 | --- | --- | --- |
 | `container` | `docker run` 一个 kasm 镜像 | **默认**。要隔离、要能扛 server 重启 |
-| `process` | 直接在本机拉 Xvnc + Chrome + sessiond | 没 docker、想秒起、**不要隔离也行** |
+| `process` | 直接在本机拉 Xvnc + Chromium + sessiond | 没 docker、想秒起、**不要隔离也行** |
 | `remote` | 接一个已经在别处跑着的 | 浏览器在另一台机器上 |
 
 **这是三层概念里的第三层**([works/05 §4](../works/05-server-session-runtime.md#4-runtime--唯一多出来的概念))——
@@ -139,7 +139,7 @@ docker 不通时**不会静默换成 `process`** —— 那等于把页面偷偷
 ```python
 web = Webmuxd()
 sessions = [web.session(id=f"w{i}", port=7900+i, vnc_port=6901+i)
-            for i in range(4)]                 # 四个容器,四个 Chrome,八个端口
+            for i in range(4)]                 # 四个容器,四个 Chromium,八个端口
 ```
 
 **session 之间是真并行的**,一个 session 内部才是一次一个动作

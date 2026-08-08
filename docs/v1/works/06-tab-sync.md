@@ -1,19 +1,19 @@
 # 06 · tab 怎么进去,怎么出来
 
-tab 条被挪到外面之后([04](04-chrome-ui-externalization.md)),它得和里面那个 Chrome
+tab 条被挪到外面之后([04](04-chrome-ui-externalization.md)),它得和里面那个 Chromium
 保持一致。只有两件事要说清楚:
 
-- **IN** —— `sess.open(url)` 怎么变成 Chrome 里一个真的 tab
+- **IN** —— `sess.open(url)` 怎么变成 Chromium 里一个真的 tab
 - **OUT** —— 人在页面里点了个 `target="_blank"` 的链接,冒出来的那个 tab 怎么被感知到
 
-**注意外面那条 tab 条上的「＋」不是 OUT,是 IN。** Chrome 自带的 tab 条被裁掉了,
+**注意外面那条 tab 条上的「＋」不是 OUT,是 IN。** Chromium 自带的 tab 条被裁掉了,
 你画的那条是普通 HTML,它点「＋」发的就是 `POST /api/tabs`,和 `sess.open()` 同一个端点。
 所以只有**人在页面像素里**开出来的 tab 才需要 OUT 那条路。
 
 ## 1. IN —— `sess.open("https://shop.example.com")`
 
 ```
-lib                      sessiond                          Chrome
+lib                      sessiond                          Chromium
  │ POST /api/tabs {url}
  │───────────────────────►│
  │                        │ 1. Target.createTarget{url} ──────►│  ← 一次调用,建 + 导航
@@ -30,7 +30,7 @@ lib                      sessiond                          Chrome
 所以 `POST /api/tabs {url}` 一步到位,不用建完再 `goto`。
 
 **`t_7` 是 sessiond 分配的,不是 CDP 的 `targetId`。** CDP 那个是 32 位 hex,
-对调用方没意义,而且 Chrome 崩溃重启后会全变。sessiond 维护一张映射表:
+对调用方没意义,而且 Chromium 崩溃重启后会全变。sessiond 维护一张映射表:
 
 | 对外 | CDP | 生命周期 |
 | --- | --- | --- |
@@ -43,14 +43,14 @@ lib                      sessiond                          Chrome
 
 ## 2. OUT —— 人点了 `<a target="_blank">`
 
-人的鼠标走的是 **VNC → X → Chrome**,sessiond 完全不在这条链路上。
+人的鼠标走的是 **VNC → X → Chromium**,sessiond 完全不在这条链路上。
 它是**事后从 CDP 收到通知**的:
 
 ```
 人点了链接
    │
    ▼
-Chrome 自己开了个 target
+Chromium 自己开了个 target
    │
    │  Target.targetCreated{targetInfo:{targetId, url, openerId}}   ← 推过来的,不是轮询
    ▼
@@ -60,7 +60,7 @@ sessiond
    │ 3. 判 reason(见下)
    │ 4. 附加 + 注入(见 §3)
    │ 5. 写状态模型,seq++
-   │ 6. 发 tab.created{reason:"link_target_blank", opener:"t_7"}
+   │ 6. 发 tab.created{reason:"page", opener:"t_7"}
    ▼
 WS ──► lib 内存里那张表 +1 ──► 你的 tab 条 +1
 ```
@@ -116,18 +116,23 @@ page  iframe(OOPIF)  worker  service_worker  shared_worker  browser  other
 | reason | 判据 |
 | --- | --- |
 | `api` | sessiond 自己刚建的,它知道 |
-| `link_target_blank` / `window_open` | 有 `openerId`(两者的细分 CDP 给不出,见下) |
-| `user_ctrl_t` | 没有 `openerId`,**而且** url 是 NTP / `about:blank` |
-| `restored` | Chrome 重启后一批一起冒出来 |
-| `unknown` | 其余 —— 见下 |
+| `page` | **有 `openerId`** —— 页面开的(链接 / `window.open` 都算) |
+| `user` | 没有 `openerId`,而且不是 API 建的 —— 人按了 Ctrl+T |
+| `restored` | Chromium 重启后一批一起冒出来 |
 
-**`rel="noopener"` 分不出来。** 带 `noopener` 的 `target=_blank` 链接开出来的 tab
-**没有 `openerId`**,和 Ctrl+T 开的长得一样。所以判据里必须带上 url:
-Ctrl+T 落在 NTP / `about:blank`,noopener 链接落在一个真站点。
-两条都对不上就报 `unknown`,**不猜** —— 猜错的代价是你的 tab 条自动切了不该切的 tab。
-
-这个字段是给 tab 条用的([api/tabs.md §4](../api/tabs.md#4-事件)):
-`api` 建的不自动切过去,`link_target_blank` 切过去才符合人的预期,`unknown` 按不切处理。
+> **实测(2026-08-08,Chromium 124):四种开法全都带 `openerId`** ——
+> `window.open`、`window.open(...,'noopener')`、`<a target=_blank>`、
+> `<a target=_blank rel=noopener>`。
+>
+> 这推翻了这篇早先的说法。`noopener` 切断的是**页面侧**的 `window.opener`(JS 层),
+> 而 `targetInfo.openerId` 是**浏览器层**的血缘记录 —— 两回事。
+> 所以判据比原先想的简单得多:**有 openerId = 页面开的,没有 = 人开的**,
+> 不需要拿 url 去兜底,也不需要一个 `unknown`。
+>
+> 代价是 `link_target_blank` 和 `window_open` **分不出来**(CDP 不给),
+> 所以合成了一个 `page`。这不损失什么:tab 条要的是"该不该自动切过去",
+> 而这两种都该切 —— 真正要区分的是"页面开的"和"人开的"。
+> 验证在 `tests/test_cdp_assumptions.py`。
 
 ### 点完当场就能拿到,不用等事件
 
@@ -156,7 +161,7 @@ Runtime.enable      ← favicon 要用
 `waitForDebuggerOnStart`(让新 target 停在第一行 JS 之前,等注入完再放行)。
 那套东西存在的理由**只有一个**:监听 `visibilitychange` 来判断当前是哪个 tab。
 
-改成 sessiond 自己记账、用 `Target.activateTarget` 把 Chrome 拽过来对齐之后
+改成 sessiond 自己记账、用 `Target.activateTarget` 把 Chromium 拽过来对齐之后
 ([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)),
 这个需求没了,整套跟着塌掉。
 
@@ -184,10 +189,10 @@ tab 条要画的东西,除了上面两条路给的 `id`/`opener`/`reason`,其余
 | `favicon` | `load` 之后一次 `Runtime.evaluate` 读 `link[rel~=icon]`,sessiond 代抓并缓存 |
 | `index` / 顺序 | **sessiond 自己的列表**,CDP 没有挪 tab 的命令,见下 |
 
-**`reorder` 不进 Chrome。** CDP 没有"把 tab 在 tab 条里挪个位置"的命令,
+**`reorder` 不进 Chromium。** CDP 没有"把 tab 在 tab 条里挪个位置"的命令,
 所以顺序是 sessiond 自己维护的,`POST /api/tabs/reorder` 只重排这个列表 ——
-反正 Chrome 真正的 tab 条被裁掉了,没人看得见。
-**代价**:人按 `Ctrl+Tab` 走的是 Chrome 的顺序,拖过序之后和你 bar 上的对不上。
+反正 Chromium 真正的 tab 条被裁掉了,没人看得见。
+**代价**:人按 `Ctrl+Tab` 走的是 Chromium 的顺序,拖过序之后和你 bar 上的对不上。
 v1 接受。
 
 ## 5. 推给客户端
@@ -227,7 +232,7 @@ WS /api/events?after=118&types=tab.*
 | `page.dialog` | 弹窗挡住了页面,**等回应** | 上层弹提示,见 [api/tabs.md §3](../api/tabs.md#3-写) |
 | `download.started` `download.done` | 下载 | 上层 |
 | `human.active` `human.idle` | 人在 VNC 里动了,让路窗口开合 | lib(抛 `BusyHuman`) |
-| `chrome.restarted` | Chrome 崩了被拉起,**tab 全丢** | 两者,必须重拉全量 |
+| `chrome.restarted` | Chromium 崩了被拉起,**tab 全丢** | 两者,必须重拉全量 |
 | `gap` | 事件有丢失 | 两者,必须重拉全量 |
 
 ### 客户端必须守的三条
@@ -248,19 +253,19 @@ WS /api/events?after=118&types=tab.*
 而 `crop_top` 是按"一个最大化窗口"算的。
 
 这件事单独一篇:[07](07-popup-windows.md) —— 结论是**转化掉**:
-在页面层把 `window.open` 包一层、吃掉触发 popup 的 features,Chrome 就原生开成 tab 了。
+在页面层把 `window.open` 包一层、吃掉触发 popup 的 features,Chromium 就原生开成 tab 了。
 
-## 7. 待实测
+## 7. 实测记录
 
-| 要验的 | 怎么验 | 不成立的话 |
-| --- | --- | --- |
-| **重新 `setDiscoverTargets` 会不会把已存在的 target 各补一条 `targetCreated`** | 先开三个 tab,再重连 CDP,数收到几条 | 重连后**必须**用 `Target.getTargets` 重建全表,不能只靠事件 |
-| `Target.setAutoAttach{flatten}` 拿到的 session 上,`Page`/`Security` 事件是不是都推得到 | 开几个 tab,导航,看 `frameNavigated` / `securityStateChanged` 齐不齐 | 缺哪个就对哪个退回按需 `Runtime.evaluate` 取 |
-| `openerId` 在 `target=_blank` / `window.open` / `rel=noopener` 三种下分别给不给 | 三种各点一次 | 按 §2 那张表退 `unknown` |
-| **后台 target 的 `Page.captureScreenshot` 到底给什么** —— 空白?旧帧?还是挂住 | 开两个 tab,对后台那个截图 | 如果居然能拍到新帧,就不用"先切前台"那条规则了([api/README §2](../api/README.md#2-一条贯穿全局的规则tab-参数)) |
+`tests/test_cdp_assumptions.py`,跑在 Chromium 124(headless)上:
 
-第一条是"会不会漏"的底,先验它。另外两条是字段全不全,不影响这条路成不成立。
+| 验的什么 | 结果 |
+| --- | --- |
+| 重新 `setDiscoverTargets` 会不会把已存在的 target 各补一条 | ✅ 会 —— §2「不会漏」的地基成立,重连不用额外重建全表 |
+| `openerId` 在四种开法下给不给 | ✅ **全都给**,包括两种 `noopener` —— 见上,判据因此简化了 |
+| flat session 上 `Page` / `Security` 事件推不推得全 | ✅ 全 —— `frameNavigated` / `frameStartedLoading` / `frameStoppedLoading` / `loadEventFired` / `domContentEventFired` / `visibleSecurityStateChanged` |
 
-> 早先这里列的三条(独立世界能不能收到 `visibilitychange`、`addBinding` 的绑定时机、
-> `waitForDebuggerOnStart` 会不会卡住页面)**全部作废** ——
-> 当前 tab 改成记账之后,那套注入机制整个不存在了。
+**还没验的**:带 `windowFeatures` 的 `window.open` 会不会开成独立窗口、
+以及 shim 之后会不会变回 tab([07 §5](07-popup-windows.md#5-待实测))。
+**headless 下测不了** —— 它根本不产生那个 target,也没有真正的窗口概念。
+这条得在 headful 的 `kasmweb/chromium` 上补。

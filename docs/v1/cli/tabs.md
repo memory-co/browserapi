@@ -64,7 +64,7 @@ $ webmuxd kill-tab -t work:0
 ```
 
 这不是 CLI 的贴心,是 [api/tabs.md §3](../api/tabs.md#3-写) 的行为——
-Chrome 关掉最后一个 tab 会连窗口一起关。
+Chromium 关掉最后一个 tab 会连窗口一起关。
 
 ## 4. 弹窗挡住了
 

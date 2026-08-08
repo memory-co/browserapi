@@ -1,0 +1,28 @@
+[project]
+name = "webmuxd"
+version = "0.1.0"
+description = "tmux + ttyd for a browser: a persistent Chrome you can watch and drive"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "websockets>=12.0",
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+webmuxd = "webmuxd.cli.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["webmuxd*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"

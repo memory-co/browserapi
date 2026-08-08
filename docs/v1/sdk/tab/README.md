@@ -112,7 +112,7 @@ sess.tab("t_7").click("确认")      # 人在画面上看不见,日志里标 bac
 
 CDP 的输入投递给 target,不走屏幕焦点。但 VNC 画面只显示激活的那个。
 
-**要像素就不行** —— Chrome 不渲染后台 tab,所以 `observe()` / `screenshot()`
+**要像素就不行** —— Chromium 不渲染后台 tab,所以 `observe()` / `screenshot()`
 会先把那个 tab 切到前台,画面会跳。见 [read.md §3](read.md#3-要像素就得切到前台)。
 
 ## 5. 新 tab 从哪来
@@ -123,8 +123,7 @@ CDP 的输入投递给 target,不走屏幕焦点。但 VNC 画面只显示激活
 
 ```python
 for e in sess.log(kind="tab"):
-    print(e.tab, e.event, e.reason)  # api | link_target_blank | window_open
-                                     # ctrl_click | user_ctrl_t | restored | unknown
+    print(e.tab, e.event, e.reason)  # api | page | user | restored
 ```
 
 自己点出来的不用等事件,当场就有:
@@ -143,7 +142,7 @@ new = r.new_tabs[0]        # Tab 句柄
 sess.reorder(["t_7", "t_3"])    # 少给的自动排在后面,lib 帮你补齐再发
 ```
 
-顺序是 sessiond 自己维护的一个列表,不进 Chrome —— CDP 没有挪 tab 的命令
+顺序是 sessiond 自己维护的一个列表,不进 Chromium —— CDP 没有挪 tab 的命令
 ([works/06 §4](../../works/06-tab-sync.md#4-剩下那些字段从哪来))。
 
 ## 7. ↔ API 对照

@@ -35,7 +35,7 @@ webmuxd bundle -t work -o out.zip        # 日志 + 截图 + 离线 HTML
 ```bash
 webmuxd log -t work --kind action     # 谁做了什么(默认占绝大多数)
 webmuxd log -t work --kind tab        # tab 的生老病死
-webmuxd log -t work --kind session    # Chrome 重启、reset
+webmuxd log -t work --kind session    # Chromium 重启、reset
 ```
 
 容器里也可以直接 grep,一行一条 JSON:

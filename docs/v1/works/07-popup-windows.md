@@ -37,8 +37,8 @@ window.open(url, "name", "width=320,height=320")      // → popup
 这种开关。`--disable-popup-blocking` 管的是**拦不拦**,不是**开成什么**。
 策略里的 `DefaultPopupsSetting` / `PopupsAllowedForUrls` 同理。
 
-Chrome 是有意不给这个设置的(Firefox 早年有 `browser.link.open_newwindow.restriction`,
-Chrome 从来没有)。所以**你问的"启动时转化掉"这条路是堵的**。
+Chromium 是有意不给这个设置的(Firefox 早年有 `browser.link.open_newwindow.restriction`,
+Chromium 从来没有)。所以**你问的"启动时转化掉"这条路是堵的**。
 
 ### B. 扩展 `chrome.tabs.move` —— 也堵
 

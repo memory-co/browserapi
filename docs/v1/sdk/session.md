@@ -1,6 +1,6 @@
 # lib · `Session`
 
-**一个 session = 一个 kasm 容器**:一块 VNC 屏、一个 Chrome、一份日志。
+**一个 session = 一个 kasm 容器**:一块 VNC 屏、一个 Chromium、一份日志。
 从 [`Webmuxd`](manager.md) 那儿拿:
 
 ```python
@@ -24,7 +24,7 @@ sess.handle                               # {"container_id": ...} 或 {"display"
 
 **两个口各干各的**([works/01 §1](../works/01-container.md#1-一张图)):
 6901 那个是干净的 KasmVNC,7900 那个是 webmuxd 的 API。
-裁掉 Chrome 自带的 tab 条是**你嵌 iframe 时做的**
+裁掉 Chromium 自带的 tab 条是**你嵌 iframe 时做的**
 ([works/04 §2](../works/04-chrome-ui-externalization.md))。
 
 **这是和 tmux 差别最大的一处**:tmux 一个 socket 复用所有 session,kasm 不行 ——
@@ -37,7 +37,7 @@ tab = sess.open("https://shop.example.com")   # 开 tab,见 tab/
 sess.tabs   sess.active                       # 读内存,见 README §3
 sess.log()  sess.bundle("out.zip")            # 日志,见 log/
 
-sess.status()         # Chrome 活着没、版本、busy
+sess.status()         # Chromium 活着没、版本、busy
 sess.viewport()       # 屏幕尺寸和 crop_top
 sess.reset()          # 清 cookie、关多余 tab、回 about:blank
 sess.kill()           # 停掉自己

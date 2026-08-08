@@ -32,7 +32,7 @@ JSON 里没有对象、没有异常、没有惰性求值,于是 `favicon` 只能
 
 ## 2. lib 在哪儿运行
 
-核心跑在 **session 里面**,紧挨着 Chrome,握着 CDP 连接。sessiond 就是它加一层 HTTP 壳:
+核心跑在 **session 里面**,紧挨着 Chromium,握着 CDP 连接。sessiond 就是它加一层 HTTP 壳:
 
 ```
    你的代码
@@ -41,7 +41,7 @@ JSON 里没有对象、没有异常、没有惰性求值,于是 `favicon` 只能
    Session ──────────HTTP─────────►┌─ sessiond ───────────────┐
    (远程 transport + 内存里那份     │  HTTP 壳(导出面)       │
     tab 表)      ◄───WS 事件───────│      ↓ 同名方法          │
-                                    │  webmuxd 核心 ──CDP──► Chrome
+                                    │  webmuxd 核心 ──CDP──► Chromium
    curl / TS / Go ──────HTTP───────►└──────────────────────────┘
 ```
 
@@ -212,9 +212,9 @@ lib 的方法在前,因为那是定义的地方:
 | `NotClickable` | `not_clickable` | 找到了但被挡住/禁用 |
 | `Timeout` | `timeout` | 等超时 |
 | `NavFailed` | `nav_failed` | 页面打不开 |
-| `ChromeGone` | `chrome_gone` | Chrome 崩了(会自动重启) |
+| `ChromiumGone` | `chrome_gone` | Chromium 崩了(会自动重启) |
 
-前四个你自己重试或换个写法;`ChromeGone` 说明容器出事了。
+前四个你自己重试或换个写法;`ChromiumGone` 说明容器出事了。
 完整的异常树见 [sdk/README §3](../sdk/README.md#5-异常),码表见
 [api/README §4](../api/README.md#4-错误)。
 

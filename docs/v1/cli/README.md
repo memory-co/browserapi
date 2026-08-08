@@ -30,7 +30,7 @@ tmux 给多路复用与持久化,ttyd 给 web 暴露,概念见 [works/05](../wor
 | tmux | webmuxd | 实体 |
 | --- | --- | --- |
 | server | **server** | 按需自启,持有全部 session,见 [server.md](server.md) |
-| session | **session** | 一整套 kasm + Chrome + sessiond |
+| session | **session** | 一整套 kasm + Chromium + sessiond |
 | window | **tab** | 浏览器标签页,见 [tabs.md](tabs.md) |
 | pane | — | 不做:一块 VNC 屏同时只显示一个 tab |
 | `send-keys` | `click` / `type` / `key` / `send` | 往里面打东西,见 [act.md](act.md) |

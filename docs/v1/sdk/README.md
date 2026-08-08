@@ -43,7 +43,7 @@ print(tab.url, tab.title)
 | | 是什么 | 详见 |
 | --- | --- | --- |
 | **`Webmuxd`** | **管理实例**。持有若干 session,自己不跑浏览器 | [manager.md](manager.md) |
-| **`Session`** | **一个 kasm 容器**:一块 VNC 屏 + 一个 Chrome + 一份日志 | [session.md](session.md) |
+| **`Session`** | **一个 kasm 容器**:一块 VNC 屏 + 一个 Chromium + 一份日志 | [session.md](session.md) |
 | **`Tab`** | **一个页面的句柄**,所有页面操作都在它上面 | [tab/](tab/) |
 
 **`Webmuxd()` 是个空壳。** 构造它不起容器、不占端口 —— 它只是"我要开始管 session 了"。
@@ -162,7 +162,7 @@ WebmuxdError
 │  ├─ Busy            busy           .retry_after_ms
 │  └─ BusyHuman       busy_human     .retry_after_ms
 ├─ PlatformError      这个 session 出事了 —— 该告警,别盲目重试
-│  ├─ ChromeGone      chrome_gone
+│  ├─ ChromiumGone      chrome_gone
 │  ├─ SessionDead     session_dead
 │  ├─ RuntimeUnavailable  runtime_unavailable   .hint
 │  └─ PortInUse       port_in_use       你给的端口被占了
@@ -210,7 +210,7 @@ with ThreadPoolExecutor(4) as pool:
 `Webmuxd` 本身只做管理,`create()` / `sessions()` 这些是安全的。
 
 要真并发就多开几个 session,这也是 tmux 的答案:多开几个。
-**上限是机器** —— 每个 session 是一个容器、一个 Chrome、两个端口
+**上限是机器** —— 每个 session 是一个容器、一个 Chromium、两个端口
 ([works/05 §2](../works/05-server-session-runtime.md#2-对照表))。
 
 人在 VNC 里操作时会收到 `BusyHuman`,带 `.retry_after_ms`

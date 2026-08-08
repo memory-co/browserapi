@@ -6,7 +6,7 @@
 > 早先这篇还包含一个**查看页面**(左边 VNC、右边日志面板)。**去掉了** ——
 > 容器只暴露两个口:干净的 KasmVNC,和 webmuxd 的 API。
 > 画面怎么摆、日志怎么显示、tab 条长什么样,**上层自己组织**
-> ([04](04-chrome-ui-externalization.md) 讲怎么裁 Chrome 自带的 UI)。
+> ([04](04-chrome-ui-externalization.md) 讲怎么裁 Chromium 自带的 UI)。
 > 我们自己带一个页面是过渡设计:它既不是产品,又让人误以为那是标准形态。
 
 ## 1. 存哪
@@ -42,14 +42,14 @@ grep '"ok":false'     /data/log.jsonl     # 失败的
 | --- | --- |
 | `action` | **有人做了一件事** —— 点击、输入、导航、观测 |
 | `tab` | **tab 的生和死** —— 建了、关了、被挤掉了,带 `reason` 和 `final_url` |
-| `session` | **整个 session 的事** —— Chrome 崩了重拉、`reset` |
+| `session` | **整个 session 的事** —— Chromium 崩了重拉、`reset` |
 
 **没有第四类。** 页面自己的变化(标题变了、loading 变了)不进日志 ——
 没有人"做"它们,它们只是事件(§5)。
 
 ```jsonc
 { "seq": 118, "kind": "tab", "event": "opened", "tab": "t_7",
-  "url": "https://help.example.com", "reason": "link_target_blank", "user": "human" }
+  "url": "https://help.example.com", "reason": "page", "user": "human" }
 { "seq": 402, "kind": "tab", "event": "closed", "tab": "t_7",
   "final_url": "...", "reason": "evicted" }
 { "seq": 511, "kind": "session", "event": "chrome_restarted", "restarts": 1 }

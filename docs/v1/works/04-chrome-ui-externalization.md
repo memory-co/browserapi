@@ -1,6 +1,6 @@
 # 04 · tab bar 与 url bar 外化
 
-**一句话**:VNC 画面里只剩页面内容,Chrome 自带的 tab 条和地址栏不可见;
+**一句话**:VNC 画面里只剩页面内容,Chromium 自带的 tab 条和地址栏不可见;
 tab 列表和 URL 状态走 API 出来,由调用方在外面自己画。
 页面里点链接冒出新 tab,外面能立刻感知到。
 
@@ -21,7 +21,7 @@ tab 列表和 URL 状态走 API 出来,由调用方在外面自己画。
      ▲ 下面那块是 VNC
 ```
 
-## 2. 怎么把 Chrome 的 UI 弄没
+## 2. 怎么把 Chromium 的 UI 弄没
 
 **在 iframe 上裁掉。** 画面本来就要被嵌进你的页面,那就让 iframe 往上偏移 `crop_top` 像素,
 外面套一层 `overflow:hidden` 的壳。tab 条和地址栏被裁在可视区之外,壳里只剩页面内容。
@@ -43,9 +43,9 @@ tab 列表和 URL 状态走 API 出来,由调用方在外面自己画。
 
 好处:
 
-- **不碰 X、不碰窗口管理器、不碰 Chrome 启动参数**,没有任何被 clamp 或被看门狗推回去的风险(见 §5)
+- **不碰 X、不碰窗口管理器、不碰 Chromium 启动参数**,没有任何被 clamp 或被看门狗推回去的风险(见 §5)
 - **鼠标坐标不用自己算**——iframe 整体位移,浏览器的命中测试自动对上
-- **tab 语义完全原生**:`target=_blank`、`window.open`、Ctrl+点击、tab 顺序,全是 Chrome 自己的行为,一行都不用模拟
+- **tab 语义完全原生**:`target=_blank`、`window.open`、Ctrl+点击、tab 顺序,全是 Chromium 自己的行为,一行都不用模拟
 
 ### crop_top 从哪来
 
@@ -69,7 +69,7 @@ window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
 
 ### 想要页面视口正好是某个尺寸
 
-屏幕高 = 想要的页面高 + `crop_top`。但 `crop_top` 得等 Chrome 起来才量得到,所以是两段式:
+屏幕高 = 想要的页面高 + `crop_top`。但 `crop_top` 得等 Chromium 起来才量得到,所以是两段式:
 容器按默认分辨率起 → sessiond 量出 `crop_top` → `xrandr` 把 X 分辨率调成 `page_h + crop_top`。
 不介意差那几十像素的话,这步可以省。
 
@@ -127,7 +127,7 @@ window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
 
 ```jsonc
 // WS /api/events
-{ "type":"tab.created",   "tab":{...}, "reason":"link_target_blank" }
+{ "type":"tab.created",   "tab":{...}, "reason":"page" }
 { "type":"tab.updated",   "id":"t_7", "changed":{ "title":"订单确认", "loading":false } }
 { "type":"tab.activated", "id":"t_7", "previous":"t_3" }
 { "type":"tab.closed",    "id":"t_7" }
@@ -135,8 +135,7 @@ window.outerHeight - window.innerHeight    // tab条 + 工具栏 的实际高度
 
 `tab.updated` 只发变化的字段,外面做局部更新。
 
-`reason` 说明这个 tab 怎么冒出来的:`api` / `link_target_blank` / `window_open` /
-`ctrl_click` / `user_ctrl_t`(人在 VNC 里按了 Ctrl+T)。你的 tab 条可以据此决定要不要自动切过去。
+`reason` 说明这个 tab 怎么冒出来的:`api` / `page`(页面开的)/ `user`(人按 Ctrl+T)/ `restored`。你的 tab 条可以据此决定要不要自动切过去。
 
 `opener` 标出"从哪个 tab 开出来的",想画成子 tab 或加来源提示都行。
 
@@ -162,12 +161,12 @@ ui.render(sess.tabs, sess.active)  # 值一直是新的
 ### 4.1 「当前是哪个 tab」不去观测,直接记账
 
 CDP 没有"tab 被激活了"这种事件。但也不用为此发明观测手段 —— **反过来做**:
-`active` 是 sessiond 自己的字段,它改完用 `Target.activateTarget` 把 Chrome 拽过来对齐。
+`active` 是 sessiond 自己的字段,它改完用 `Target.activateTarget` 把 Chromium 拽过来对齐。
 
 能改它的只有 API 的 activate、新 tab 打开、当前 tab 被关 —— 三种 sessiond 都当场知道。
 观看者一接进来(有 UI 连上那条 WS)再对齐一次。
 
-**人点不到 Chrome 自己的 tab 条**——它被裁在可视区外,连命中测试都进不去,
+**人点不到 Chromium 自己的 tab 条**——它被裁在可视区外,连命中测试都进不去,
 点上去落在你画的那条 bar 上,也就是走 API。所以漂移只可能来自键盘快捷键,
 下次进入时自愈。细节见 [api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)。
 
@@ -181,21 +180,21 @@ CDP 没有"tab 被激活了"这种事件。但也不用为此发明观测手段 
 | 事实 | 值 |
 | --- | --- |
 | 默认 X 分辨率 | 1024×768 |
-| Chrome 版本 | 139 |
+| Chromium 版本 | 139 |
 | 窗口管理器 | **xfwm4**(完整 xfce4 会话:xfdesktop / xfsettingsd / xfce4-notifyd) |
 | 启动钩子 | `/dockerstartup/custom_startup.sh` **存在,权限 777** |
-| **注入 Chrome 参数** | **`-e APP_ARGS="..."` 直接生效,不用改镜像** |
-| Chrome 拉起方式 | `custom_startup.sh` 里 `while true` 循环,进程没了就重拉 |
+| **注入 Chromium 参数** | **`-e APP_ARGS="..."` 直接生效,不用改镜像** |
+| Chromium 拉起方式 | `custom_startup.sh` 里 `while true` 循环,进程没了就重拉 |
 | **窗口看门狗** | **`/dockerstartup/maximize_window.sh` 每 ~10 秒把窗口重新最大化一次** |
 | 沙箱 | 镜像自带 `--no-sandbox`(kasm 的选择) |
 | CDP | `APP_ARGS` 加 `--remote-debugging-port=9222` 即可用 |
-| CDP 外部访问 | **被 Chrome 的 Host 头校验挡掉**,只能容器内访问 → 印证了 sessiond 必须在容器里 |
+| CDP 外部访问 | **被 Chromium 的 Host 头校验挡掉**,只能容器内访问 → 印证了 sessiond 必须在容器里 |
 | 可用 X 工具 | `wmctrl` / `xprop` / `xwininfo` / `xwd` 有;**`xdotool` 没有** |
 
 关于窗口偏移那条路(已放弃,存档):
 
 - `wmctrl -e 0,0,-78,...` **能**把窗口挪到负 Y,xfwm4 不 clamp
-- 但 Chrome 自己的 `--window-position=0,-88` 负值**不生效**(`--window-size` 生效)
+- 但 Chromium 自己的 `--window-position=0,-88` 负值**不生效**(`--window-size` 生效)
 - 而且 `maximize_window.sh` 会周期性把窗口推回最大化,**任何 X 层面的偏移都会被反复撤销**
 
 最后一条是选 iframe 裁剪的直接理由:**页面层裁剪,看门狗管不着。**
@@ -227,6 +226,6 @@ tab 条和地址栏被裁掉之后,一批挂在工具栏上的原生 UI 会变�
 | 外面控制 tab | **可行** |
 | 页面内点链接开新 tab 被感知 | **可行**,还能标出 `opener` |
 | 重画地址栏所需信息 | **基本可行**,缺精确进度和 favicon 事件,能绕 |
-| 注入 Chrome 参数 / 开 CDP | **已实测可行**,`APP_ARGS` 环境变量,不用改镜像 |
+| 注入 Chromium 参数 / 开 CDP | **已实测可行**,`APP_ARGS` 环境变量,不用改镜像 |
 
 **可行。** 先跑 §5 的实验定实现路子,再做 §3/§4 的 tab API。

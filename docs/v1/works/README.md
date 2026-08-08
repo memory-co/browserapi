@@ -13,8 +13,8 @@
 
 一个基于 `kasm/chrome` 的 session。起来之后:
 
-- **在浏览器里打开一个网址,就能看到并直接操作里面那个远端 Chrome**
-- **同时用 Python lib(或 HTTP API)从外面驱动同一个 Chrome**
+- **在浏览器里打开一个网址,就能看到并直接操作里面那个远端 Chromium**
+- **同时用 Python lib(或 HTTP API)从外面驱动同一个 Chromium**
 - 关掉网页,浏览器照常在跑;下次打开还是那个状态
 - **不带界面** —— 画面和 API 两个干净的口,怎么摆是上层的事
 
@@ -42,7 +42,7 @@
 
 ```bash
 docker run -d --name work -p 6901:6901 -p 7900:7900 webmuxd/operator:1.0
-open http://localhost:6901        # 画面:看到 Chrome,可以直接用鼠标点
+open http://localhost:6901        # 画面:看到 Chromium,可以直接用鼠标点
 ```
 
 ```python
@@ -64,9 +64,9 @@ print(tab.text())
 | [01-container.md](01-container.md) | 容器怎么改、怎么起、状态存哪 |
 | [02-lib-and-api.md](02-lib-and-api.md) | **Python lib 是主体**,HTTP API 是它的导出面 |
 | [03-log.md](03-log.md) | 操作日志(scrollback):存哪、三类记录、保留 |
-| [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chrome 的 tab 条和地址栏,改由外面用 API 自己画 |
+| [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chromium 的 tab 条和地址栏,改由外面用 API 自己画 |
 | [05-server-session-runtime.md](05-server-session-runtime.md) | server / session / runtime 三层概念,与 tmux 的完整对照 |
-| [06-tab-sync.md](06-tab-sync.md) | **tab 的一进一出** —— `open()` 怎么落到 Chrome,人点出来的新 tab 怎么被感知 |
+| [06-tab-sync.md](06-tab-sync.md) | **tab 的一进一出** —— `open()` 怎么落到 Chromium,人点出来的新 tab 怎么被感知 |
 | [07-popup-windows.md](07-popup-windows.md) | `window.open` 的 popup 是窗口不是 tab —— 能不能转化掉,以及别人怎么做的 |
 
 规格在上一级([`..`](../)):[`api`](../api/) HTTP · [`cli`](../cli/) 命令行 · [`sdk`](../sdk/) Python。

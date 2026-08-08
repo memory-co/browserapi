@@ -3,7 +3,7 @@
 给"在外面自己画一条 tab 条和地址栏"用的全部接口。
 形状对齐 `chrome.tabs` 扩展 API —— 写过 Chrome 扩展的人零学习成本。
 
-背景见 [works/04](../works/04-chrome-ui-externalization.md):Chrome 自带的 tab 条和地址栏
+背景见 [works/04](../works/04-chrome-ui-externalization.md):Chromium 自带的 tab 条和地址栏
 被 iframe 裁掉了,这套接口是它们的替代品。
 
 ## 1. Tab 对象
@@ -88,7 +88,7 @@
 
 ### `DELETE /api/tabs/{id}` 关闭
 
-关最后一个 tab 时:Chrome 会连窗口一起关掉,所以 sessiond **会自动先建一个 `about:blank`**,
+关最后一个 tab 时:Chromium 会连窗口一起关掉,所以 sessiond **会自动先建一个 `about:blank`**,
 保证永远至少有一个 tab。响应里会带上新建的那个:
 
 ```jsonc
@@ -198,7 +198,7 @@ tab 的变化会推给上层 UI 和 lib([works/06 §5](../works/06-tab-sync.md#5
 
 ```jsonc
 { "seq": 118, "type":"tab.created",   "tab": { /* Tab */ },
-  "reason": "link_target_blank" }
+  "reason": "page" }
 
 { "seq": 119, "type":"tab.updated",   "id":"t_7",
   "changed": { "title":"订单确认", "loading":false, "can_go_back":true } }
@@ -220,20 +220,19 @@ tab 的变化会推给上层 UI 和 lib([works/06 §5](../works/06-tab-sync.md#5
 | reason | 场景 |
 | --- | --- |
 | `api` | 你自己调 `POST /api/tabs` 建的 |
-| `link_target_blank` | 页面里点了 `target="_blank"` 的链接 |
-| `window_open` | 页面调了 `window.open()` |
-| `ctrl_click` | 人在 VNC 里 Ctrl+点击 |
-| `user_ctrl_t` | 人在 VNC 里按了 Ctrl+T |
-| `restored` | Chrome 崩溃重启后恢复的 |
-| `unknown` | 判不出来 —— 比如 `rel="noopener"` 的链接,它没有 `opener`,和人按 Ctrl+T 长得一样 |
+| `page` | **页面开的** —— `target="_blank"` 链接、`window.open()`、Ctrl+点击,都算 |
+| `user` | **人开的** —— 在 VNC 里按了 Ctrl+T |
+| `restored` | Chromium 崩溃重启后恢复的 |
 
 带尺寸参数的 `window.open` 在浏览器里本来会开成**一个窗口**而不是 tab。
 webmuxd **一律把它转成 tab**,所以对你来说 `/api/tabs` 里只有 tab,没有"窗口"这个概念,
 `reason` 记 `window_open`。怎么做到的、为什么这么选,见 [works/07](../works/07-popup-windows.md)。
 
 **这个字段是为你的 tab 条设计的。** 比如:`api` 建的不自动切过去(脚本自己会切),
-`link_target_blank` 自动切过去(符合人的预期),`user_ctrl_t` 高亮一下提示"这是人开的",
-`unknown` 按不切处理 —— **判不出来时给 `unknown`,不猜**,猜错的代价是替用户切了不该切的 tab。
+`page` 自动切过去(符合人的预期),`user` 高亮一下提示"这是人开的"。
+
+**判据就是 `openerId` 在不在** —— 实测四种开法(含 `rel=noopener`)全都带它,
+所以这里不需要猜,也不需要一个 `unknown`。
 
 怎么判出来的见 [works/06 §2](../works/06-tab-sync.md#2-out--人点了-a-target_blank)。
 
@@ -243,14 +242,14 @@ webmuxd **一律把它转成 tab**,所以对你来说 `/api/tabs` 里只有 tab,
 
 **不观测,记账。** CDP 不发"tab 被激活了"这种事件(Target 域只有 created /
 destroyed / infoChanged / crashed,`TargetInfo` 里根本没有"是不是当前"这一项)——
-所以别去猜,直接反过来:**`active` 是 sessiond 自己的一个字段,由它改,再把 Chrome 拽过来对齐。**
+所以别去猜,直接反过来:**`active` 是 sessiond 自己的一个字段,由它改,再把 Chromium 拽过来对齐。**
 
 改它的只有三种情况,每种 sessiond 都当场知道:
 
 | 什么时候变 | 怎么知道的 |
 | --- | --- |
 | `POST /api/tabs/{id}/activate` | 就是它自己执行的 |
-| 新 tab 前台打开 | `Target.targetCreated`,按 `reason` 决定切不切(`ctrl_click` 不切) |
+| 新 tab 前台打开 | `Target.targetCreated`,按 `reason` 决定切不切(`user` 不自动切) |
 | 当前 tab 被关掉 | `Target.targetDestroyed`,焦点按规则落到邻居 |
 
 每次变完,以及**每次有观看者接进来**(有 UI 连上那条 WS,那就是"有人进来了"),sessiond 发一次 `Target.activateTarget` 把画面对齐到记录上。
@@ -261,11 +260,11 @@ destroyed / infoChanged / crashed,`TargetInfo` 里根本没有"是不是当前"�
 
 ### 会漂,但会自愈
 
-人按 `Ctrl+Tab` / `Ctrl+1..9`,Chrome 换了 tab 而我们不知道 —— 记录说 A、画面是 B。
+人按 `Ctrl+Tab` / `Ctrl+1..9`,Chromium 换了 tab 而我们不知道 —— 记录说 A、画面是 B。
 
-- **人点不到 Chrome 自己的 tab 条**(被裁在可视区外,连命中测试都进不去),
-  所以漂移只来自键盘快捷键,以及不裁 Chrome UI 直接看 VNC 的人(那种情况下
-  Chrome 的原生 UI 是完整可见可点的)
+- **人点不到 Chromium 自己的 tab 条**(被裁在可视区外,连命中测试都进不去),
+  所以漂移只来自键盘快捷键,以及不裁 Chromium UI 直接看 VNC 的人(那种情况下
+  Chromium 的原生 UI 是完整可见可点的)
 - **下一次有人进来、或下一次 `activate`,就对齐回来了**
 
 拿这点漂移换掉了一整套注入监听 `visibilitychange` 的机制,划算。

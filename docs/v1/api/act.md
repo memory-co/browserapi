@@ -258,7 +258,7 @@ tab 的增删和页面动作在这儿咬合。
 **对非激活 tab 的输入是允许的**(CDP 输入投给 target,不走屏幕焦点),
 但 VNC 画面只显示激活的那个,所以人看不见。这类动作在日志里标 `background: true`。
 
-**要像素的不行**:Chrome 不渲染后台 tab。`GET /api/observe`、`GET /api/screenshot`、
+**要像素的不行**:Chromium 不渲染后台 tab。`GET /api/observe`、`GET /api/screenshot`、
 以及动作串里的 `observe` / `screenshot` 指向非激活 tab 时,**先切前台再拍**,
 响应带 `activated: true`。见 [README §2](README.md#2-一条贯穿全局的规则tab-参数)。
 

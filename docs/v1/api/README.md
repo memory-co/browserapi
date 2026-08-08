@@ -55,7 +55,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 所以后台 tab 照样能点。但 VNC 画面只显示激活的那个,所以后台操作**人看不见**,
 日志里会标 `background: true`。
 
-**要像素的接口是例外。** Chrome 不渲染后台 tab,所以 `GET /api/observe` 和
+**要像素的接口是例外。** Chromium 不渲染后台 tab,所以 `GET /api/observe` 和
 `GET /api/screenshot` 指向非激活 tab 时,sessiond **会先把它切到前台再拍**
 (响应里带 `activated: true`,并发一条 `tab.activated` 事件)。
 不这么做就只能拿到空白或上一帧,而"截图和人看到的画面对不上"是这东西最不能出的错。
@@ -99,7 +99,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/status` | Chrome 活着没、当前 tab、版本 |
+| `GET` | `/api/status` | Chromium 活着没、当前 tab、版本 |
 | `GET` | `/api/viewport` | 屏幕尺寸与 `crop_top`(外面裁 iframe 用) |
 | `POST` | `/api/reset` | 清 cookie、关多余 tab、回 about:blank |
 | `POST` | `/api/live-token` | 签发一次性观看 token,`{ "read_only": true, "ttl_s": 3600 }` |
@@ -150,7 +150,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `busy` | 409 | 已有动作在跑 | 等,或多起几个 session |
 | `busy_human` | 409 | 人正在 VNC 里操作 | 见 §5 |
 | `read_only` | 403 | 用的是只读 token | — |
-| `chrome_gone` | 503 | Chrome 崩了(会自动重拉) | 等重启,别盲目重试动作 |
+| `chrome_gone` | 503 | Chromium 崩了(会自动重拉) | 等重启,别盲目重试动作 |
 | `blocked_url` | 400 | 特权页面(`chrome://` 那类),禁止导航 | 别去,见 [tabs.md §3](tabs.md#3-写) |
 | `bad_request` | 400 | 参数不对 | 改代码 |
 

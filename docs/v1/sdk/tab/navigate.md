@@ -61,7 +61,7 @@ tab.activate()
 **画面跟着切。** 一块 VNC 屏同时只显示一个 tab。
 
 `active` 是 sessiond 记的账,不是观测出来的 —— 它改完会用 `Target.activateTarget`
-把 Chrome 拽过来对齐([api/tabs.md §5](../../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算))。
+把 Chromium 拽过来对齐([api/tabs.md §5](../../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算))。
 所以 `sess.active` 立刻就是新的。
 
 ## 4. `close` —— 关掉
@@ -72,7 +72,7 @@ r.created        # Tab | None
 ```
 
 **永远至少留一个 tab**:关掉最后一个时 sessiond 会自动新建一个 `about:blank`,
-从 `r.created` 还给你。Chrome 关掉最后一个 tab 会连窗口一起关,所以这是服务端行为,
+从 `r.created` 还给你。Chromium 关掉最后一个 tab 会连窗口一起关,所以这是服务端行为,
 不是 lib 的贴心([api/tabs.md §3](../../api/tabs.md#3-写))。
 
 关掉之后句柄上的属性还能读,动作抛 `TabGone`([README §3](README.md#3-生命周期))。

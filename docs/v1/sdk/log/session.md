@@ -7,15 +7,14 @@
 ```python
 for e in sess.log(kind="tab"):
     print(e.tab, e.event, e.at, e.reason, e.user)
-    # t_7 opened  14:22:01  link_target_blank  human
+    # t_7 opened  14:22:01  page  human
     # t_7 closed  14:31:44  evicted            —
 ```
 
 ```python
 e.event           # "opened" | "closed"
 e.tab             # t_7
-e.reason          # opened: api | link_target_blank | window_open | ctrl_click
-                  #         user_ctrl_t | restored | unknown
+e.reason          # opened: api | page | user | restored
                   # closed: api | user | evicted | crashed
 e.url  e.title    # opened 时
 e.final_url       # closed 时 —— 想恢复就拿它重开
@@ -40,7 +39,7 @@ for e in sess.log(kind="session"):
 | `event` | 什么时候 |
 | --- | --- |
 | `session_started` | sessiond 起来了 |
-| `chrome_restarted` | Chrome 崩了被自动拉起,**tab 全丢**,带 `restarts` |
+| `chrome_restarted` | Chromium 崩了被自动拉起,**tab 全丢**,带 `restarts` |
 | `reset` | 调了 `POST /api/reset`,清 cookie、关多余 tab |
 
 `e.tab` 在这一类里是 `None` —— 它们不属于任何 tab。

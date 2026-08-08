@@ -22,7 +22,7 @@ tab.click("下一页", nth=1)             # 多个匹配时指定第几个
 tab.type(label="手机号", text="138…")  # 表单标签找输入框
 ```
 
-**匹配规则定死在引擎里**(跟 Chrome 一起跑在 session 内,
+**匹配规则定死在引擎里**(跟 Chromium 一起跑在 session 内,
 [api/act.md §4](../../api/act.md#4-定位)):
 
 > 精确匹配优先 → 子串 → 大小写不敏感 → **仍然多于一个就抛 `NotFound` 并列出全部候选**
