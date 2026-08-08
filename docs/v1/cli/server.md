@@ -31,10 +31,10 @@ $ webmuxd new -s scrape -u https://example.com
 scrape  →  http://localhost:7901
 
 $ webmuxd ls
-work    container  7900  3 tabs  shop.example.com/cart   ●
-dev     process    7901  1 tab   localhost:3000
-prod    remote     -     5 tabs  intranet.corp/dash
-stale   process    7903  dead — webmuxd kill -t stale 清掉
+work    container  6901/7900  3 tabs  shop.example.com/cart   ●
+dev     process    6902/7901  1 tab   localhost:3000
+prod    remote     -          5 tabs  intranet.corp/dash
+stale   process    6904/7903  dead — webmuxd kill -t stale 清掉
 
 $ webmuxd attach -t work        # 自己看,完整权限,用默认浏览器打开画面
 $ webmuxd attach -t work -p     # 只打印 URL,不开浏览器(无 GUI 环境用)

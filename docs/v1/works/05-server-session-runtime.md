@@ -42,19 +42,26 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | `send-keys` | `click` / `type` / `key` / `POST /api/act` | |
 | `capture-pane` | `capture` / `observe` / `GET /api/observe` | |
 | fork + exec 一个 shell | **runtime** | **唯一多出来的概念**,见 §4 |
-| 一个 socket 复用全部 session | **一个 session 一个端口** | kasm 复用不了,见下 |
-
-**端口这条是硬约束,也是和 tmux 差别最大的一处**:tmux 的 server 用一个 socket
-承载所有 session;kasm 不行 —— 每个 session 自带一块 VNC 屏和一个 HTTP 口,
-端口没法复用。所以 `:7800` 那个 server 存在的意义之一就是**对外只开一个口**,
-按名字代理到 7900、7901、7902…,免得把一片端口全暴露出去。
-| **ttyd** `-p PORT` | server `:7800` / session `:7900` | |
+| 一个 socket 复用全部 session | **一个 session 两个端口** | kasm 复用不了,见表下 |
+| **ttyd** `-p PORT` | server `:7800` / session `:6901`+`:7900` | |
 | **ttyd** 默认只读,`-W` 才可写 | `share` 默认只读,`--writable` 才可写 | 同款默认,见 §3.4 |
 | **ttyd** `-c user:pass` | `WEBMUXD_TOKEN` | |
 | **ttyd** `-b base-path` | `/s/<name>/` 代理路径 | |
 | **ttyd** `-t` 客户端选项 | 上层自己决定怎么裁、怎么画([04](04-chrome-ui-externalization.md)) | |
 | **ttyd** 一个进程一个命令 | 一个 session 一个浏览器 | |
 | **ttyd** `-m` 最大客户端 | 多人同看一个 session | |
+
+**端口那条是硬约束,也是和 tmux 差别最大的一处。** tmux 的 server 用一个 socket
+承载所有 session;kasm 不行 —— 每个 session 自带一块 VNC 屏,而且
+webmuxd 的 API 是另一个口([01 §1](01-container.md#1-一张图)):
+
+```
+session work    :6901 画面   :7900 API
+session scrape  :6902 画面   :7901 API
+```
+
+所以 `:7800` 那个 server 存在的意义之一就是**对外只开一个口**,
+按名字把两个都代理进去,免得把一片端口全暴露出去。
 
 ## 3. server
 
@@ -103,17 +110,23 @@ tmux 的 server 只有一个 unix socket。webmuxd 的 server 还必须提供 HT
 它代理到各个 session:
 
 ```
-              ┌─────────────────────────────────────────┐
-              │  webmuxd server        :7800             │
- CLI ────────►│                                         │
- 浏览器 ──────►│  /api/sessions      管理               │
- lib ────────►│  /s/work/           → session work     │──► :7900
-              │  /s/scrape/         → session scrape   │──► :7901
-              └─────────────────────────────────────────┘
+                ┌───────────────────────────────────────────┐
+                │  webmuxd server            :7800          │
+ CLI ──────────►│                                           │
+ 上层 UI ──────►│  /api/sessions          管理              │
+                │  /s/work/vnc/    → work 的画面           │──► :6901
+                │  /s/work/api/    → work 的 API           │──► :7900
+                │  /s/scrape/…     → scrape 的两个口       │──► :6902 :7901
+                └───────────────────────────────────────────┘
+
+ lib ──────────────────── 直连 ──────────────────────────────► :7900
 ```
 
 **一个地址通到所有 session**,不用记一堆端口,远程访问也只开一个口。
-session 自己的端口仍然直连得到,但平时不用。
+
+**lib 不走这条路。** 它手里就是一个 session 的地址,直连那个 API 口 ——
+[sdk](../sdk/) 里根本没有"列举 session"这一层(§3.4)。
+经 server 代理时它也只是换个 base URL,行为一样。
 
 管理接口见 [api/server.md](../api/server.md)。
 
@@ -224,10 +237,10 @@ server 自己的状态:
 
 ```console
 $ webmuxd ls
-work    container  7900  3 tabs  shop.example.com/cart   ●
-dev     process    7901  1 tab   localhost:3000
-prod    remote     -     5 tabs  intranet.corp/dash
-stale   process    7903  dead — webmuxd kill -t stale 清掉
+work    container  6901/7900  3 tabs  shop.example.com/cart   ●
+dev     process    6902/7901  1 tab   localhost:3000
+prod    remote     -          5 tabs  intranet.corp/dash
+stale   process    6904/7903  dead — webmuxd kill -t stale 清掉
 ```
 
 ## 7. 和 tmux 故意不一样的地方
@@ -254,14 +267,37 @@ webmuxd kill-server                                    # process 的死,containe
 ```
 
 ```python
-from webmuxd import Session
+from webmuxd import Webmuxd
 
-s = Session.new("work")                                # container
-s = Session.new("dev", runtime="process")
-s = Session.connect("https://browser.internal:7900")   # remote
-s = Session.attach("work")                             # 接上已存在的
+web = Webmuxd(port=7900)                       # container(默认)
+web = Webmuxd(port=7901, runtime="process")
+web = Webmuxd("https://browser.internal:7800", runtime="remote", name="prod")
 
-s.click("登录")
+tab = web.open("https://shop.example.com")
+tab.click("登录")
 ```
 
-**runtime 只在创建时出现一次,之后所有代码都一样。** 这是这层抽象的全部意义。
+**runtime 只在构造时出现一次,之后所有代码都一样。** 这是这层抽象的全部意义。
+
+### lib 里只有 session 这一层
+
+**没有 `Server` 类,也没有 `Session` 类。** lib 的入口就是 `Webmuxd` ——
+它**就是一个 session**,构造即"确保这个口上有一个在跑"
+([sdk/session.md §1](../sdk/session.md#1-构造即确保在跑))。
+
+```python
+webs = [Webmuxd(port=7900 + i) for i in range(4)]      # 多个 session = 多个对象
+```
+
+这一层的三个概念,lib 只认中间那个:
+
+| | lib 里有吗 |
+| --- | --- |
+| **server** | ❌ 列举、清理、`kill-server` 都是运维,归 CLI([sdk/session.md §5](../sdk/session.md#5-lib-不管有哪些-session)) |
+| **session** | ✅ 就是 `Webmuxd` |
+| **runtime** | ✅ 构造参数,之后不可见 |
+
+页面动作**不挂在 session 上**,挂在 `Tab` 上 —— `web.open()` 拿句柄,
+然后 `tab.click()`([sdk/tab/](../sdk/tab/))。
+`web.click(...)` 这种方法故意不给:一个 session 有多个 tab,"在哪个 tab 上点"
+不该靠隐式的当前值。
