@@ -10,9 +10,10 @@ import os
 import threading
 from typing import Any
 
+from webmuxd import runtime as rt
 from webmuxd.client.session import Session
 from webmuxd.client.transport import Transport
-from webmuxd.errors import BadRequest, RuntimeUnavailable
+from webmuxd.errors import BadRequest
 
 
 class Webmuxd:
@@ -31,6 +32,7 @@ class Webmuxd:
         self._base = (url or (f"http://{host}:{port}" if port else None))
         self._t = Transport(self._base, token=self.token) if self._base else None
         self._live: dict[str, Session] = {}
+        self._handles: dict[str, Any] = {}
         self._lock = threading.Lock()
 
     def __repr__(self) -> str:
@@ -67,17 +69,25 @@ class Webmuxd:
 
             api = f"http://{self.host}:{port}"
             t = Transport(api, token=self.token)
+            owned = False
             if not t.alive():
-                raise RuntimeUnavailable(
-                    f"{api} 上没有在跑的 session,而 runtime={runtime!r} 的拉起还没接上",
-                    code="runtime_unavailable",
-                    details={"runtime": runtime,
-                             "hint": "先手工把 sessiond 起在那个端口上;"
-                                     "自动拉起要等 runtime 那一层"})
-            sess = Session(id, api,
-                           vnc_url=f"http://{self.host}:{vnc_port}" if vnc_port else "",
+                # 那个口上什么都没有 → **按 runtime 把它拉起来**。
+                # 起不来就抛 RuntimeUnavailable 带 hint,**不静默换一种**
+                # (works/05 §4)。
+                impl = rt.get(runtime)
+                handle = impl.start(id, api_port=port, vnc_port=vnc_port or 0,
+                                    token=self.token, **kw)
+                self._handles[id] = (impl, handle)
+                api = handle.detail.get("endpoint") or api
+                t = Transport(api, token=self.token)
+                owned = True                # 这次真的建起来了 → with 退出时归我们关
+
+            vnc = ""
+            if vnc_port:
+                vnc = f"http://{self.host}:{vnc_port}"
+            sess = Session(id, api, vnc_url=vnc,
                            token=self.token, user=user or self.user,
-                           owned=False, manager=self)
+                           owned=owned, manager=self)
             self._live[id] = sess
             return sess
 
@@ -100,6 +110,10 @@ class Webmuxd:
         sess = self._live.get(id)
         if sess is not None:
             sess.detach()
+        pair = self._handles.pop(id, None)
+        if pair is not None:
+            impl, handle = pair
+            impl.stop(handle)              # remote 的 stop 是空的:不动对面
         self._forget(id)
 
     def _forget(self, id: str) -> None:
@@ -108,10 +122,16 @@ class Webmuxd:
     def info(self) -> dict:
         if self._t is None:
             return {"version": "0.1.0", "listen": None,
-                    "sessions": {"total": len(self._live)}}
+                    "sessions": {"total": len(self._live)},
+                    "runtimes": rt.detect(), "default_runtime": rt.DEFAULT}
         return self._t.get("/api/server")
 
     def shutdown(self) -> None:
+        """**`process` 的跟着死,`container` 和 `remote` 活着**(works/05 §3.2)。"""
         for s in list(self._live.values()):
             s.detach()
+        for id_, (impl, handle) in list(self._handles.items()):
+            if impl.name == "process":
+                impl.stop(handle)
+            self._handles.pop(id_, None)
         self._live.clear()

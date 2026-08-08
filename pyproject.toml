@@ -26,3 +26,4 @@ include = ["webmuxd*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["slow: 真起进程/容器的用例"]
