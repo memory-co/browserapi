@@ -119,6 +119,41 @@ chrome://  chrome-untrusted://  devtools://  chrome-extension://  view-source:
 没得后退时 `back` 返回 `400 bad_request`,不是静默无操作——
 这样你的按钮禁用状态和实际行为不会对不上。
 
+### tab 数量有上限
+
+**最多 `WEBMUXD_TAB_MAX` 个(默认 10)。** 超了就把**最不活跃的那个挤出去**,
+LRU:按"最后一次被激活、或被操作"排,最久没动的先走。
+
+```jsonc
+// POST /api/tabs 的响应里会带上
+{ "id": "t_12", "index": 9, ...,
+  "evicted": [ { "id": "t_4", "final_url": "https://help.example.com" } ] }
+```
+
+三条硬规矩:
+
+| | |
+| --- | --- |
+| **当前激活的永远不挤** | 人正看着的东西不能在眼前消失 |
+| **正在跑动作的不挤** | 挤了会让那个动作变成一半 |
+| **先建后挤** | 新建的那个不会被自己挤掉 |
+
+被挤掉的 tab **和被关掉一样死透**:`GET /api/tabs` 里没有了,
+后续操作返回 `404 tab_gone`。区别只在**说得清是被挤的**:
+
+```jsonc
+{ "error": { "code": "tab_gone", "message": "t_4 被挤掉了",
+             "details": { "reason": "evicted", "final_url": "https://help.example.com" } } }
+```
+
+**它的记录还在。** `/api/log?kind=tab` 里那两行不会消失,`?tab=t_4` 也还能读到
+它当时干了什么 —— 目录比 tab 活得久
+([works/03 §7](../works/03-view-and-log.md#7-保留))。要恢复就拿 `final_url` 自己重开。
+
+**这条会咬人**:脚本手里攥着的句柄可能在它脚下死掉。所以它在事件、日志、异常里
+**都标了 `reason`**,不会让你以为是自己关的。真不够用就把 `WEBMUXD_TAB_MAX` 调大 ——
+但那是在拿内存和磁盘换([works/03 §7](../works/03-view-and-log.md#7-保留))。
+
 ### `POST /api/tabs/reorder` 拖拽排序
 
 ```jsonc
@@ -139,10 +174,15 @@ chrome://  chrome-untrusted://  devtools://  chrome-extension://  view-source:
 
 { "seq": 120, "type":"tab.activated", "id":"t_7", "previous":"t_3" }
 
-{ "seq": 121, "type":"tab.closed",    "id":"t_7", "active":"t_3" }
+{ "seq": 121, "type":"tab.closed",    "id":"t_7", "active":"t_3",
+  "reason": "api" }                              // api | user | evicted | crashed
 ```
 
 `tab.updated` **只发变化的字段**,外面做局部更新,不要整条替换(会闪)。
+
+`tab.closed` 也带 `reason`:`api`(调了 `DELETE`)/ `user`(人按了 Ctrl+W)/
+**`evicted`(超上限被挤掉)** / `crashed`。
+**你的 tab 条要能显示"被挤掉"和"被关掉"的区别** —— 前者不是用户的意图。
 
 ### `reason` —— 这个 tab 怎么冒出来的
 

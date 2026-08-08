@@ -25,6 +25,7 @@ print(tab.url, tab.title)
 
 ```python
 tab = web.open("https://shop.example.com")     # 新建 + 导航 + 返回句柄
+                                               # 超上限时会挤掉最不活跃的,见 §3
 
 web.tabs                       # [Tab],按 index 排好
 web.active                     # 当前那个
@@ -72,8 +73,29 @@ tab.closed        # 还在不在
 tab.close()
 ```
 
-tab 被关掉之后,句柄上的**属性还能读**(最后一次的值),但**任何动作抛 `TabGone``**。
+tab 没了之后,句柄上的**属性还能读**(最后一次的值),但**任何动作抛 `TabGone`**。
 这是有意的:回看一个已经关掉的 tab 最后停在哪,是常见需求。
+
+### 它可能不是你关的
+
+**同时最多 `WEBMUXD_TAB_MAX` 个 tab(默认 10),超了会挤掉最不活跃的那个** ——
+按"最后一次被激活或被操作"排。当前激活的、正在跑动作的不会被挤。
+
+所以**你手里的句柄可能在你脚下死掉**:
+
+```python
+try:
+    old_tab.click("确认")
+except TabGone as e:
+    if e.reason == "evicted":            # 不是你关的,是被挤的
+        tab = web.open(e.final_url)      # 想恢复就自己重开
+```
+
+被挤掉的 tab **记录还在**:`tab.log()` 照样读得到,`web.log(kind="tab")` 里
+有它的建和关。目录比 tab 活得久([../log.md §6](../log.md#6-会被截断))。
+
+开着的 tab 越多,内存和磁盘越吃 —— 上限就是为这个设的
+([works/03 §7](../../works/03-view-and-log.md#7-保留))。
 
 `tab.id` 关掉之后**不复用** —— 日志和历史观测里的 `t_7` 永远指同一个东西
 ([works/06 §1](../../works/06-tab-sync.md#1-in--webopenhttpsshopexamplecom))。

@@ -64,6 +64,7 @@ docker run -d --name work \
 | `WEBMUXD_VIEWPORT` | `1280x800` | 屏幕分辨率 = 视口 |
 | `WEBMUXD_START_URL` | `about:blank` | 启动打开的页面 |
 | `WEBMUXD_PROXY` | 空 | Chrome 走的代理 |
+| `WEBMUXD_TAB_MAX` | `10` | 同时最多几个 tab,超了挤掉最不活跃的 |
 | `WEBMUXD_LOG_LIMIT` | `500` | **每个 tab** 保留多少条(像 tmux 的 `history-limit`) |
 | `WEBMUXD_TAB_KEEP` | `50` | 已关闭的 tab 留多少个目录,更老的整个删掉 |
 

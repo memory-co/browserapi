@@ -155,7 +155,7 @@ WebmuxdError
 │  ├─ NotClickable    not_clickable
 │  ├─ Timeout         timeout
 │  ├─ NavFailed       nav_failed     .net_error
-│  ├─ TabGone         tab_gone
+│  ├─ TabGone         tab_gone       .reason(closed/evicted)、.final_url
 │  ├─ Busy            busy           .retry_after_ms
 │  └─ BusyHuman       busy_human     .retry_after_ms
 ├─ PlatformError      这个 session 出事了 —— 该告警,别盲目重试

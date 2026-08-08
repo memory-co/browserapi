@@ -130,7 +130,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `not_clickable` | 409 | 找到了但被遮挡/禁用 | 等一下重试,或先滚动 |
 | `timeout` | 408 | settle 或 wait_for 超时 | 重试或放宽条件 |
 | `nav_failed` | 502 | 页面打不开 | 检查 URL / 网络 |
-| `tab_gone` | 404 | tab 已经关了 | 重新拉 `/api/tabs` |
+| `tab_gone` | 404 | tab 没了,`details.reason` 说是关的还是**被挤掉的** | 重新拉 `/api/tabs`;被挤的话拿 `final_url` 重开 |
 | `busy` | 409 | 已有动作在跑 | 等,或多起几个 session |
 | `busy_human` | 409 | 人正在 VNC 里操作 | 见 §5 |
 | `read_only` | 403 | 用的是只读 token | — |
