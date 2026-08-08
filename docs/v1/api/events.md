@@ -6,7 +6,7 @@ WS /api/events?after=118&types=tab.*,action.*
 
 一条 WS 推全部事件。tab 条的实时刷新、agent 的动作直播、日志滚动,都从这里来。
 
-这些事件是**怎么被采集到的**(CDP 事件 / 注入脚本 / VNC tee 三个来源)见
+这些事件是**怎么被采集到的**(CDP 事件 + 注入脚本两个来源)见
 [works/06](../works/06-sync-paths.md)。
 
 ## 1. 信封

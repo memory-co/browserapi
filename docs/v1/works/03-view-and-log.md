@@ -28,7 +28,7 @@
 
 ## 2. 左边:画面
 
-直接嵌 KasmVNC 的客户端,sessiond 反代过去([01 §1.1](01-container.md#11-为什么不用-nginx也不把-kasmvnc-直接暴露))。**不做二次封装。**
+直接嵌 KasmVNC 的客户端([01 §1](01-container.md#1-一张图))。**不做二次封装。**
 
 - 可以直接用鼠标键盘操作里面的 Chrome —— 遇到验证码、二次验证、奇怪弹窗,自己上手点掉
 - 不需要"接管模式"切换。人点人的,API 跑 API 的,像 tmux 多个 client 同时 attach

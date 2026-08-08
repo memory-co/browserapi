@@ -8,7 +8,7 @@
 | | 谁触发 | 怎么走 |
 | --- | --- | --- |
 | **IN** | `tab.click("登录")`、外面 bar 上点「切 tab」/ 输网址 / 后退 | 命令 → sessiond → CDP → Chrome |
-| **OUT** | 人在**画面里**点链接、滚动、提交表单 | Chrome → CDP 事件 + 注入脚本 + VNC tee → sessiond → WS |
+| **OUT** | 人在**画面里**点链接、滚动、提交表单 | Chrome → CDP 事件 + 注入脚本 → sessiond → WS |
 
 **关键的切分不是「lib vs 人」,是「Chrome UI vs 页面内容」。**
 
@@ -33,9 +33,9 @@
    │   ①  一个动作锁 → 定位 → 派发                        │──CDP──► Chrome
    │                                                     │           │
    │   ③  一个状态模型 + 一个 seq 计数器                  │           │
-   │        ▲       ▲        ▲                           │           │
-   │        │       │        │                           │           │
-   │      CDP事件  binding  VNC tee   ② ◄────────────────┼───────────┘
+   │        ▲       ▲                                    │           │
+   │        │       │                                    │           │
+   │      CDP事件   binding          ② ◄────────────────┼───────────┘
    │        │                                            │
    │        └──► WS /api/events ──► lib 的内存 / 你的 bar │
    └─────────────────────────────────────────────────────┘
@@ -106,9 +106,8 @@ v1 接受这个不一致 —— 修它得去模拟 `Ctrl+Shift+PgUp/PgDn`,不值
 
 ## 3. OUT —— 状态怎么出来
 
-人在画面里点了一下,输入是 **VNC → X → Chrome** 进去的。sessiond 虽然在转发这条 websocket,
-但它看到的只是**协议层的坐标和按键**,不是"页面里发生了什么" ——
-点中了哪个元素、跳到哪个 URL、开了几个 tab,还得另外抓。三个来源,各管一摊:
+人在画面里点了一下,输入是 **VNC → X → Chrome** 直接进去的,**sessiond 完全不在这条链路上**。
+所以状态只能事后抓。两个来源,各管一摊:
 
 | 字段 / 事件 | 来源 |
 | --- | --- |
@@ -122,7 +121,7 @@ v1 接受这个不一致 —— 修它得去模拟 `Ctrl+Shift+PgUp/PgDn`,不值
 | **当前激活的是哪个 tab** | 注入脚本 `visibilitychange` |
 | **滚动位置** | 注入脚本 `scroll` |
 | **人点了什么** | 注入脚本 `pointerdown`(捕获阶段)|
-| **人到底动没动** | VNC tee |
+| **是人干的还是 API 干的** | sessiond 自己的派发记录做相关性,见 §3.2 |
 
 ### 3.1 注入脚本:CDP 拿不到的那几样
 
@@ -154,31 +153,26 @@ Page.addScriptToEvaluateOnNewDocument({ source, worldName: "webmuxd" })
 滚动位置**不进 `tab.*` 事件**(那是给 tab 条用的,滚动跟 tab 条无关),
 它进 `observe()` 的 `page.scroll`,和一条低频的 `page.scrolled` 事件。
 
-### 3.2 VNC tee:人到底动没动
+### 3.2 怎么知道是人干的,而不是 API 干的
 
-**为什么不能只靠注入脚本**:CDP 的 `Input.dispatchMouseEvent` 派发出来的事件
-在页面里 **`isTrusted === true`** —— 和真人点的一模一样。
-页面脚本**分不出**这一下是人点的还是 API 点的。
+CDP 的 `Input.dispatchMouseEvent` 派发出来的事件在页面里 **`isTrusted === true`** ——
+和真人点的一模一样。页面脚本**分不出**这一下是谁点的。
 
-两条办法,都要:
+**靠相关性分**:sessiond 知道自己刚派发了什么(它握着动作锁,就是它自己发的)。
+注入脚本报上来的输入,落在"我刚发的那一下"的时间窗和坐标附近就算 API 的,否则算人的。
 
-1. **相关性**:sessiond 知道自己刚派发了什么。注入脚本报上来的输入,
-   如果落在"我刚发的那一下"的时间窗和坐标附近,就是 API 的;否则是人的。
-   够用,但边界模糊。
-2. **VNC tee**(权威):人的输入本来就是以 VNC 协议消息的形式经过容器的,
-   而 `/vnc/` 这条 websocket **本来就穿过 sessiond**([01 §1.1](01-container.md#11-为什么不用-nginx也不把-kasmvnc-直接暴露))
-   —— 它是容器里唯一的门。所以旁路看一眼 `PointerEvent` / `KeyEvent` 是**免费的**,
-   不用为它加任何一跳。这条不依赖页面、不依赖注入,PDF 预览页、`about:blank`、
-   任何页面都成立。
+够用,而且不需要在 VNC 那条路上做任何事 —— 人的输入直连 KasmVNC,
+sessiond 本来就不在那条链路上([01 §1](01-container.md#1-一张图))。
 
-`human.active` / `busy_human` 的让路窗口([api/README §5](../api/README.md#5-人在操作时的让路))
-以 **2** 为准;日志里"人点了什么"用 **1** 补上元素身份,
-拿不到就退回坐标(`👤 人点了 (612,340)`)。
+这条驱动两样东西:`human.active` 和 `busy_human` 的让路窗口
+([api/README §5](../api/README.md#5-人在操作时的让路)),
+以及日志里那条 `user: "human"` —— 有元素身份就写元素,没有就退回坐标
+(`👤 人点了 (612,340)`)。
 
-> 早先这里写的是"要多加一跳"——那是把 tee 加在 nginx **之上**。
-> 正确的做法是**替掉 nginx**:sessiond 反正要在门口收 API,让它顺手转发 `/vnc/`,
-> 跳数和原来的 `nginx → KasmVNC` 一样,却少一个进程,tee 白得。
-> 完整权衡(以及为什么不把 KasmVNC 直接暴露)见 [01 §1.1](01-container.md#11-为什么不用-nginx也不把-kasmvnc-直接暴露)。
+**已知的糊**:窗口边界上会误判(人在 API 点完的 200ms 内点了同一个地方)。
+误判的后果只是日志上署错名、或者让路窗口早开/晚开一点,不影响正确性。
+真要更准就得在 VNC 那层旁路看输入,那得让画面穿过 sessiond ——
+为这点精度加一跳、多一个转发器,不值。
 
 ### 3.3 特权页面被 ban 之后,这条路没有盲区
 
@@ -224,7 +218,7 @@ observe 的 `tabs` 和 WS 事件不会互相打架,因为它们读的是同一�
 **lib 要点东西,人正在动:**
 
 ```
-t0  人在画面里点了一下   → VNC tee → human.active,让路窗口开始(默认 3000ms)
+t0  人在画面里点了一下   → 注入脚本报上来,不是 API 发的 → human.active,让路窗口开始
 t1  lib POST /api/act    → 409 busy_human {retry_after_ms: 2400}
 t3  lib 自己决定等不等   → SDK 不替你 sleep
 ```
@@ -250,10 +244,7 @@ t3  lib 自己决定等不等   → SDK 不替你 sleep
 | --- | --- | --- | --- |
 | 1 | `worldName` 独立世界里能不能拿到 `visibilitychange` | 开一个 CSP 严格的站,切 tab 看有没有 `bindingCalled` | 退回主世界注入,CSP 站上失准 |
 | 2 | `Runtime.addBinding` 在 `worldName` 下的绑定时机 | 导航后立刻滚动,看第一条报不报得上来 | 每次 `Page.frameNavigated` 后补一次 `addBinding` |
-| 3 | **Python 转发 framebuffer 的开销** | 满屏视频跑一会儿,看 sessiond 的 CPU 和画面手感,和直连 KasmVNC 对比 | server→client 方向改内核转发,只留输入方向过 sessiond(输入只有鼠标键盘,可忽略) |
-| 4 | `Input.dispatchMouseEvent` 投给后台 target 是否真的不抢焦点 | 后台 tab 点一下,看画面动没动 | 后台动作改成先 activate 再点,并在日志标出来 |
-| 5 | `crop_top` 变化(书签栏、全屏)能不能被 `outerHeight-innerHeight` 及时抓到 | `Ctrl+Shift+B` 开书签栏 | 加一个低频轮询兜底 |
-
-| 6 | KasmVNC 的多用户 / 只读权限,能不能签出**带过期的一次性**凭证 | 翻 `kasmvncpasswd` 和它的用户管理接口 | 能的话,"直接暴露 KasmVNC" 重新变成选项,[01 §1.1](01-container.md#11-为什么不用-nginx也不把-kasmvnc-直接暴露) 那张表要重算 |
+| 3 | `Input.dispatchMouseEvent` 投给后台 target 是否真的不抢焦点 | 后台 tab 点一下,看画面动没动 | 后台动作改成先 activate 再点,并在日志标出来 |
+| 4 | `crop_top` 变化(书签栏、全屏)能不能被 `outerHeight-innerHeight` 及时抓到 | `Ctrl+Shift+B` 开书签栏 | 加一个低频轮询兜底 |
 
 前两条决定 OUT 路径成不成立,应该最先做。

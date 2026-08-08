@@ -24,7 +24,7 @@
 | tmux / ttyd | webmuxd |
 | --- | --- |
 | `ttyd tmux new -A -s work` | **就是 webmuxd 本身** |
-| `tmux new -s work` | `docker run -d --name work -p 7900:7900 webmuxd` |
+| `tmux new -s work` | `docker run -d --name work -p 7900:7900 -p 6901:6901 webmuxd` |
 | `tmux attach -t work` | 浏览器打开 `http://localhost:7900` |
 | detach(`Ctrl-b d`) | 关掉网页,容器继续跑 |
 | `tmux send-keys` | `tab.click("登录")`(或 `POST /api/act`) |
@@ -40,7 +40,7 @@
 ## 60 秒上手
 
 ```bash
-docker run -d --name work -p 7900:7900 webmuxd/operator:1.0
+docker run -d --name work -p 7900:7900 -p 6901:6901 webmuxd/operator:1.0
 open http://localhost:7900        # 看到 Chrome,可以直接用鼠标点
 ```
 
