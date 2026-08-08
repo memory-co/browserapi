@@ -176,12 +176,12 @@ LRU:按"最后一次被激活、或被操作"排,最久没动的先走。
 ```
 
 **它的记录还在。** `/api/log?kind=tab` 里有它的建和关,`?tab=t_4` 还能读到
-它当时干了什么 —— 直到日志切走那一刀([works/03 §7](../works/03-view-and-log.md#7-保留))。
+它当时干了什么 —— 直到日志切走那一刀([works/03 §7](../works/03-log.md#5-保留))。
 要恢复就拿 `final_url` 自己重开。
 
 **这条会咬人**:脚本手里攥着的句柄可能在它脚下死掉。所以它在事件、日志、异常里
 **都标了 `reason`**,不会让你以为是自己关的。真不够用就把 `WEBMUXD_TAB_MAX` 调大 ——
-但每个活着的 tab 是一个渲染进程([works/03 §7](../works/03-view-and-log.md#7-保留))。
+但每个活着的 tab 是一个渲染进程([works/03 §7](../works/03-log.md#5-保留))。
 
 ### `POST /api/tabs/reorder` 拖拽排序
 
@@ -192,7 +192,7 @@ LRU:按"最后一次被激活、或被操作"排,最久没动的先走。
 
 ## 4. 事件
 
-tab 的变化会推给查看页面和 lib([works/06 §5](../works/06-tab-sync.md#5-推给客户端))。
+tab 的变化会推给上层 UI 和 lib([works/06 §5](../works/06-tab-sync.md#5-推给客户端))。
 那条 WS 是**内部机制**,不是给你调的;这里列出来是因为 `reason` 这个字段的语义你要知道。
 四个:
 
@@ -253,8 +253,7 @@ destroyed / infoChanged / crashed,`TargetInfo` 里根本没有"是不是当前"�
 | 新 tab 前台打开 | `Target.targetCreated`,按 `reason` 决定切不切(`ctrl_click` 不切) |
 | 当前 tab 被关掉 | `Target.targetDestroyed`,焦点按规则落到邻居 |
 
-每次变完,以及**每次有观看者接进来**(查看页面一加载就开 `WS /api/events`,
-那就是"有人进来了"),sessiond 发一次 `Target.activateTarget` 把画面对齐到记录上。
+每次变完,以及**每次有观看者接进来**(有 UI 连上那条 WS,那就是"有人进来了"),sessiond 发一次 `Target.activateTarget` 把画面对齐到记录上。
 已经对着就是个空操作。
 
 这跟 tmux 是一个路子:current window 是 server 记的,client 渲染 server 说的那个,
@@ -265,7 +264,7 @@ destroyed / infoChanged / crashed,`TargetInfo` 里根本没有"是不是当前"�
 人按 `Ctrl+Tab` / `Ctrl+1..9`,Chrome 换了 tab 而我们不知道 —— 记录说 A、画面是 B。
 
 - **人点不到 Chrome 自己的 tab 条**(被裁在可视区外,连命中测试都进不去),
-  所以漂移只来自键盘快捷键,以及绕开查看页面直连 VNC 端口的人(那种情况下
+  所以漂移只来自键盘快捷键,以及不裁 Chrome UI 直接看 VNC 的人(那种情况下
   Chrome 的原生 UI 是完整可见可点的)
 - **下一次有人进来、或下一次 `activate`,就对齐回来了**
 

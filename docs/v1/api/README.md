@@ -23,7 +23,7 @@
 
 **Base**:`http://<host>:7900/api` —— 直连某个 session。
 经 server 代理时是 `http://<host>:7800/s/<name>/api`,**`/api` 之后的部分完全一样**
-([server.md §2](server.md))。查看页面和 API 同一个 origin,不用管跨域。
+([server.md §2](server.md))。画面在另一个口(KasmVNC),和 API 分开,见 [works/01 §1](../works/01-container.md#1-一张图)。
 
 **认证**:设了 `WEBMUXD_TOKEN` 就带 `Authorization: Bearer <token>`,没设就不用。
 
@@ -102,7 +102,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `GET` | `/api/status` | Chrome 活着没、当前 tab、版本 |
 | `GET` | `/api/viewport` | 屏幕尺寸与 `crop_top`(外面裁 iframe 用) |
 | `POST` | `/api/reset` | 清 cookie、关多余 tab、回 about:blank |
-| `POST` | `/api/live-token` | 签发观看页面的一次性 token,`{ "read_only": true, "ttl_s": 3600 }` |
+| `POST` | `/api/live-token` | 签发一次性观看 token,`{ "read_only": true, "ttl_s": 3600 }` |
 | `GET` | `/api/openapi.json` | 由 lib 的方法签名生成,不手写 |
 | `WS` | `/api/events` | **内部机制**,不是 v1 稳定面 —— 见下 |
 
@@ -122,7 +122,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 
 ### `/api/events` 为什么不在这份规格里
 
-它存在,但它是**查看页面和 Python lib 之间的同步机制**,不是给你调的接口:
+它存在,但它是**上层 UI 和 Python lib 用的同步机制**,不是给你调的接口:
 
 - 写脚本、写 agent 的**碰不到** —— lib 已经替你订好了,`web.tabs` / `tab.url` 直接读内存
 - 模型**碰不到** —— 它的输入是 `observe()` 和[日志](log.md)

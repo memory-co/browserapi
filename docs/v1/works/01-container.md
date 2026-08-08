@@ -5,31 +5,36 @@
 ```
 ┌─ session 容器 (webmuxd/operator) ────────────────────────────┐
 │                                                             │
-│  :7900 ─► sessiond ─┬─ /       查看页面(静态)             │
-│                     ├─ /api/   全部 API                     │
-│                     └──CDP──►  Chrome (headful,             │
-│                                127.0.0.1:9222)              │
-│                                     │ X11                   │
-│  :6901 ─► KasmVNC ──────────────────┘                       │
+│  :6901 ─► KasmVNC ──── X11 ────┐                            │
+│                                │                            │
+│  :7900 ─► sessiond ──── CDP ──►┴─ Chrome (headful,          │
+│                                   127.0.0.1:9222)           │
 │                                                             │
-│  操作日志 → /data/log.jsonl + /data/shots/                  │
+│  日志 → /data/log.jsonl + /data/shots/                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**没有 nginx,也没有转发。** 两个进程各自听自己的口:sessiond 管 API 和查看页面,
-KasmVNC 管画面。查看页面把 KasmVNC 嵌成 iframe(顺手裁掉 Chrome 的 UI,见
-[04 §2](04-chrome-ui-externalization.md))。
+**两个口,各干各的:**
+
+| 口 | 是什么 | 出容器 |
+| --- | --- | --- |
+| 6901 | **干净的 KasmVNC** —— 画面,人可以直接用鼠标键盘 | ✅ |
+| 7900 | **webmuxd 的 API** —— 程序化操作和日志 | ✅(不需要就别开) |
+| 9222 | Chrome CDP | ❌ 锁 `127.0.0.1`,永不出容器 |
+
+**没有 nginx,没有转发,也没有我们自己的查看页面。**
+画面怎么摆、tab 条长什么样、日志怎么显示,**上层自己组织** ——
+我们只负责把干净的画面和干净的 API 摆出来。
+
+6901 那个口就是 kasm 原样的东西:**不开 7900,它就是一个能用浏览器看的 Chrome**;
+开了 7900,它才是 webmuxd。
+
+裁掉 Chrome 自带的 tab 条和地址栏是**上层嵌进 iframe 时做的**
+([04 §2](04-chrome-ui-externalization.md))—— 所以**直连 6901 看到的是完整的 Chrome**,
+这是正常的,不是漏了什么。
 
 上面是**一个 session**。`webmuxd`(server)在外面管着若干个这样的容器,
 见 [05](05-server-session-runtime.md)。
-
-| 内部端口 | 用途 | 是否出容器 |
-| --- | --- | --- |
-| 7900 | sessiond —— 查看页面 + API | ✅ |
-| 6901 | KasmVNC —— 画面 | ✅ |
-| 9222 | Chrome CDP | ❌ 锁 `127.0.0.1`,永不出容器 |
-
-查看页面和 API 同一个 origin,省掉跨域。
 
 ### 1.1 鉴权
 
@@ -38,13 +43,6 @@ sessiond 认 `WEBMUXD_TOKEN`,没别的。
 
 **只读、TTL、一次性分享链接是 server 那一层的事** —— 它反正要按名字代理
 `/s/<name>/`,凭证在那儿签、在那儿验([api/server.md §6](../api/server.md#6-鉴权))。
-容器不掺和,也不为了"能签只读链接"去改谁转发谁。
-
-> **一个已知后果**:裁掉 Chrome 的 tab 条和地址栏是**查看页面**那一层干的
-> ([04 §2](04-chrome-ui-externalization.md)),不是容器里干的。所以**绕过查看页面、
-> 直连 6901 的人,看到的是完整的 Chrome**,tab 条和地址栏都能点。
-> 他制造的状态漂移靠"下次进入时对齐"收敛,见
-> [api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)。
 
 ## 2. 起容器
 
@@ -77,7 +75,6 @@ FROM kasmweb/chrome:${KASM_CHROME_TAG}
 
 USER root
 COPY dist/sessiond    /opt/webmuxd/sessiond
-COPY web/           /opt/webmuxd/web/        # 查看页面(纯静态,sessiond 自己发)
 COPY startup.sh     /dockerstartup/custom_startup.sh
 RUN /opt/webmuxd/sessiond/bin/pip install -r /opt/webmuxd/sessiond/requirements.txt \
  && mkdir -p /data/shots && chown -R 1000:1000 /data /opt/webmuxd \
@@ -123,7 +120,7 @@ docker run -e APP_ARGS="--remote-debugging-port=9222 \
 
 ```
 sessiond/
-├── server.py     HTTP + WS(静态页面 + 全部 API)
+├── server.py     HTTP + WS(全部 API)
 ├── browser.py    CDP 连接、动作执行
 ├── observe.py    AX 树 → 元素表 → 标注截图
 └── log.py        操作日志(append + 环形截断)
@@ -145,12 +142,12 @@ sessiond/
 | 下载文件 | `/data/downloads/` | ✅ |
 
 **一个文件,不分 tab 也不分类型** —— 一行一条 JSON,要哪部分 grep 哪部分。
-布局和保留策略见 [03 §3.1](03-view-and-log.md#31-一个文件)。
+布局和保留策略见 [03 §3.1](03-log.md#11-一个文件)。
 
 不挂卷 = 容器删了全没,跟 `tmux kill-server` 一样。想留就挂 `-v`。
 
 日志满 `WEBMUXD_LOG_LIMIT` 条就切一刀,只留上一刀,连同那批截图一起删 ——
-在线永远在 5000~10000 条之间,磁盘约 1GB 封顶([03 §7](03-view-and-log.md#7-保留))。
+在线永远在 5000~10000 条之间,磁盘约 1GB 封顶([03 §7](03-log.md#5-保留))。
 就是 tmux 的 `history-limit`,不是归档。
 
 ## 6. 崩了怎么办
@@ -158,7 +155,7 @@ sessiond/
 | 情况 | 行为 |
 | --- | --- |
 | Chrome 崩溃 | sessiond 检测到 CDP 断开,**自动重启 Chrome**(profile 还在,页面丢失),日志记一条 `chrome_restarted` |
-| sessiond 崩溃 | supervisor 拉起,Chrome 不受影响,画面照看(KasmVNC 是独立进程) |
+| sessiond 崩溃 | supervisor 拉起,Chrome 不受影响,**画面照看**(KasmVNC 是独立进程,不经它) |
 | 容器 OOM | 容器退出;挂了卷的话 profile 和日志还在,`docker start` 回来 |
 
 没有"unhealthy 状态机",没有 draining。崩了就重启,该丢的丢,像 tmux 里某个 pane 的进程死了一样。

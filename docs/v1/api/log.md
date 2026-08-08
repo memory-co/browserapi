@@ -4,7 +4,7 @@
 
 人在 VNC 里的操作也在里面,所以这是一条完整的路径,不是"只有 API 干过的事"。
 
-**回看只能读这儿。** 容器里还有一条 WS 在推变化通知,但那是查看页面和 lib 之间的
+**回看只能读这儿。** 容器里还有一条 WS 在推变化通知,但那是上层 UI 和 lib 用的
 同步机制([works/06 §5](../works/06-tab-sync.md#5-推给客户端))——
 它会丢、只留 1000 条、进程重启就没。**日志才是落盘的账。**
 
@@ -25,7 +25,7 @@ GET /api/log?limit=100&after=42&only=failed&user=claudecode&tab=t_3&kind=action
 | `only` | `failed` 只看失败的 |
 
 磁盘上就是**一个 `log.jsonl`**,一行一条,不分 tab 也不分类型
-([works/03 §3.1](../works/03-view-and-log.md#31-一个文件))。
+([works/03 §3.1](../works/03-log.md#11-一个文件))。
 所有筛选都是过滤,`seq` 全局单调。
 
 ```jsonc

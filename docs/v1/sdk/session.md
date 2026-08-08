@@ -18,7 +18,7 @@ web = Webmuxd(port=12345, token="changeme", runtime="container")
 | `token` | 读 `WEBMUXD_TOKEN` | 没设就不带头 |
 | `runtime` | `container` | `container` / `process` / `remote`,见 §3 |
 | `user` | `"api"` | 默认署名([README §4](README.md#4-user--署名)) |
-| `name` | 端口号 | 给 CLI 和观看页面认的名字 |
+| `name` | 端口号 | 给 CLI 和 server 代理认的名字 |
 | `url` | `about:blank` | 起来先打开哪 |
 | `viewport` | `1024x768` | |
 | `volume` | 无 | `container` 专用,存 profile |
@@ -27,7 +27,8 @@ web = Webmuxd(port=12345, token="changeme", runtime="container")
 
 ```python
 web.status()          # Chrome 活着没、版本、busy
-web.view_url          # 拿去浏览器里看,完整权限
+web.vnc_url           # 画面(KasmVNC),拿去浏览器里看或塞进 iframe
+web.api_url           # API 的 base
 web.reset()           # 清 cookie、关多余 tab、回 about:blank
 web.kill()            # 停掉并清理
 
@@ -54,7 +55,7 @@ lib 里没有「先拿 server 再列 session」那一层。你手里有几个 `W
 
 这也是为什么 `:7800` 那个 server 存在([api/server.md §2](../api/server.md#2-代理)):
 **对外只开一个口,按名字代理到各 session**,免得把 7900~79xx 一片全暴露出去。
-写脚本用不上它,观看页面和 CLI 用它。
+写脚本用不上它,上层 UI 和 CLI 用它。
 
 ```python
 web = Webmuxd("https://browser.internal:7800", name="work")   # 经 server 代理
@@ -84,8 +85,9 @@ docker 不通时**不会静默换成 `process`** —— 那等于把页面偷偷
 ## 4. 分享链接
 
 ```python
-web.view_url                                   # 你自己看,完整权限
-web.share()                                    # 给别人,默认只读,1 小时
+web.vnc_url                                    # 你自己看,完整权限
+r = web.share()                                # 给别人,默认只读,1 小时
+r.vnc_url, r.api_url                           # 两个 URL,画面和 API
 web.share(writable=True, ttl=3600)             # 可操作 —— 能碰你所有登录态
 ```
 
@@ -126,7 +128,7 @@ webmuxd kill -t stale
 | `web.reset()` | `POST /api/reset` |
 | `web.kill()` | `DELETE /api/sessions/{name}` |
 | `web.share(writable=, ttl=)` | `POST /api/live-token` `{read_only, ttl_s}` |
-| `web.view_url` | `/s/{name}/` 或直连 `host:port` |
+| `web.vnc_url` `web.api_url` | `/s/{name}/vnc/` `/s/{name}/api/`,或直连两个端口 |
 
 **lib 里没有的**(见 §5,故意的):`GET /api/sessions`、`GET /api/server`、
 `POST /api/server/shutdown`、server 级 `WS /api/events`。

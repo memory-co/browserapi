@@ -16,6 +16,7 @@
 - **在浏览器里打开一个网址,就能看到并直接操作里面那个远端 Chrome**
 - **同时用 Python lib(或 HTTP API)从外面驱动同一个 Chrome**
 - 关掉网页,浏览器照常在跑;下次打开还是那个状态
+- **不带界面** —— 画面和 API 两个干净的口,怎么摆是上层的事
 
 就这些。
 
@@ -24,8 +25,8 @@
 | tmux / ttyd | webmuxd |
 | --- | --- |
 | `ttyd tmux new -A -s work` | **就是 webmuxd 本身** |
-| `tmux new -s work` | `docker run -d --name work -p 7900:7900 -p 6901:6901 webmuxd` |
-| `tmux attach -t work` | 浏览器打开 `http://localhost:7900` |
+| `tmux new -s work` | `docker run -d --name work -p 6901:6901 -p 7900:7900 webmuxd` |
+| `tmux attach -t work` | 浏览器打开 `http://localhost:6901` |
 | detach(`Ctrl-b d`) | 关掉网页,容器继续跑 |
 | `tmux send-keys` | `tab.click("登录")`(或 `POST /api/act`) |
 | `tmux capture-pane` | `tab.observe()`(或 `GET /api/observe`) |
@@ -40,8 +41,8 @@
 ## 60 秒上手
 
 ```bash
-docker run -d --name work -p 7900:7900 -p 6901:6901 webmuxd/operator:1.0
-open http://localhost:7900        # 看到 Chrome,可以直接用鼠标点
+docker run -d --name work -p 6901:6901 -p 7900:7900 webmuxd/operator:1.0
+open http://localhost:6901        # 画面:看到 Chrome,可以直接用鼠标点
 ```
 
 ```python
@@ -54,7 +55,7 @@ tab.type("手机号", "13800000000")
 print(tab.text())
 ```
 
-一边跑脚本,一边在 `http://localhost:7900` 里实时看着它点。卡住了就自己上手点两下,脚本继续跑。
+一边跑脚本,一边在 `http://localhost:6901` 里实时看着它点。卡住了就自己上手点两下,脚本继续跑。
 
 ## 文档
 
@@ -62,7 +63,7 @@ print(tab.text())
 | --- | --- |
 | [01-container.md](01-container.md) | 容器怎么改、怎么起、状态存哪 |
 | [02-lib-and-api.md](02-lib-and-api.md) | **Python lib 是主体**,HTTP API 是它的导出面 |
-| [03-view-and-log.md](03-view-and-log.md) | 查看页面 + 操作日志(scrollback) |
+| [03-log.md](03-log.md) | 操作日志(scrollback):存哪、三类记录、保留 |
 | [04-chrome-ui-externalization.md](04-chrome-ui-externalization.md) | 去掉 Chrome 的 tab 条和地址栏,改由外面用 API 自己画 |
 | [05-server-session-runtime.md](05-server-session-runtime.md) | server / session / runtime 三层概念,与 tmux 的完整对照 |
 | [06-tab-sync.md](06-tab-sync.md) | **tab 的一进一出** —— `open()` 怎么落到 Chrome,人点出来的新 tab 怎么被感知 |

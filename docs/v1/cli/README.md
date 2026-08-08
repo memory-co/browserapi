@@ -146,7 +146,7 @@ esac
 | --- | --- | --- |
 | `new` | `POST /api/sessions` | [server.md](server.md) |
 | `ls` | `GET /api/sessions` | [server.md](server.md) |
-| `attach` | 直接打开 `/s/{name}/`(socket 已鉴权) | [server.md](server.md) |
+| `attach` | 直接打开 `/s/{name}/vnc/`(socket 已鉴权) | [server.md](server.md) |
 | `share` | `POST /api/sessions/{name}/live-token` | [server.md](server.md) |
 | `kill` | `DELETE /api/sessions/{name}` | [server.md](server.md) |
 | `rename` | `POST /api/sessions/{name}/rename` | [server.md](server.md) |

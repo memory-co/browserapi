@@ -36,15 +36,15 @@ dev     process    7901  1 tab   localhost:3000
 prod    remote     -     5 tabs  intranet.corp/dash
 stale   process    7903  dead — webmuxd kill -t stale 清掉
 
-$ webmuxd attach -t work        # 自己看,完整权限,用默认浏览器打开
+$ webmuxd attach -t work        # 自己看,完整权限,用默认浏览器打开画面
 $ webmuxd attach -t work -p     # 只打印 URL,不开浏览器(无 GUI 环境用)
-http://localhost:7800/s/work/
+http://localhost:7800/s/work/vnc/
 
 $ webmuxd share -t work         # 给别人的链接,默认只读(抄 ttyd)
-http://localhost:7800/s/work/?t=...   (只读,1 小时后过期)
+http://localhost:7800/s/work/vnc/?t=...   (只读,1 小时后过期)
 
 $ webmuxd share -t work --writable
-http://localhost:7800/s/work/?t=...   (可操作,1 小时后过期)
+http://localhost:7800/s/work/vnc/?t=...   (可操作,1 小时后过期)
 ⚠ 这个链接能操作你的浏览器,包括已登录的站点
 ```
 
@@ -139,7 +139,7 @@ export WEBMUXD_TOKEN=...
 | `has -t NAME` | `GET /api/sessions/{name}` → 退出码 3 |
 | `rename -t NAME NEW` | `POST /api/sessions/{name}/rename` |
 | `kill -t NAME` | `DELETE /api/sessions/{name}` |
-| `attach -t NAME` | 打开 `/s/{name}/`,不调管理接口 |
+| `attach -t NAME` | 打开 `/s/{name}/vnc/`,不调管理接口 |
 | `share -t NAME [--writable] [--ttl]` | `POST /api/sessions/{name}/live-token` `{read_only, ttl_s}` |
 | `info` | `GET /api/server` |
 | `kill-server` | `POST /api/server/shutdown` |

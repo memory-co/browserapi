@@ -193,7 +193,7 @@ v1 接受。
 ## 5. 推给客户端
 
 上面讲的都是 CDP → sessiond。sessiond 再把状态变化推给它的两个消费者:
-**查看页面**(画 tab 条)和 **Python lib**(维护那张内存表)。
+**上层自己的 UI**(画 tab 条)和 **Python lib**(维护那张内存表)。
 
 ```
 WS /api/events?after=118&types=tab.*
@@ -220,12 +220,12 @@ WS /api/events?after=118&types=tab.*
 
 | type | 什么时候 | 谁在用 |
 | --- | --- | --- |
-| `tab.created` `tab.updated` `tab.activated` `tab.closed` | tab 变了,`updated` **只发变化的字段** | tab 条、lib 内存表 |
-| `viewport.changed` | `crop_top` 变了(全屏、书签栏) | 查看页面重新裁 iframe |
-| `action.started` `action.done` `log.appended` | 动作前后、日志写了一条 | 查看页面右边那块面板 |
+| `tab.created` `tab.updated` `tab.activated` `tab.closed` | tab 变了,`updated` **只发变化的字段** | 上层 tab 条、lib 内存表 |
+| `viewport.changed` | `crop_top` 变了(全屏、书签栏) | 上层重新裁 iframe |
+| `action.started` `action.done` `log.appended` | 动作前后、日志写了一条 | 上层的日志面板 |
 | `page.navigated` `page.crashed` | 导航完成、渲染进程崩了 | 两者 |
-| `page.dialog` | 弹窗挡住了页面,**等回应** | 查看页面弹提示,见 [api/tabs.md §3](../api/tabs.md#3-写) |
-| `download.started` `download.done` | 下载 | 查看页面 |
+| `page.dialog` | 弹窗挡住了页面,**等回应** | 上层弹提示,见 [api/tabs.md §3](../api/tabs.md#3-写) |
+| `download.started` `download.done` | 下载 | 上层 |
 | `human.active` `human.idle` | 人在 VNC 里动了,让路窗口开合 | lib(抛 `BusyHuman`) |
 | `chrome.restarted` | Chrome 崩了被拉起,**tab 全丢** | 两者,必须重拉全量 |
 | `gap` | 事件有丢失 | 两者,必须重拉全量 |

@@ -97,7 +97,7 @@ except TabGone as e:
 有它的建和关 —— 直到被切掉那一刀带走([../log/README.md §2](../log/README.md#2-存哪怎么切))。
 
 开着的 tab 越多,内存和磁盘越吃 —— 上限就是为这个设的
-([works/03 §7](../../works/03-view-and-log.md#7-保留))。
+([works/03 §7](../../works/03-log.md#5-保留))。
 
 `tab.id` 关掉之后**不复用** —— 日志和历史观测里的 `t_7` 永远指同一个东西
 ([works/06 §1](../../works/06-tab-sync.md#1-in--webopenhttpsshopexamplecom))。

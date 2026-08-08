@@ -165,7 +165,7 @@ CDP 没有"tab 被激活了"这种事件。但也不用为此发明观测手段 
 `active` 是 sessiond 自己的字段,它改完用 `Target.activateTarget` 把 Chrome 拽过来对齐。
 
 能改它的只有 API 的 activate、新 tab 打开、当前 tab 被关 —— 三种 sessiond 都当场知道。
-观看者一接进来(查看页面加载就开 WS)再对齐一次。
+观看者一接进来(有 UI 连上那条 WS)再对齐一次。
 
 **人点不到 Chrome 自己的 tab 条**——它被裁在可视区外,连命中测试都进不去,
 点上去落在你画的那条 bar 上,也就是走 API。所以漂移只可能来自键盘快捷键,

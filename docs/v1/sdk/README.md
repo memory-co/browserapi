@@ -229,7 +229,7 @@ except BusyHuman as e:
 | `web.log()` `tab.log()` `web.bundle()` | `GET /api/log` `/api/log/bundle`,见 [log/](log/) |
 | 内存表的维护 | 内部订 `WS /api/events`,**不暴露** |
 | `web.status()` `web.viewport()` `web.reset()` | `GET /api/status` `/api/viewport` `POST /api/reset` |
-| `web.share()` `web.view_url` | `POST /api/live-token` |
+| `web.share()` `web.vnc_url` `web.api_url` | `POST /api/live-token` |
 | `web.kill()` | `DELETE /api/sessions/{name}` —— 只能停你手里这个 |
 
 **没导出去的**:tab 句柄本身、内存里那份表、异常树、`with` 自动清理、按标题找 tab。

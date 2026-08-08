@@ -9,7 +9,7 @@
 | 来自 | 能力 | 在 webmuxd 里 |
 | --- | --- | --- |
 | **tmux** | 多路复用 + 持久化 + attach/detach | server / session / tab,关掉网页只是 detach |
-| **ttyd** | 把它暴露成一个网页,能看能操作能分享 | 观看页面(KasmVNC),token 分享,只读模式 |
+| **ttyd** | 把它暴露成一个网页,能看能操作能分享 | KasmVNC 那个口,token 分享,只读模式 |
 | **webmuxd 自己加的** | 程序化操作 + 给智能体的观测层 | `/api/act`、`/api/observe`、操作日志 |
 
 终端世界里这两件事是分开的,经典用法是 `ttyd tmux new -A -s work` 把它们拼起来。
@@ -33,10 +33,10 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | tmux session | **session** | 一整套 kasm + Chrome + sessiond |
 | tmux window | **tab** | 浏览器标签页 |
 | tmux pane | — | **不做**,理由见 §5 |
-| client | 观看页面 / CLI / lib | 都是 client |
+| client | 上层 UI / CLI / lib | 都是 client |
 | `/tmp/tmux-$UID/default` | `$XDG_RUNTIME_DIR/webmuxd/default.sock` | 控制 socket |
 | `tmux -L name` / `-S path` | 同 | 换 socket = 换一套独立的 server |
-| attach / detach | 打开 / 关掉观看页面 | |
+| attach / detach | 连上 / 断开画面 | |
 | scrollback | 操作日志 | |
 | `~/.tmux.conf` | `~/.webmuxd.conf` | 同样的 `set -g` 写法 |
 | `send-keys` | `click` / `type` / `key` / `POST /api/act` | |
@@ -52,7 +52,7 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | **ttyd** 默认只读,`-W` 才可写 | `share` 默认只读,`--writable` 才可写 | 同款默认,见 §3.4 |
 | **ttyd** `-c user:pass` | `WEBMUXD_TOKEN` | |
 | **ttyd** `-b base-path` | `/s/<name>/` 代理路径 | |
-| **ttyd** `-t` 客户端选项 | 观看页面参数(`crop_top`、要不要自带 tab 条) | |
+| **ttyd** `-t` 客户端选项 | 上层自己决定怎么裁、怎么画([04](04-chrome-ui-externalization.md)) | |
 | **ttyd** 一个进程一个命令 | 一个 session 一个浏览器 | |
 | **ttyd** `-m` 最大客户端 | 多人同看一个 session | |
 
@@ -88,12 +88,12 @@ webmuxd 拉 session 有三种(容器 / 进程 / 远端),server 负责挑一个�
 **③ 它同时是 ttyd —— HTTP 监听是本体,不是可选项。**
 
 tmux 的 server 只有一个 unix socket。webmuxd 的 server 还必须提供 HTTP,
-否则观看页面无处可去。所以:
+否则画面无处可去。所以:
 
 | | 地址 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | 控制 socket | `$XDG_RUNTIME_DIR/webmuxd/default.sock` | 开 | CLI 走这个,靠文件权限 |
-| HTTP | `127.0.0.1:7800` | **开** | 观看页面 + 管理 + 代理 |
+| HTTP | `127.0.0.1:7800` | **开** | 管理 + 按名字代理到各 session 的两个口 |
 | HTTP 对外 | `0.0.0.0:7800` | 关 | `--listen`,**必须配 token** |
 
 **从 `127.0.0.1` 换到 `0.0.0.0` 是这个系统里最需要谨慎的一步操作**——
@@ -161,7 +161,7 @@ class Runtime:
     def list() -> [Handle]       # 用于 server 重启后重新发现
 ```
 
-**这条线以上全部一样。** CLI、lib、观看页面、`/api/*` 拿到的都只是一个 endpoint,
+**这条线以上全部一样。** CLI、lib、上层 UI、`/api/*` 拿到的都只是一个 endpoint,
 不知道也不关心背后是容器还是进程。所以加一种 runtime 不动任何上层代码。
 
 ### 4.2 三种
@@ -196,7 +196,7 @@ tmux 的 pane 是分屏。webmuxd 不做,原因很具体:
 要做真正的分屏(几个 tab 并排各自独立看、独立点),得放弃 VNC 改用
 CDP 的 screencast 逐 target 出帧。那是另一个产品形态,v1 不做。
 
-想并排看两个页面?**开两个 session,把两个观看页面并排放。** 这也是 tmux 的答案之一。
+想并排看两个页面?**开两个 session,上层把两块画面并排放。** 这也是 tmux 的答案之一。
 
 ## 6. 状态存哪
 

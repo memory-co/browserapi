@@ -15,12 +15,12 @@ server 同时扮演 tmux 的 server(控制 socket)和 ttyd(HTTP 暴露),
 | | 地址 | 默认 | 用途 |
 | --- | --- | --- | --- |
 | 控制 socket | `$XDG_RUNTIME_DIR/webmuxd/default.sock` | 开 | CLI 走这个,不占端口,靠文件权限(0600) |
-| HTTP | `127.0.0.1:7800` | **开** | 观看页面 + 管理 + 代理到各 session |
+| HTTP | `127.0.0.1:7800` | **开** | 管理 + 按名字代理到各 session 的两个口 |
 
 socket 和 tmux 一致:`-L name` 换名字、`-S /path` 指定路径,不同 socket 的 server 互不可见。
 
-**HTTP 不是可选项**:观看页面本身就是网页,不开就没法看。
-所以问题不是"要不要开",而是**绑在哪**:
+**HTTP 不是可选项**:画面本身就是网页,不经它就得把每个 session 的两个端口
+全暴露出去。所以问题不是"要不要开",而是**绑在哪**:
 
 ```bash
 webmuxd server                            # 127.0.0.1:7800,只有本机
@@ -35,16 +35,22 @@ webmuxd server --listen 0.0.0.0:7800      # 对外,必须有 WEBMUXD_TOKEN
 
 TCP 开了之后,一个地址通到所有 session:
 
+每个 session 有**两个口**([works/01 §1](../works/01-container.md#1-一张图)),
+server 把它们并到一个地址下:
+
 ```
-GET  http://host:7800/s/work/            → session work 的观看页面
-GET  http://host:7800/s/work/api/tabs    → session work 的 GET /api/tabs
-WS   http://host:7800/s/work/api/events  → session work 的事件流
+GET  http://host:7800/s/work/vnc/        → session work 的 KasmVNC(:6901)
+GET  http://host:7800/s/work/api/tabs    → session work 的 GET /api/tabs(:7900)
 ```
 
-**`/s/<name>/` 之后的部分原样转发**,所以 [README](README.md)、[tabs.md](tabs.md)、
+**`/s/<name>/api/` 之后的部分原样转发**,所以 [README](README.md)、[tabs.md](tabs.md)、
 [act.md](act.md)、[log.md](log.md) 里的一切都直接适用,只是前面多一段。
+`/s/<name>/vnc/` 是 KasmVNC 原样的东西,我们不碰。
 
-session 自己的端口仍然直连得到(`http://host:7900`),但走 server 只用开一个口。
+**上层拿到的就是这两个 URL**:一个塞进 iframe 当画面(自己按 `crop_top` 裁,
+见 [works/04 §2](../works/04-chrome-ui-externalization.md)),一个用来调 API。
+
+session 自己的两个端口仍然直连得到,但走 server 只用开一个口。
 
 ## 3. session 管理
 
@@ -101,7 +107,8 @@ session 自己的端口仍然直连得到(`http://host:7900`),但走 server 只�
 ```jsonc
 { "name": "work", "runtime": "container", "state": "ready",
   "endpoint": "http://127.0.0.1:7900", "proxy": "/s/work/",
-  "view_url": "http://host:7800/s/work/?token=..." }
+  "vnc_url": "http://host:7800/s/work/vnc/",
+  "api_url": "http://host:7800/s/work/api/" }
 ```
 
 **runtime 不可用时报错,不降级**:
@@ -176,7 +183,9 @@ server 级事件,和 session 内部那条同步流([works/06 §5](../works/06-ta
 
 ```jsonc
 { "read_only": true, "ttl_s": 3600 }
-→ { "url": "http://host:7800/s/work/?t=...", "expires_at": "..." }
+→ { "vnc_url": "http://host:7800/s/work/vnc/?t=...",
+    "api_url": "http://host:7800/s/work/api/",
+    "expires_at": "..." }
 ```
 
 `read_only` 的链接能看画面、能读 `GET`,所有写操作返回 `403 read_only`。

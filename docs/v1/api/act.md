@@ -278,4 +278,4 @@ POST /api/act  { actions, note, user }
 一次 `act` 执行一串动作,省掉每个动作一次往返。
 
 写成代码见 [sdk/tab/read.md §3](../sdk/tab/read.md#5-怎么和模型接起来)。
-跑的时候在观看页面里能实时看着它点。
+跑的时候上层那个画面里能实时看着它点。
