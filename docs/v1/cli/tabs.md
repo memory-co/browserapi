@@ -14,7 +14,12 @@ webmuxd goto       -t NAME URL
 webmuxd back       -t NAME
 webmuxd forward    -t NAME
 webmuxd reload     -t NAME [--ignore-cache]
+webmuxd stop       -t NAME                    # 停止加载
+webmuxd dialog     -t NAME --accept [--text T] | --dismiss
 ```
+
+**同时最多 `tab-max` 个(默认 10)**,`new-tab` 超了会挤掉最不活跃的那个,
+并在输出里说是哪个([api/tabs.md §3](../api/tabs.md#3-写))。
 
 `-t` 的 `session:tab` 写法见 [README §2](README.md#2-目标语法--t)。
 `select-tab -t work:购物车` 这种按标题匹配是**客户端**干的:
@@ -51,6 +56,9 @@ t_9 https://help.example.com
 和 API 一样,**永远至少留一个 tab**:关掉最后一个时会自动开一个 `about:blank`。
 
 ```console
+$ webmuxd new-tab -t work -u https://example.com
+✓ t_12  (已达上限 10,挤掉最不活跃的 t_4 — help.example.com)
+
 $ webmuxd kill-tab -t work:0
 ✓ 关掉 t_3;只剩它了,已新建 about:blank (t_11)
 ```
@@ -58,7 +66,25 @@ $ webmuxd kill-tab -t work:0
 这不是 CLI 的贴心,是 [api/tabs.md §3](../api/tabs.md#3-写) 的行为——
 Chrome 关掉最后一个 tab 会连窗口一起关。
 
-## 4. 特权页面去不了
+## 4. 弹窗挡住了
+
+页面弹 `alert` / `confirm` / `prompt` 时**会挡住这个 tab**,`tabs` 里那一行会标出来:
+
+```console
+$ webmuxd tabs -t work
+0: 结算    shop.example.com/checkout   ●  ⚠ confirm:确定要删除吗?
+
+$ webmuxd dialog -t work --accept
+✓ 已确定
+
+$ webmuxd dialog -t work --accept --text 13800000000    # prompt
+$ webmuxd dialog -t work --dismiss                      # 取消
+```
+
+**不自动回应** —— 该点确定还是取消是你的判断。挂着期间对这个 tab 的操作退出码 6(忙)。
+(lib 那边这个方法叫 `tab.answer()`,[sdk/tab/navigate.md §5](../sdk/tab/navigate.md#5-弹窗挡住了)。)
+
+## 5. 特权页面去不了
 
 ```console
 $ webmuxd goto -t work chrome://settings
@@ -68,7 +94,7 @@ $ webmuxd goto -t work chrome://settings
 退出码 2。不是技术上做不到,是**不该做** —— `chrome://settings` 里的东西该用容器的
 启动参数配,不该让人或 agent 跑去点它([api/tabs.md §3](../api/tabs.md#3-写))。
 
-## 5. 后退不动就报错
+## 6. 后退不动就报错
 
 ```console
 $ webmuxd back -t work
@@ -78,7 +104,7 @@ $ webmuxd back -t work
 退出码 2。**不静默无操作**——脚本里 `back` 成功和没得后退是两回事,
 和你 UI 上按钮的禁用状态要对得上。
 
-## 6. ↔ API 对照
+## 7. ↔ API 对照
 
 | CLI | API |
 | --- | --- |
@@ -91,9 +117,11 @@ $ webmuxd back -t work
 | `goto URL` | `POST /api/tabs/{id}/goto` `{url}` |
 | `back` `forward` `reload` | `POST /api/tabs/{id}/back` `/forward` `/reload` |
 | `reload --ignore-cache` | `POST /api/tabs/{id}/reload` `{ignore_cache:true}` |
+| `stop` | `POST /api/tabs/{id}/stop` |
+| `dialog --accept/--dismiss [--text]` | `POST /api/tabs/{id}/dialog` `{accept, text}` |
 
 **CLI 没覆盖的**:`GET /api/tabs/{id}/history`、`GET /api/tabs/{id}/favicon`、
-`goto {history_index}`、`POST /api/tabs/{id}/stop`。
+`goto {history_index}`。
 这几个是给画 tab 条的 UI 用的(长按后退弹历史、显示图标),终端里用不上。
 真要用就 `--json` 加 `curl`,或者走 [sdk/tab/README.md](../sdk/tab/README.md)。
 

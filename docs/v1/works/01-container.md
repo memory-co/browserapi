@@ -66,6 +66,8 @@ docker run -d --name work \
 | `WEBMUXD_PROXY` | 空 | Chrome 走的代理 |
 | `WEBMUXD_TAB_MAX` | `10` | 同时最多几个 tab,超了挤掉最不活跃的 |
 | `WEBMUXD_LOG_LIMIT` | `5000` | 日志满多少条切一刀(像 tmux 的 `history-limit`) |
+| `WEBMUXD_HUMAN_YIELD` | `3000` | 人在 VNC 里动过之后,API 让路多少毫秒 |
+| `WEBMUXD_VIEW_TOKEN` | 空 | 只读 token:能看画面、能读 `GET`,写操作一律 `403` |
 
 ## 3. 镜像
 

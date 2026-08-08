@@ -44,6 +44,10 @@
 
 单个 Tab 对象。不存在返回 `404 tab_gone`。
 
+**lib 不用这个** —— 它订着变化维护一整张表,读单个 tab 是读内存
+([sdk/tab/README.md §2](../sdk/tab/README.md#2-属性读内存不发请求))。
+这个端点是给**别的语言**的 client 用的。
+
 ### `GET /api/tabs/{id}/history`
 
 画"后退按钮长按弹出历史列表"用的:

@@ -48,7 +48,8 @@ $ webmuxd click -t work "提交"
 ### `send` —— 逃生舱
 
 直接发 [api/act.md §3](../api/act.md#3-动作表) 的动作数组,
-CLI 没做成子命令的动作(`select` `check` `upload` `drag` `extract` `js` `tab_*`)都能用它:
+CLI 没做成子命令的动作(`select` `check` `clear` `hover` `upload` `drag` `extract` `js` `tab_*`)
+都能用它:
 
 ```bash
 webmuxd send -t work '[{"type":"select","label":"城市","value":"上海"},
@@ -118,9 +119,12 @@ webmuxd 不产生思考,但它提供一个思考与后果对齐的存放位置
 | `capture --elements` | `GET /api/observe?annotate=false` 只取 `elements` |
 | `url` `status` | `GET /api/status` |
 
-**CLI 没覆盖的**:`POST /api/upload`、`GET /api/download/{name}`、
-`POST /api/reset`、`POST /api/live-token`(用 [server.md](server.md) 的 `share`)。
-文件进出用 `--json` + `curl`,或走 [sdk/tab/input.md](../sdk/tab/input.md)。
+**CLI 没覆盖的**:`POST /api/upload`、`GET /api/download/{name}`、`POST /api/reset`、
+`GET /api/viewport`、`GET /api/log/{seq}/shot`、`GET /api/observe/{obs_id}/screenshot`、
+`POST /api/live-token`(用 [server.md](server.md) 的 `share`)。
+
+`capture --shot` 拿的是**现拍的一张**;要日志里某一步或某次观测的那张,
+用 `--json` 取到 URL 再 `curl`,或走 [sdk/tab/read.md §2](../sdk/tab/read.md#2-截图)。
 
 跑循环让模型自己点,别在 shell 里拼 —— 那是 [sdk/tab/read.md](../sdk/tab/read.md) 的事。
 CLI 适合的是手动探路、写死的脚本、和出事之后翻 [`log`](log.md)。

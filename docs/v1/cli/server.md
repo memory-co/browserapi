@@ -6,7 +6,8 @@
 ## 1. 命令
 
 ```bash
-webmuxd new [-s NAME] [--runtime R] [-p PORT] [-u URL] [-v WxH] [--volume VOL] [-d]
+webmuxd new [-s NAME] [--runtime R] [-p PORT] [-u URL] [-v WxH]
+            [--volume VOL] [--proxy URL] [--endpoint URL] [-d]
 webmuxd ls
 webmuxd attach -t NAME [-p]
 webmuxd share  -t NAME [--writable] [--ttl 1h]
@@ -133,7 +134,7 @@ export WEBMUXD_TOKEN=...
 
 | CLI | API |
 | --- | --- |
-| `new -s NAME --runtime R -u URL -p PORT -v WxH --volume V` | `POST /api/sessions` `{name, runtime, url, port, viewport, volume}` |
+| `new -s NAME --runtime R -u URL -p PORT -v WxH --volume V --proxy P --endpoint E` | `POST /api/sessions` `{name, runtime, url, port, viewport, volume, proxy, endpoint}` |
 | `ls` | `GET /api/sessions` |
 | `has -t NAME` | `GET /api/sessions/{name}` → 退出码 3 |
 | `rename -t NAME NEW` | `POST /api/sessions/{name}/rename` |

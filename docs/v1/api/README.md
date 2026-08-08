@@ -88,6 +88,10 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `GET` | `/api/text` | 页面正文 |
 | `GET` | `/api/log` | 操作日志,详见 [log.md](log.md) |
 | `GET` | `/api/log/bundle` | 日志 + 截图 + 离线 HTML 的 zip |
+| `GET` | `/api/log/{seq}/shot` | 某一步动作后的截图 |
+| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图,`?annotate=false` 要无标注版 |
+| `GET` | `/api/log/{seq}/shot` | 某一步动作后的截图 |
+| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图,`?annotate=false` 要无标注版 |
 | `POST` | `/api/upload` | 传文件进去给 `upload` 动作用 |
 | `GET` | `/api/download/{name}` | 取下载的文件 |
 
@@ -151,6 +155,12 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `bad_request` | 400 | 参数不对 | 改代码 |
 
 前五个是**调用方能自愈**的;`chrome_gone` 是这个 session 出事了,该告警而不是重试。
+
+session 管理还有几个码(`session_not_found` `session_exists` `runtime_unavailable`
+`no_port` `session_dead`),在 [server.md §5](server.md#5-错误)。
+
+session 管理还有几个码(`session_not_found` `session_exists` `runtime_unavailable`
+`no_port` `session_dead`),在 [server.md §5](server.md#5-错误)。
 
 这张表是 lib 那棵异常树的序列化([sdk/README §3](../sdk/README.md#5-异常)) ——
 `code` 对应类名,`details` 装的是异常上那些属性(`candidates`、`retry_after_ms`、`hint`)。

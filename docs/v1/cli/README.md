@@ -83,7 +83,7 @@ webmuxd observe -t work --json | jq '.elements[] | select(.role=="button")'
 会话   new  ls  attach  share  kill  rename  has          → server.md
 server start-server  kill-server  server  info            → server.md
 tab    new-tab  tabs  select-tab  kill-tab  move-tab
-       goto  back  forward  reload                        → tabs.md
+       goto  back  forward  reload  stop  dialog          → tabs.md
 操作   click  type  key  scroll  wait  send               → act.md
 看     capture  observe  url  status                      → act.md
 日志   log  bundle                                        → log.md
@@ -106,7 +106,10 @@ set -g attach-cmd   "firefox %u"      # %u = 观看 URL
 ```
 
 命令行参数 > 环境变量 > 配置文件 > 内置默认。
-配置项名字和容器的 `WEBMUXD_*` 环境变量一一对应(`log-limit` ↔ `WEBMUXD_LOG_LIMIT`)。
+**只有一部分**配置项对应容器的环境变量(`viewport` `tab-max` `log-limit` `human-yield`
+↔ `WEBMUXD_VIEWPORT` `WEBMUXD_TAB_MAX` `WEBMUXD_LOG_LIMIT` `WEBMUXD_HUMAN_YIELD`,
+见 [works/01 §2](../works/01-container.md#2-起容器))。
+`image` `port-base` `runtime` `attach-cmd` 是**客户端自己的**,不进容器。
 
 ## 6. 退出码
 
@@ -155,7 +158,8 @@ esac
 | `select-tab` | `POST /api/tabs/{id}/activate` | [tabs.md](tabs.md) |
 | `kill-tab` | `DELETE /api/tabs/{id}` | [tabs.md](tabs.md) |
 | `move-tab` | `POST /api/tabs/reorder` | [tabs.md](tabs.md) |
-| `goto` `back` `forward` `reload` | `POST /api/tabs/{id}/...` | [tabs.md](tabs.md) |
+| `goto` `back` `forward` `reload` `stop` | `POST /api/tabs/{id}/...` | [tabs.md](tabs.md) |
+| `dialog` | `POST /api/tabs/{id}/dialog` | [tabs.md](tabs.md) |
 | `click` `type` `key` `scroll` `wait` `send` | `POST /api/act` | [act.md](act.md) |
 | `observe` | `GET /api/observe` | [act.md](act.md) |
 | `capture --text` | `GET /api/text` | [act.md](act.md) |

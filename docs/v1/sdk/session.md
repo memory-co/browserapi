@@ -22,6 +22,7 @@ web = Webmuxd(port=12345, token="changeme", runtime="container")
 | `url` | `about:blank` | 起来先打开哪 |
 | `viewport` | `1024x768` | |
 | `volume` | 无 | `container` 专用,存 profile |
+| `proxy` | 无 | Chrome 走的出口代理 |
 | `host` | `127.0.0.1` | 连远端时给地址 |
 
 ```python
@@ -118,7 +119,9 @@ webmuxd kill -t stale
 
 | lib | 导出成 |
 | --- | --- |
-| `Webmuxd(port=, runtime=, ...)` | 有就接管;没有就 `POST /api/sessions` |
+| `Webmuxd(port=, runtime=, url=, viewport=, volume=, proxy=)` | 有就接管;没有就 `POST /api/sessions`,同名字段 |
+| `Webmuxd("https://host:7800", runtime="remote", name=)` | `POST /api/sessions` 的 `endpoint` |
+| `Webmuxd(user=)` | **纯客户端**,给每次调用填默认署名,不进 session |
 | `web.status()` | `GET /api/status` |
 | `web.reset()` | `POST /api/reset` |
 | `web.kill()` | `DELETE /api/sessions/{name}` |

@@ -146,7 +146,8 @@ web.log(user="claudecode")      # 只看它干了什么
 
 ## 5. 异常
 
-对应 [api/README §4](../api/README.md#4-错误) 那张表,一个错误码一个类:
+一个错误码一个类。码表在两处:[api/README §4](../api/README.md#4-错误)(session 内的)
+和 [api/server.md §5](../api/server.md#5-错误)(起停的)。
 
 ```
 WebmuxdError
@@ -167,8 +168,12 @@ WebmuxdError
    ├─ BadRequest      bad_request
    ├─ BlockedURL      blocked_url    特权页面,见 [tab/README.md](tab/README.md)
    ├─ ReadOnly        read_only
-   └─ SessionExists   session_exists
+   └─ SessionExists   session_exists  重名占了别的端口
 ```
+
+**`session_not_found` 在 lib 里没有对应类** —— 构造是"有就接管、没有就建"
+([session.md §1](session.md#1-构造即确保在跑)),永远不会"找不到"。
+那个码属于列举和清理,而那些不在 lib 里([session.md §5](session.md#5-lib-不管有哪些-session))。
 
 **异常是原生表达,错误码是它的序列化。** `.candidates` 在这儿是属性,
 到了 HTTP 只能塞进 `details`。
