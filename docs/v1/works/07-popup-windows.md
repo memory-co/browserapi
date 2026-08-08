@@ -103,27 +103,23 @@ window.open = function (url, name, features) {
   会漏一次。要堵得上 `waitForDebuggerOnStart`,一般不值
 - **`window.open.toString()`** 会露馅,极少数站点靠这个判原生。真碰上再伪装
 
-### E. 不转化,把 popup 收进模型 —— 退路
+### E. 不转化,把 popup 收进模型 —— 考虑过,不做
 
-不动页面,承认它是个窗口,然后**让它在我们的模型里就是一个 tab**:
+不动页面,承认它是个窗口,让它在我们的模型里就是一个 tab:照收进列表,
+切过去时用 `Browser.setWindowBounds{windowState:"maximized"}` 把它顶到全屏,
+`crop_top` 变了发 `viewport.changed`。
 
-- `Target.targetCreated` 照收,进 tab 列表,`reason: "window_open"`
-- 我们本来就自己记着 `active`([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)),
-  切到它时用 `Browser.setWindowBounds{windowState:"maximized"}` 把它顶到全屏,
-  切走时把主窗口顶回来 —— **一块屏永远只显示一个,和 tab 的手感一致**
-- popup 窗口没有 tab 条,所以它当前时 `crop_top` 不一样 ——
-  这个我们已经有事件了,发 `viewport.changed` 让外面重新裁
-
-零页面干预,语义完整。但代价比看上去大:
+零页面干预,语义完整。**但代价比看上去大**:
 
 - tab 列表里混进一个其实是窗口的东西,`activate` 它走的是**另一套机制**
   (raise 窗口,而不是 `Target.activateTarget`)
 - 每个窗口一套 `crop_top`(popup 没有 tab 条)
 - 要和 kasm 那个每 ~10 秒最大化一次的看门狗共处([04 §5](04-chrome-ui-externalization.md))
-- **而且它有两条没验证过的地基**:`Browser.setWindowBounds` 对 popup 窗口生不生效、
-  看门狗抢不抢。任一不成立,整个方案就没了
+- **地基是两条没验证过的假设**:`Browser.setWindowBounds` 对 popup 窗口生不生效、
+  看门狗抢不抢。任一不成立,方案就没了
 
-D 的地基是**规范写死的规则**(§1),E 的地基是两条待实测。这是选 D 的主要理由。
+D 的地基是规范写死的规则(§1),E 的地基是两条待实测 —— 这是不选它的主要理由。
+记在这儿是因为分析过程有用,**不是留作选项**。
 
 ## 3. 别人怎么做的
 
@@ -149,41 +145,37 @@ webmuxd 是唯一需要正面回答的,因为它既是一块屏、又对外假�
 
 ## 4. 结论
 
-**默认 D,E 留成退路。**
+**popup 一律转成 tab。** 在 document-start 把 `window.open` 包一层,
+吃掉触发 popup 的 features(§2 D)。**没有开关,没有例外。**
 
-```bash
--e WEBMUXD_POPUP=tab        # 默认:装 shim,把 popup 转成真 tab(D)
--e WEBMUXD_POPUP=window     # 退路:不转化,当成 tab 收进模型(E)
-```
+对调用方来说,`/api/tabs` 里就只有 tab,没有"窗口"这个概念。
+`reason` 记 `window_open`,仅此而已。
 
-理由,按分量排:
+三条理由,按分量:
 
-1. **D 的地基是规范,E 的地基是两条待实测。** §1 那条规则是写死的:
-   features 为空就是 tab。而 E 依赖 `setWindowBounds` 对 popup 生效、
-   且不被 kasm 看门狗掀翻 —— 两条都没验过,任一不成立方案就塌了。
+1. **D 的地基是规范,E 的地基是两条待实测。** §1 那条规则写死了:features 为空就是 tab。
 2. **D 是修因,E 是修果。** webmuxd 对外的承诺就是"一个有 tab 条的浏览器";
-   把 popup 变成 tab 是让现实对齐这个承诺,E 是留着一个不符的东西再想办法让它看起来像。
+   把 popup 变成 tab 是让现实对齐承诺,E 是留着一个不符的东西再想办法让它看起来像。
 3. **代价不对称。** D 掉的是 `resizeTo` / 小窗排版,举不出非坏不可的例子;
-   E 掉的是整套窗口编排的复杂度,而且落在最容易出边界 bug 的地方(窗口、焦点、裁剪)。
+   E 掉的是整套窗口编排的复杂度,落在最容易出边界 bug 的地方(窗口、焦点、裁剪)。
 
-**A 和 B 明确排除**:一个不存在,一个被 `WindowType` 挡死。
+**A / B 排除**:一个不存在,一个被 `WindowType` 挡死。
 **C 永远不做** —— 断 opener 是静默的、难查的、会坏支付流程的那种错。
 
-> 早先这里推荐的是 E,理由是"不改变页面行为是底线"。
-> 那条原则这个仓库里并不存在 —— [04](04-chrome-ui-externalization.md) 说的是
-> 不碰 X、不碰窗口管理器、不碰启动参数(别跟平台较劲),而我们本来就要注脚本读 favicon。
-> 拿一条临时发明的原则去压两条没验证的假设,是反的。
+> 这一节先后错过两次,记下来免得再犯:
+> 第一版推荐 E,理由是"不改变页面行为是底线"—— 那条原则这个仓库里并不存在,
+> 是临时发明的,还被用来压过两条没验证的假设。
+> 第二版改推 D,却留了个 `WEBMUXD_POPUP` 开关 —— **开关是没想清楚的产物**:
+> 两条代码路径,一条永远没人走,而且用户无从判断什么时候该翻它。
+> 分析可以复杂,结论必须只有一个。
 
 ## 5. 待实测
 
-D(默认)要验的:
-
 | 要验的 | 怎么验 | 不成立的话 |
 | --- | --- | --- |
-| shim 之后 `window.open(u,n,'width=320')` 真的开成 tab | 开一个,看是窗口还是 tab | §1 的规则理解错了,回去重读 |
+| shim 之后 `window.open(u,n,'width=320')` 真开成 tab | 开一个,看是窗口还是 tab | §1 的规则理解错了,回去重读 |
 | `noopener` 还返回 `null` | `window.open(u,n,'noopener')` 看返回值 | shim 里特判 |
 | 跨域 iframe(OOPIF)里调 `window.open` 也被 shim 住 | 嵌个跨域 iframe 弹一个 | 给 OOPIF target 也装一遍 |
-| 常见 OAuth 弹窗流转成 tab 之后还能跑通 | 拿一个真的登录流走一遍 | 那个站点加白名单,或整体退 E |
+| 常见 OAuth 弹窗流转成 tab 之后还能跑通 | 拿一个真的登录流走一遍 | 那个流具体坏在哪,再谈 |
 
-E(退路)只有真要用时才验:`Browser.setWindowBounds{windowState:"maximized"}`
-对 popup 生不生效、kasm 的 ~10 秒看门狗抢不抢窗口。
+最后一条是唯一可能推翻结论的 —— 真跑不通,回到 §2 重新选,而不是加开关。
