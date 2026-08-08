@@ -38,7 +38,7 @@ JSON 里没有对象、没有异常、没有惰性求值,于是 `favicon` 只能
    你的代码
       │  import webmuxd
       ▼
-   Webmuxd ──────────HTTP─────────►┌─ sessiond ───────────────┐
+   Session ──────────HTTP─────────►┌─ sessiond ───────────────┐
    (远程 transport + 内存里那份     │  HTTP 壳(导出面)       │
     tab 表)      ◄───WS 事件───────│      ↓ 同名方法          │
                                     │  webmuxd 核心 ──CDP──► Chrome
@@ -48,8 +48,9 @@ JSON 里没有对象、没有异常、没有惰性求值,于是 `favicon` 只能
 同一个包的两层:
 
 - **核心** —— 定位引擎、可访问性树筛选、动作执行、操作日志。跑在 sessiond 里。
-- **`Webmuxd`** —— 你 `import` 的那个。每个方法对应核心的同名方法,远程时经 HTTP 转一道;
-  另外它订着事件流,**tab 表和每个 tab 的 url / 标题就在本地内存里**,读它们不发请求
+- **`Session`** —— 你从 `Webmuxd().create()` 拿到的那个。每个方法对应核心的同名方法,
+  远程时经 HTTP 转一道;另外它订着事件流,**tab 表和每个 tab 的 url / 标题就在本地内存里**,
+  读它们不发请求
   ([sdk/README §3](../sdk/README.md#3-tab-的状态在内存里))。
 
 **HTTP 壳里没有业务逻辑**,它只做序列化和鉴权。所以 `/api/openapi.json`
@@ -67,9 +68,9 @@ pip install webmuxd
 ```python
 from webmuxd import Webmuxd
 
-web = Webmuxd(port=12345, token="changeme")   # 构造 = 确保有个 kasm/chrome 在跑
-
-tab = web.open("https://shop.example.com", user="human")
+web  = Webmuxd()                            # 管理实例 —— 空壳,不起任何浏览器
+sess = web.create()                         # 一个 session = 一个 kasm 容器
+tab  = sess.open("https://shop.example.com", user="human")
 tab.click("登录", user="claudecode")       # 按可见文字找
 tab.type("手机号", "13800000000")          # 按标签找输入框
 tab.type("密码", "hunter2")
@@ -84,8 +85,8 @@ tab.screenshot("cart.png")
 
 三件事在这段里定了型,都是 HTTP 推导不出来的:
 
-- **构造即"确保在跑"** —— 不用先 `has()` 再 `new()`。多个 session 就是多个 `Webmuxd`,
-  一个一个端口(kasm 复用不了端口,这点和 tmux 不同)。
+- **三层:管理实例 → session → tab。** `Webmuxd()` 是空壳,不起任何浏览器;
+  `create()` 才起一个 kasm,一个 session 占两个端口(kasm 复用不了端口,这点和 tmux 不同)。
 - **tab 是句柄** —— 不需要「不传就作用在当前 tab」那条规则,那是线上才需要的。
 - **`user` 是署名** —— 多个 agent 和人共用一个浏览器,回看时分得清谁干的。
   它不是鉴权也不是锁,边界仍然是 token。
@@ -144,16 +145,16 @@ tab.click(obs[action.index])        # 按模型给的编号点
 
 | lib | HTTP |
 | --- | --- |
-| `web.status()` | `GET /api/status` |
+| `sess.status()` | `GET /api/status` |
 | `tab.act([...])` | `POST /api/act` |
 | `tab.observe()` | `GET /api/observe` |
 | `tab.screenshot()` | `GET /api/screenshot` |
 | `tab.text()` | `GET /api/text` |
-| `web.log()` | `GET /api/log` |
+| `sess.log()` | `GET /api/log` |
 | 内存表的维护 | 内部订 `WS /api/events`,不暴露给调用方 |
-| `web.upload_file()` | `POST /api/upload` |
-| `web.download()` | `GET /api/download/{name}` |
-| `web.reset()` | `POST /api/reset` |
+| `sess.upload_file()` | `POST /api/upload` |
+| `sess.download()` | `GET /api/download/{name}` |
+| `sess.reset()` | `POST /api/reset` |
 
 ```jsonc
 // POST /api/act —— 就是 tab.act([...]) 的线上形态
@@ -195,7 +196,7 @@ lib 的方法在前,因为那是定义的地方:
 | `tab.extract(...)` | `extract` | 定位 + `mode`(text/html/table/attr) |
 | `tab.screenshot()` | `screenshot` | `full_page` |
 | `tab.observe()` | `observe` | — |
-| `web.open()` `tab.activate()` `tab.close()` | `tab_new` / `tab_activate` / `tab_close` | |
+| `sess.open()` `tab.activate()` `tab.close()` | `tab_new` / `tab_activate` / `tab_close` | |
 | `tab.js(...)` | `js` | `expression` |
 
 `js` 和坐标点击是逃生舱:能用,但日志里会标黄 —— 因为回看的时候,
@@ -228,10 +229,10 @@ lib 的方法在前,因为那是定义的地方:
 要真并发?起多个 session。这也是 tmux 的答案:多开几个。
 
 ```python
-webs = [Webmuxd(port=7900 + i) for i in range(4)]
+sessions = [web.create() for _ in range(4)]
 ```
 
-`Webmuxd` 实例不是线程安全的,一个线程一个。
+`Session` 实例不是线程安全的,一个线程一个。
 
 ## 8. 明确不做
 

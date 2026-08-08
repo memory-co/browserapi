@@ -135,16 +135,16 @@ tab.type("密码", secret="vault/shop/pwd")     # → text_ref: "secret://vault/
 `input[type=password]` 自动打码,不用你标。
 
 ```python
-fid = web.upload_file("/local/id.png")        # POST /api/upload → file_id
+fid = sess.upload_file("/local/id.png")        # POST /api/upload → file_id
 tab.upload("身份证", fid)
 tab.upload("身份证", "/local/id.png")          # 也接受路径,内部先传再用
 
-web.download("report.xlsx", to="/tmp/")
+sess.download("report.xlsx", to="/tmp/")
 ```
 
 ## 6. 一次只能跑一个
 
-**一个 `Webmuxd` 同时只跑一个动作。** 并发调抛 `Busy`,不排队、不交错。
+**一个 **session** 同时只跑一个动作。** 并发调抛 `Busy`,不排队、不交错。
 人在 VNC 里操作时抛 `BusyHuman`,带 `.retry_after_ms`,**lib 不自动等**
 ([../README.md §6](../README.md#6-并发))。
 
@@ -157,7 +157,7 @@ web.download("report.xlsx", to="/tmp/")
 | `tab.click(el)` | `{"element": id, "observation": obs.id}` |
 | `tab.type(loc, secret=)` | `text_ref: "secret://..."` |
 | `r.new_tabs` | 由响应的 `after.new_tabs` 转成句柄 |
-| `web.upload_file()` `web.download()` | `POST /api/upload` `GET /api/download/{name}` |
+| `sess.upload_file()` `sess.download()` | `POST /api/upload` `GET /api/download/{name}` |
 
 **没导出去的**:`upload()` 接受本地路径(帮你先传一次)、`r.new_tabs` 是句柄而不是 id、
 以及 §3 那个 `act()` 不抛异常的取舍。

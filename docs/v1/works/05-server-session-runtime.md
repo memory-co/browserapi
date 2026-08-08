@@ -269,35 +269,29 @@ webmuxd kill-server                                    # process 的死,containe
 ```python
 from webmuxd import Webmuxd
 
-web = Webmuxd(port=7900)                       # container(默认)
-web = Webmuxd(port=7901, runtime="process")
-web = Webmuxd("https://browser.internal:7800", runtime="remote", name="prod")
+web  = Webmuxd()                                          # 管理实例,空壳
+sess = web.create()                                       # container(默认)
+sess = web.create(runtime="process")
+sess = web.create(runtime="remote", endpoint="https://browser.internal:7800")
 
-tab = web.open("https://shop.example.com")
+tab = sess.open("https://shop.example.com")
 tab.click("登录")
 ```
 
-**runtime 只在构造时出现一次,之后所有代码都一样。** 这是这层抽象的全部意义。
+**runtime 只在 `create()` 时出现一次,之后所有代码都一样。** 这是这层抽象的全部意义。
 
-### lib 里只有 session 这一层
+### 三层概念,lib 里一个不少
 
-**没有 `Server` 类,也没有 `Session` 类。** lib 的入口就是 `Webmuxd` ——
-它**就是一个 session**,构造即"确保这个口上有一个在跑"
-([sdk/session.md §1](../sdk/session.md#1-构造即确保在跑))。
+| | lib | CLI | api |
+| --- | --- | --- | --- |
+| **server** | `Webmuxd()` —— 空壳管理实例,`create` 之前不起任何东西 | 按需自启的 server | `/api/sessions` `/api/server` |
+| **session** | `Session` —— 一个 kasm 容器 | `-t NAME` | `/api/*`(session 内) |
+| **runtime** | `create(runtime=)`,之后不可见 | `--runtime` | `POST /api/sessions` 的字段 |
 
-```python
-webs = [Webmuxd(port=7900 + i) for i in range(4)]      # 多个 session = 多个对象
-```
+**`Webmuxd()` 不占端口也不起浏览器** —— 给它 `port=` 才把管理面暴露出去,
+那对应的就是 `webmuxd server --listen`。不给就只走 socket,和 tmux 一样。
 
-这一层的三个概念,lib 只认中间那个:
-
-| | lib 里有吗 |
-| --- | --- |
-| **server** | ❌ 列举、清理、`kill-server` 都是运维,归 CLI([sdk/session.md §5](../sdk/session.md#5-lib-不管有哪些-session)) |
-| **session** | ✅ 就是 `Webmuxd` |
-| **runtime** | ✅ 构造参数,之后不可见 |
-
-页面动作**不挂在 session 上**,挂在 `Tab` 上 —— `web.open()` 拿句柄,
+页面动作**不挂在 session 上**,挂在 `Tab` 上 —— `sess.open()` 拿句柄,
 然后 `tab.click()`([sdk/tab/](../sdk/tab/))。
-`web.click(...)` 这种方法故意不给:一个 session 有多个 tab,"在哪个 tab 上点"
+`sess.click(...)` 这种方法故意不给:一个 session 有多个 tab,"在哪个 tab 上点"
 不该靠隐式的当前值。

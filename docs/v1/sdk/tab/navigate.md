@@ -62,7 +62,7 @@ tab.activate()
 
 `active` 是 sessiond 记的账,不是观测出来的 —— 它改完会用 `Target.activateTarget`
 把 Chrome 拽过来对齐([api/tabs.md §5](../../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算))。
-所以 `web.active` 立刻就是新的。
+所以 `sess.active` 立刻就是新的。
 
 ## 4. `close` —— 关掉
 

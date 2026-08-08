@@ -6,12 +6,13 @@
 每条命令就是一次 lib 调用([`../sdk`](../sdk/)),落到线上就是一次
 [`../api`](../api/) 的请求。逐行对照见 §7。
 
-CLI 比 lib 多出来的只有三样,都是终端才需要的:
+CLI 比 lib 多出来的只有两样,都是终端才需要的:
 
 - §2 的**目标解析**(`-t work:购物车` 按标题匹配)
 - §3 的**输出格式化**(`-F`、表格对齐、退出码)
-- **session 的遍历和清理**(`ls` / `kill` / `info` / `kill-server`)—— lib 里没有
-  `Server` 类,这类运维活就归 CLI([sdk/session.md §5](../sdk/session.md#5-lib-不管有哪些-session))
+
+`ls` / `kill` / `info` **不是** CLI 独有的 —— lib 那边是
+[`Webmuxd`](../sdk/manager.md) 上的 `sessions()` / `kill()` / `info()`。
 
 | 文件 | 内容 | 对应 |
 | --- | --- | --- |
@@ -169,5 +170,5 @@ esac
 | `bundle` | `GET /api/log/bundle` | [log.md](log.md) |
 | `log -f` | 跟着日志滚 | [log.md](log.md) |
 
-**多出来的东西**就是开头那三样:目标解析(§2)、输出格式化(§3)、
-以及 session 的遍历和清理。前两样在客户端做,不进服务端;第三样是 lib 有意不做的运维面。
+**多出来的东西**就是开头那两样:目标解析(§2)和输出格式化(§3)。
+都在客户端做,不进服务端。

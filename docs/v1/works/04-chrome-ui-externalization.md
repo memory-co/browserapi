@@ -146,13 +146,13 @@ lib 自己就订着这条流,**内存里一直有一份完整的 tab 表** —�
 所以画 tab 条不用监事件,直接读就行:
 
 ```python
-for t in web.tabs:               # 读内存,0 往返
+for t in sess.tabs:               # 读内存,0 往返
     print(t.index, t.title, t.url, "●" if t.active else "")
 
-tab = web.open("https://example.com")
+tab = sess.open("https://example.com")
 tab.activate(); tab.close()
 
-ui.render(web.tabs, web.active)  # 值一直是新的
+ui.render(sess.tabs, sess.active)  # 值一直是新的
 ```
 
 这套外挂 UI 的接口是先为 lib 设计的,HTTP 那份是它的导出面

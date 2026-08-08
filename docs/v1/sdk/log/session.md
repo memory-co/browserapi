@@ -5,7 +5,7 @@
 ## 1. `kind="tab"` —— tab 的生老病死
 
 ```python
-for e in web.log(kind="tab"):
+for e in sess.log(kind="tab"):
     print(e.tab, e.event, e.at, e.reason, e.user)
     # t_7 opened  14:22:01  link_target_blank  human
     # t_7 closed  14:31:44  evicted            —
@@ -23,7 +23,7 @@ e.user            # 谁弄的
 ```
 
 **这是回答"这个 tab 什么时候建的、谁建的、活了多久、关的时候停在哪"的地方。**
-`web.tabs` 只有活着的;历史查这儿。
+`sess.tabs` 只有活着的;历史查这儿。
 
 `reason == "evicted"` 是超了 tab 上限被挤掉的,不是谁的意图
 ([../tab/README.md §3](../tab/README.md#3-生命周期))。
@@ -31,7 +31,7 @@ e.user            # 谁弄的
 ## 2. `kind="session"` —— 整个 session 的事
 
 ```python
-for e in web.log(kind="session"):
+for e in sess.log(kind="session"):
     print(e.event, e.at)
     # chrome_restarted  14:40:02
     # reset             15:01:33
@@ -55,4 +55,4 @@ for e in web.log(kind="session"):
 
 tab 上限 10、一条生一条死,要靠它们填满一万行得开关五千次,
 所以实际上是动作记录先滚。但**它们没有额外的保护**,这一点得知道:
-真要长期留一份 tab 的生死账,自己定时 `web.log(kind="tab")` 拉走。
+真要长期留一份 tab 的生死账,自己定时 `sess.log(kind="tab")` 拉走。

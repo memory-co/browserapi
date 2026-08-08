@@ -26,7 +26,8 @@ CLI 是 lib 的一个用户,和你的代码平级。
 | **tab** —— 句柄、列表、切换、导航 | [tab/](sdk/tab/) | [tabs](api/tabs.md) | [tabs](cli/tabs.md) |
 | **页面上做和看** —— 动作、定位、观测 | [tab/input](sdk/tab/input.md) · [tab/read](sdk/tab/read.md) | [act](api/act.md) | [act](cli/act.md) |
 | **操作日志** —— 动作 / tab 生死 / session | [log/](sdk/log/) | [log](api/log.md) | [log](cli/log.md) |
-| **session** —— 起停、runtime、代理、鉴权 | [session](sdk/session.md) | [server](api/server.md) | [server](cli/server.md) |
+| **管理** —— 建 / 列 / 杀 session、runtime | [manager](sdk/manager.md) | [server](api/server.md) | [server](cli/server.md) |
+| **session** —— 两个口、分享、reset | [session](sdk/session.md) | [README](api/README.md) | [server](cli/server.md) |
 
 每个文件的开头写着它对应哪几个,结尾有一张对照表。
 
@@ -34,9 +35,8 @@ CLI 是 lib 的一个用户,和你的代码平级。
 
 - **sdk 有、api 没有**的很正常 —— tab 句柄、内存里那份 tab 表、`with` 自动清理、
   `obs[12]` 下标,这些是客户端的东西,导出去没意义。见 §3。
-- **api 有、sdk 没有**的只有一处,而且是故意的:session 的遍历和清理
-  (`GET /api/sessions`、`GET /api/server`)。lib 里没有 `Server` 类 ——
-  那是运维,归 CLI 的 `ls` / `kill`([sdk/session.md §5](sdk/session.md#5-lib-不管有哪些-session))。
+- **api 有、sdk 没有**的不该存在 —— 现在一处也没有。lib 的三层
+  (`Webmuxd` / `Session` / `Tab`)把 api 的面盖全了。
 - **api 有、cli 没有**的也很正常 —— `GET /api/tabs/{id}/favicon` 是给 UI 画图标的,
   终端里用不上。这类缺口在对照表最后一行明写「没覆盖的」,并说清怎么绕。
 - 分文件也只是尽量:cli 的会话命令和 server 命令都在
@@ -65,7 +65,7 @@ curl -X POST localhost:7900/api/act \
 
 | | sdk | api | cli |
 | --- | --- | --- | --- |
-| 拿一个 tab | `tab = web.open(url)` 句柄 | `201` + 一个 `{id}`,之后自己拼路径 | `new-tab` 打印一行 |
+| 拿一个 tab | `tab = sess.open(url)` 句柄 | `201` + 一个 `{id}`,之后自己拼路径 | `new-tab` 打印一行 |
 | 读 `url` / `title` | **内存,0 往返** | 每次一个 `GET` | 每次一个 `GET` |
 | 定位失败 | `except NotFound as e: e.candidates` | `404` + `details.candidates` | 退出码 4 + 列候选 |
 | 观测 | `obs[12]`、`obs.as_prompt()` | 一坨 JSON 数组 | 几行紧凑文本 |

@@ -3,14 +3,14 @@
 tab 条被挪到外面之后([04](04-chrome-ui-externalization.md)),它得和里面那个 Chrome
 保持一致。只有两件事要说清楚:
 
-- **IN** —— `web.open(url)` 怎么变成 Chrome 里一个真的 tab
+- **IN** —— `sess.open(url)` 怎么变成 Chrome 里一个真的 tab
 - **OUT** —— 人在页面里点了个 `target="_blank"` 的链接,冒出来的那个 tab 怎么被感知到
 
 **注意外面那条 tab 条上的「＋」不是 OUT,是 IN。** Chrome 自带的 tab 条被裁掉了,
-你画的那条是普通 HTML,它点「＋」发的就是 `POST /api/tabs`,和 `web.open()` 同一个端点。
+你画的那条是普通 HTML,它点「＋」发的就是 `POST /api/tabs`,和 `sess.open()` 同一个端点。
 所以只有**人在页面像素里**开出来的 tab 才需要 OUT 那条路。
 
-## 1. IN —— `web.open("https://shop.example.com")`
+## 1. IN —— `sess.open("https://shop.example.com")`
 
 ```
 lib                      sessiond                          Chrome

@@ -9,7 +9,7 @@ for e in tab.log(limit=50, only="failed"):
 tab.bundle("t_7.zip")     # 这个 tab 的记录 + 截图 + 离线 HTML
 ```
 
-`tab.log()` 就是 `web.log(tab=tab.id)` —— **按 tab 过滤,不是读单独的文件**
+`tab.log()` 就是 `sess.log(tab=tab.id)` —— **按 tab 过滤,不是读单独的文件**
 ([README §3](README.md#3-按-tab-读就是过滤))。
 
 ## 1. 一条长什么样

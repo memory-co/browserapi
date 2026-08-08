@@ -6,10 +6,10 @@
 要哪部分就筛哪部分,jsonl 本来就是给这么用的。
 
 ```python
-web.log(limit=100)             # 全部
-web.log(kind="tab")            # tab 的生老病死 → session.md
-tab.log()                      # 这个 tab 的动作 → tab.md,= web.log(tab=tab.id)
-web.bundle("out.zip")          # 日志 + 截图 + 离线 HTML
+sess.log(limit=100)             # 全部
+sess.log(kind="tab")            # tab 的生老病死 → session.md
+tab.log()                      # 这个 tab 的动作 → tab.md,= sess.log(tab=tab.id)
+sess.bundle("out.zip")          # 日志 + 截图 + 离线 HTML
 ```
 
 **一定发请求**,它不在内存里。
@@ -66,7 +66,7 @@ e.seq   e.at   e.kind   e.user   e.tab      # e.tab 在 kind="session" 时为 No
 
 ```python
 tab.log()                      # lib 帮你带上 ?tab=
-web.log(tab="t_7")             # 一样
+sess.log(tab="t_7")             # 一样
 ```
 
 ```bash
@@ -109,7 +109,7 @@ webmuxd **不产生思考**,但它提供一个**思考与后果对齐的存放�
 
 | lib | 导出成 |
 | --- | --- |
-| `web.log(limit=, after=, only=, user=, tab=, kind=)` | `GET /api/log?...` |
+| `sess.log(limit=, after=, only=, user=, tab=, kind=)` | `GET /api/log?...` |
 | `tab.log()` | `GET /api/log?tab={id}` |
-| `web.bundle(path)` / `tab.bundle(path)` | `GET /api/log/bundle[?tab=]` |
+| `sess.bundle(path)` / `tab.bundle(path)` | `GET /api/log/bundle[?tab=]` |
 | `e.shot` | `GET /api/log/{seq}/shot` |

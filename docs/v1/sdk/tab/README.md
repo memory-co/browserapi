@@ -4,7 +4,7 @@
 导航、点击、观测,全部。没有别的"操作器"、"控制器"、"agent" 之类的东西。
 
 ```python
-tab = web.open("https://shop.example.com")
+tab = sess.open("https://shop.example.com")
 tab.click("登录")
 print(tab.url, tab.title)
 ```
@@ -13,7 +13,7 @@ print(tab.url, tab.title)
 
 | 文件 | 管什么 | 方法 |
 | --- | --- | --- |
-| README.md(本文) | 拿句柄、读属性、生命周期 | `web.open` `web.tab` `web.tabs` `tab.url` … |
+| README.md(本文) | 拿句柄、读属性、生命周期 | `sess.open` `sess.tab` `sess.tabs` `tab.url` … |
 | [navigate.md](navigate.md) | **走到哪** | `goto` `back` `forward` `reload` `stop` `activate` `close` `history` |
 | [input.md](input.md) | **往里做** | `click` `type` `key` `select` `check` `scroll` `upload` `wait_for` `js` `act` |
 | [read.md](read.md) | **往外看** | `observe` `screenshot` `text` `extract` |
@@ -25,20 +25,20 @@ print(tab.url, tab.title)
 ## 1. 拿句柄
 
 ```python
-tab = web.open("https://shop.example.com")     # 新建 + 导航 + 返回句柄
+tab = sess.open("https://shop.example.com")     # 新建 + 导航 + 返回句柄
                                                # 超上限时会挤掉最不活跃的,见 §3
 
-web.tabs                       # [Tab],按 index 排好
-web.active                     # 当前那个
-web.tab("t_7")                 # 按 id
-web.tab(2)                     # 按 index
-web.tab(title="购物车")         # 按标题,唯一匹配才行,否则抛 NotFound 带 .candidates
+sess.tabs                       # [Tab],按 index 排好
+sess.active                     # 当前那个
+sess.tab("t_7")                 # 按 id
+sess.tab(2)                     # 按 index
+sess.tab(title="购物车")         # 按标题,唯一匹配才行,否则抛 NotFound 带 .candidates
 ```
 
 **这几个都不发请求** —— 表在内存里(§2)。按标题、按 index 找也是本地做的,线上只认 id。
 
-`web.open()` 就是 `POST /api/tabs {url}` 一次请求 —— 建 tab 和导航在线上本来就是一步
-([works/06 §1](../../works/06-tab-sync.md#1-in--webopenhttpsshopexamplecom))。
+`sess.open()` 就是 `POST /api/tabs {url}` 一次请求 —— 建 tab 和导航在线上本来就是一步
+([works/06 §1](../../works/06-tab-sync.md#1-in--sessopenhttpsshopexamplecom))。
 想只开不导航就不给 url。
 
 **lib 这层没有"当前 tab"这条规则。** 线上有(不传 `tab` 参数就作用在激活的那个),
@@ -57,7 +57,7 @@ tab.dialog        # 有弹窗挡着时不是 None,见 navigate.md §5
 **但它不是快照** —— 句柄一直活着,值跟着事件流走:
 
 ```python
-tab = web.open("https://shop.example.com")
+tab = sess.open("https://shop.example.com")
 tab.click("登录")
 print(tab.url)          # 已经是 /login 了,不用重新取
 ```
@@ -90,24 +90,24 @@ try:
     old_tab.click("确认")
 except TabGone as e:
     if e.reason == "evicted":            # 不是你关的,是被挤的
-        tab = web.open(e.final_url)      # 想恢复就自己重开
+        tab = sess.open(e.final_url)      # 想恢复就自己重开
 ```
 
-被挤掉的 tab **记录还在**:`tab.log()` 照样读得到,`web.log(kind="tab")` 里
+被挤掉的 tab **记录还在**:`tab.log()` 照样读得到,`sess.log(kind="tab")` 里
 有它的建和关 —— 直到被切掉那一刀带走([../log/README.md §2](../log/README.md#2-存哪怎么切))。
 
 开着的 tab 越多,内存和磁盘越吃 —— 上限就是为这个设的
 ([works/03 §7](../../works/03-log.md#5-保留))。
 
 `tab.id` 关掉之后**不复用** —— 日志和历史观测里的 `t_7` 永远指同一个东西
-([works/06 §1](../../works/06-tab-sync.md#1-in--webopenhttpsshopexamplecom))。
+([works/06 §1](../../works/06-tab-sync.md#1-in--sessopenhttpsshopexamplecom))。
 
 ## 4. 跨 tab
 
 句柄互相独立。**输入类**的动作对非激活 tab 直接可用:
 
 ```python
-web.tab("t_7").click("确认")      # 人在画面上看不见,日志里标 background: true
+sess.tab("t_7").click("确认")      # 人在画面上看不见,日志里标 background: true
 ```
 
 CDP 的输入投递给 target,不走屏幕焦点。但 VNC 画面只显示激活的那个。
@@ -118,11 +118,11 @@ CDP 的输入投递给 target,不走屏幕焦点。但 VNC 画面只显示激活
 ## 5. 新 tab 从哪来
 
 页面自己开的(`target=_blank`、`window.open`)、人按 Ctrl+T ——
-都会进 `web.tabs`,并带 `reason` 说明来路
+都会进 `sess.tabs`,并带 `reason` 说明来路
 ([api/tabs.md §4](../../api/tabs.md#4-事件)):
 
 ```python
-for e in web.log(kind="tab"):
+for e in sess.log(kind="tab"):
     print(e.tab, e.event, e.reason)  # api | link_target_blank | window_open
                                      # ctrl_click | user_ctrl_t | restored | unknown
 ```
@@ -140,7 +140,7 @@ new = r.new_tabs[0]        # Tab 句柄
 ## 6. 排序
 
 ```python
-web.reorder(["t_7", "t_3"])    # 少给的自动排在后面,lib 帮你补齐再发
+sess.reorder(["t_7", "t_3"])    # 少给的自动排在后面,lib 帮你补齐再发
 ```
 
 顺序是 sessiond 自己维护的一个列表,不进 Chrome —— CDP 没有挪 tab 的命令
@@ -150,11 +150,11 @@ web.reorder(["t_7", "t_3"])    # 少给的自动排在后面,lib 帮你补齐再
 
 | lib | 导出成 |
 | --- | --- |
-| `web.tabs` `web.active` `tab.<属性>` | **不请求** —— 内存,由 `WS /api/events` 维护 |
-| `web.tab(title=)` `web.tab(index)` | 本地匹配,线上只认 id |
-| `web.sync()` | `GET /api/tabs` + `GET /api/status` |
-| `web.open(url)` | `POST /api/tabs {url}` |
-| `web.reorder([...])` | `POST /api/tabs/reorder` |
+| `sess.tabs` `sess.active` `tab.<属性>` | **不请求** —— 内存,由 `WS /api/events` 维护 |
+| `sess.tab(title=)` `sess.tab(index)` | 本地匹配,线上只认 id |
+| `sess.sync()` | `GET /api/tabs` + `GET /api/status` |
+| `sess.open(url)` | `POST /api/tabs {url}` |
+| `sess.reorder([...])` | `POST /api/tabs/reorder` |
 | `tab.favicon` / `tab.favicon_url` | `GET /api/tabs/{id}/favicon` |
 | `tab.closed` | 客户端状态 |
 

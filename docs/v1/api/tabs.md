@@ -280,7 +280,7 @@ destroyed / infoChanged / crashed,`TargetInfo` 里根本没有"是不是当前"�
 同一套东西的另外两个壳:
 
 - **Python** —— [sdk/tab/README.md](../sdk/tab/README.md):tab 是**活的句柄**,而且
-  `tab.url` / `web.tabs` **读内存不发请求**(靠订这条事件流维护)
+  `tab.url` / `sess.tabs` **读内存不发请求**(靠订这条事件流维护)
 - **命令行** —— [cli/tabs.md](../cli/tabs.md):`webmuxd tabs`、`select-tab`、`-F` 格式化
 
 两边都没有本文的全部内容(favicon 字节、history、`stop` 只在 API 这层),

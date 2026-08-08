@@ -47,9 +47,9 @@ open http://localhost:6901        # 画面:看到 Chrome,可以直接用鼠标�
 
 ```python
 from webmuxd import Webmuxd
-web = Webmuxd(port=7900)
-
-tab = web.open("https://example.com")
+web  = Webmuxd()
+sess = web.create()
+tab  = sess.open("https://example.com")
 tab.click("登录")                  # 语义定位,不用写 CSS 选择器
 tab.type("手机号", "13800000000")
 print(tab.text())

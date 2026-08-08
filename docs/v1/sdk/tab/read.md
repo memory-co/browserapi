@@ -85,8 +85,8 @@ Chrome **不渲染后台 tab**。所以对非激活 tab 要像素时,lib 会**�
 拍完就在那儿(不切回去 —— 切回去等于又一次画面跳)。
 
 ```python
-web.tab("t_7").click("确认")     # 输入:不用切,人看不见,日志标 background
-web.tab("t_7").observe()         # 像素:先切过去,画面会跳,active 变成 t_7
+sess.tab("t_7").click("确认")     # 输入:不用切,人看不见,日志标 background
+sess.tab("t_7").observe()         # 像素:先切过去,画面会跳,active 变成 t_7
 ```
 
 **为什么不静默拍**:后台 target 拍出来大概率是空白或上一帧,
@@ -110,8 +110,9 @@ tab.extract(".cart-item", mode="table")   # text | html | table | attr
 webmuxd 不产生思考,它只提供手和眼。循环长这样:
 
 ```python
-web = Webmuxd(port=12345, token=TOKEN, user="claudecode")
-tab = web.open("https://shop.example.com")
+web  = Webmuxd(user="claudecode")
+sess = web.create()
+tab  = sess.open("https://shop.example.com")
 
 while True:
     obs = tab.observe()
@@ -120,9 +121,9 @@ while True:
         goal=goal,
         image=obs.screenshot,               # 图上已经画好编号
         elements=obs.as_prompt(),
-        tabs=web.tabs,                      # 免费,内存里就有
+        tabs=sess.tabs,                      # 免费,内存里就有
         notes=obs.notes,                    # 让它知道这次看不见什么
-        history=web.log(limit=5),
+        history=sess.log(limit=5),
     )
     if decision.done:
         break
