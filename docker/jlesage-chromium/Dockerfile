@@ -27,7 +27,7 @@ LABEL webmuxd.window.port=5800 \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=CHROMIUM_REMOTE_DEBUGGING_PORT \
       webmuxd.chromium.args_env=CHROMIUM_CUSTOM_ARGS \
-      webmuxd.chromium.url_env=CHROMIUM_APP_URL \
+      webmuxd.chromium.url_env="" \
       webmuxd.host_network=multi
 
 ENTRYPOINT ["/usr/local/bin/webmuxd-entrypoint"]

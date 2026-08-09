@@ -39,6 +39,7 @@ include = ["webmuxd*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+python_files = ["test.py", "test_*.py"]
 testpaths = ["tests"]
 addopts = "-q"
 markers = ["slow: 真起进程/容器的用例"]
