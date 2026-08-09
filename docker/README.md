@@ -14,7 +14,7 @@ webmuxd 需要两个端点([works/08](../docs/v1/works/08-browser-runtime.md)):
 
 | 镜像 | 底座 | 加了什么 |
 | --- | --- | --- |
-| `webmuxd/kasmweb-chromium:1.18.0` | `kasmweb/chromium:1.18.0` | 一个中继(底座没有 socat,用它自带的 python3) |
+| `webmuxd/kasmweb-chromium:1.18.0` | `kasmweb/chromium:1.18.0` | 一个中继(底座没有 socat,用它自带的 python3);外加一行 patch 让它能在 `--network host` 下起来 |
 | `webmuxd/jlesage-chromium:latest` | `jlesage/chromium:latest` | **几乎什么都没加** —— 底座本来就内置了 socat 转发,只是默认关着 |
 
 **名字保留底座的出处**(`kasmweb-` / `jlesage-`)—— 一眼看得出里面是谁的东西。
@@ -90,9 +90,18 @@ PID 也一样,于是共享 netns 的第二个容器必然撞名:
 
 所以:
 
-- **bridge 网络下想开几个开几个**,这是默认走法,不受影响
-- **要 `--network host`**(为了让容器里的 `localhost` 就是宿主机的),
-  kasmweb 只能一个;要一机多开就用 `webmuxd/jlesage-chromium`
+**webmuxd 只用 `--network host` 跑**(为了让容器里的 `localhost` 就是宿主机的,
+works/08 §6.2),所以这条限制是实打实的:
+
+- **kasmweb:一台机器一个 session。** 画面最好,单开够用就选它
+- **jlesage:能一机多开。** 要同时跑好几个就选它
+
+**不去硬绕。** `--pid host` 能解开 socket 撞名,但会让 kasm 的 `pgrep chromium`
+误判、第二个浏览器不启动 —— 解开一个就绑住另一个。
+
+(kasm 在 host 网络下还有个坎:启动脚本死等一张叫 `eth*` 的网卡,而宿主机的网卡
+叫 `ens4` 之类,于是死循环、症状是"容器 Up、日志停住、没有任何报错"。
+**这一行 patch 打在 wrapper 层**,底座镜像本身不动。)
 
 jlesage 那个没这个问题 —— 它给 Xvnc 的是 `-nolisten local -rfbunixpath=…`:
 X 的抽象 socket 关掉了,RFB 走**文件系统**上的 socket,抽象命名空间里只剩内核给的

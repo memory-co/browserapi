@@ -80,21 +80,35 @@ def test_it_uses_no_named_abstract_socket():
     受机器负载左右,而且失败时只告诉你"第二个没起来",不告诉你为什么。
     机制这一条快、稳,而且红了就直接指向原因。
     """
-    with session_on(IMAGE, "t-jl-sock") as (handle, _sess):
-        cid = handle.detail["container_id"]
+    # **故意用 bridge 起一个来看。**
+    #
+    # 要测的是"这个镜像会不会自己起带名字的抽象 socket",那是镜像的属性。
+    # host 网络下容器看到的是**宿主机那份**抽象命名空间(实测会看到宿主机的
+    # `@/var/spool/exim4/exim_daemon_notify` 之类),根本分不清谁是谁的 ——
+    # 换句话说,用生产的跑法反而测不了这件事。
+    cid = subprocess.run(
+        ["docker", "run", "-d", "--name", "t-jl-sock", "--shm-size=1g", IMAGE],
+        capture_output=True, text=True).stdout.strip()
+    assert cid, "容器没起来"
+    try:
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            got = subprocess.run(["docker", "exec", cid, "pgrep", "Xvnc"],
+                                 capture_output=True, text=True)
+            if got.returncode == 0:
+                break
+            time.sleep(3)
+        else:
+            pytest.fail("Xvnc 没起来")
 
-        # cmdline 是 NUL 分隔的 —— **在这边拆**,别在 shell 里 tr:
-        # 那个转义要穿过 Python 字符串和 sh 两层,写错了报的是
-        # "embedded null byte",跟这条用例想验的东西毫无关系。
         raw = subprocess.run(
             ["docker", "exec", cid, "sh", "-c",
              "cat /proc/$(pgrep Xvnc | head -1)/cmdline"],
             capture_output=True).stdout
         cmdline = " ".join(raw.decode("utf-8", "replace").split("\x00"))
         # **只断言真正决定成败的那条**:`-nolisten local` 关掉 X 的抽象 socket。
-        # RFB 开不开 TCP 口不重要(`-rfbport` 是可配置的,实测见过 5900 也见过
-        # -1)—— 一个 TCP 端口顶多是端口冲突,改一下就好;而抽象 socket 的名字
-        # 撞了是没得改的。
+        # RFB 开不开 TCP 口不重要(`-rfbport` 可配置,实测见过 5900 也见过 -1)
+        # —— 端口撞了改一下就好,抽象 socket 的名字撞了没得改。
         assert "-nolisten local" in cmdline, "X 的抽象 socket 没关掉"
         assert "-rfbunixpath=" in cmdline, "RFB 没走文件系统 socket"
 
@@ -102,11 +116,11 @@ def test_it_uses_no_named_abstract_socket():
             ["docker", "exec", cid, "sh", "-c",
              "grep -oE '@[^ ]+' /proc/net/unix | sort -u"],
             capture_output=True, text=True).stdout.split()
-        # **匿名 autobind 无所谓** —— 内核给的是五位十六进制(`@f0fa9`),
-        # 每个 socket 各不相同,天生不会撞。会撞的是自己起名字的那种
-        # (`@KasmVNCSock68`、`@/tmp/.X11-unix/X1`)。
+        # 匿名 autobind 无所谓 —— 内核给的是五位十六进制(`@f0fa9`),天生各不相同。
         named = [n for n in names if not re.fullmatch(r"@[0-9a-f]{5}", n)]
-        assert not named, f"出现了带名字的抽象 socket,共享 netns 会撞:{named}"
+        assert not named, f"这个镜像自己起了带名字的抽象 socket:{named}"
+    finally:
+        subprocess.run(["docker", "rm", "-f", "t-jl-sock"], capture_output=True)
 
 
 @pytest.mark.skipif(

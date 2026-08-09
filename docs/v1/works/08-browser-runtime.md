@@ -105,15 +105,20 @@ if (socket->ListenWithAddressAndPort("::1", port, kBackLog) == net::OK)
 
 只有三种搬法,**穷尽了**:
 
-| | 做法 | 谁在用 |
+| | 做法 | 现状 |
 | --- | --- | --- |
-| **A** | 容器里垫一跳:`0.0.0.0:9223 → 127.0.0.1:9222`,再 `-p` 出来 | jlesage 内置 socat;kasm 由我们的 wrapper 镜像补上 |
-| **B** | 共享 network namespace(`--network host`),两个 loopback 合成一个 | 见 §6.2,有前提 |
-| **C** | 把订阅方搬进去,CDP 一步不出容器 | 早期设计,要求镜像里装 webmuxd —— 弃了 |
+| **A** | 容器里垫一跳:`0.0.0.0:<外> → 127.0.0.1:<内>` | **在用** —— 但这一跳属于**镜像**,不属于 runtime |
+| **B** | 共享 network namespace(`--network host`),两个 loopback 合成一个 | **在用** —— 见 §6.2,这是唯一的跑法 |
+| **C** | 把订阅方搬进去,CDP 一步不出容器 | 弃了 —— 要求镜像里装 webmuxd |
 
-**A 是默认,而且这一跳属于镜像,不属于 runtime。** 我们给两个底座各加了一层
-wrapper([docker/](../../../docker/)):底座自带转发就打开它,没有就补一个 ——
-只要求镜像里有个能监听转发的东西(socat,或者镜像自带的 `python3`)。
+**A 和 B 是叠着用的,而且分工很清楚:**
+
+- **A 在镜像里。** 我们给两个底座各加了一层 wrapper([docker/](../../../docker/)):
+  底座自带转发就打开它(jlesage 的 socat),没有就补一个(kasm,用镜像自带的
+  `python3`)。它只要求镜像里有个能监听转发的东西,**不要求装我们的代码**。
+- **B 在 runtime 里。** 有了 A,CDP 已经听在容器的 `0.0.0.0` 上;B 让那个
+  `0.0.0.0` 就是宿主机的 —— 于是连 `-p` 都不需要了。
+
 **runtime 因此什么都不用 exec**,它只在宿主机上等那个口。
 
 > Chromium 还会校验 Host 头防 DNS rebinding。实测**IP 字面量放行、域名拒绝**
@@ -204,16 +209,27 @@ Xvnc :N -rfbport <vnc_port>               →  127.0.0.1:<vnc>    画面
 
 它是 server 的子进程,`kill-server` 跟着死([works/05 §3.2](05-server-session-runtime.md))。
 
-### 6.2 `--network host` —— 能不能用取决于镜像
+### 6.2 `--network host` —— 这是唯一的跑法
 
-共享 netns 之后,容器里的 `127.0.0.1` **就是**你的 `127.0.0.1`:CDP 不用垫、
-宿主机的 `localhost:3000` 原生就通。诱人,但**有一个硬前提:那个镜像不能用带名字的
-抽象 unix socket。**
+共享 netns 之后,容器里的 `127.0.0.1` **就是**你的 `127.0.0.1`。这买到的是
+**调试用的浏览器能打开你自己机器上跑着的页面** —— 而开发服务器常常只绑 loopback,
+bridge 下根本够不着(`host-gateway` 走的是 eth0,那儿没人听)。
+
+为它做端口转发是一整套机制:要么开 session 时预先列端口(而那个问题没有答案),
+要么按需挂 + 导航失败自愈重试。**共享 netns 把这套机制整个消掉了** ——
+所以 `--forward` 那条路砍了,不留开关。
+
+代价两条,**都不绕**:
+
+- **没有网络隔离。** 容器里那个 Chromium 和宿主共用网络栈。
+- **能不能一机多开取决于镜像** —— 支持的就支持,不支持就不支持,
+  标签 `webmuxd.host_network` 如实写着。硬前提是:**那个镜像不能用带名字的
+  抽象 unix socket。**
 
 抽象 socket(`sun_path[0] == '\0'`)**归 network namespace 管**,不是文件系统。
 两个容器共享 netns,就共享这个命名空间。
 
-**KasmVNC 过不去。** [`TcpSocket.cxx:661`](https://github.com/kasmtech/KasmVNC):
+**KasmVNC 一机只能一个。** [`TcpSocket.cxx:661`](https://github.com/kasmtech/KasmVNC):
 
 ```c
 sprintf(sockname, ".KasmVNCSock%u", getpid());
@@ -236,7 +252,11 @@ if (bind(internalSocket, ...)) throw SocketException("failed to bind socket", er
 
 `--pid host` 能让 PID 唯一,但会砸掉另一头:kasm 用 `pgrep chromium` 判断浏览器活没活,
 共享 PID 空间后第二个容器看见第一个的 chromium,**再也不拉起自己那个**。
-解开一个就绑住另一个。
+解开一个就绑住另一个 —— 所以**不绕**,就是一机一个。
+
+(kasm 在 host 网络下还有第二个坎:它的启动脚本死等一张叫 `eth*` 的网卡,
+而宿主机的网卡叫 `ens4` 之类。这个坎**在 wrapper 镜像里补掉了** ——
+底座镜像本身不动,见 [docker/](../../../docker/)。)
 
 **TigerVNC 过得去。** jlesage 给 Xvnc 的参数:
 

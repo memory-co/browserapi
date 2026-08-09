@@ -55,44 +55,6 @@ LABEL = "webmuxd.session"
 #: (`kill: usage:`),所以统一在这儿拦住。
 PW_MIN = 6
 
-#: docker 给容器的那个宿主机地址。`--add-host` 把它写进容器的 hosts。
-HOST_ALIAS = "host.docker.internal"
-
-#: 一段二十行的 TCP 转发。**两个方向都用它**,只是监听和目标不同:
-#:
-#: - CDP:容器内 `0.0.0.0:9223` → `127.0.0.1:9222`
-#:   (Chromium 只肯听容器内的 lo,`-p` 是 DNAT 到 eth0,够不着)
-#: - localhost 映射:容器内 `127.0.0.1:<port>` → `host.docker.internal:<port>`
-#:   (让容器里的 `localhost:3000` 就是你机器上的 `localhost:3000`)
-#:
-#: 用 `python3 -c` 喂进去,**不依赖镜像里装了什么** —— 镜像因此可以完全原厂。
-def relay_src(listen: str, listen_port: int, target: str, target_port: int) -> str:
-    return f"""
-import asyncio
-async def pipe(r, w):
-    try:
-        while True:
-            d = await r.read(65536)
-            if not d:
-                break
-            w.write(d); await w.drain()
-    except Exception:
-        pass
-    finally:
-        try: w.close()
-        except Exception: pass
-async def on(cr, cw):
-    try:
-        sr, sw = await asyncio.open_connection({target!r}, {target_port})
-    except Exception:
-        cw.close(); return
-    await asyncio.gather(pipe(cr, sw), pipe(sr, cw))
-async def main():
-    s = await asyncio.start_server(on, {listen!r}, {listen_port})
-    await s.serve_forever()
-asyncio.run(main())
-"""
-
 
 @dataclass
 class Profile:
@@ -111,6 +73,8 @@ class Profile:
     cdp_port: int
     args_env: str
     url_env: str
+    window_port_env: str = ""
+    cdp_port_env: str = "WEBMUXD_CDP_PORT"
     window_user: str = ""
     window_user_env: str = ""
     host_network: str = "single"
@@ -141,6 +105,8 @@ class Profile:
             cdp_port=int(lab.get("cdp.port", 9222)),
             args_env=lab.get("chromium.args_env", ""),
             url_env=lab.get("chromium.url_env", ""),
+            window_port_env=lab.get("window.port_env", ""),
+            cdp_port_env=lab.get("cdp.port_env") or "WEBMUXD_CDP_PORT",
             window_user=lab.get("window.user", ""),
             window_user_env=lab.get("window.user_env", ""),
             host_network=lab.get("host_network", "single"),
@@ -177,7 +143,6 @@ class ContainerRuntime:
               url: str = "about:blank", viewport: str = "1280x800",
               volume: str | None = None, proxy: str | None = None,
               token: str | None = None, image: str | None = None,
-              bind: str = "127.0.0.1", forward: list[int] | None = None,
               tab_max: int | None = None, log_limit: int | None = None,
               human_yield: int | None = None, **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -202,16 +167,27 @@ class ContainerRuntime:
             app_args.append(f"--proxy-server={proxy}")
 
         cdp_host_port = _free_port()
+        # **`--network host`,没有 `-p`。**
+        #
+        # 换来的是"容器里的 `localhost` 就是你的 `localhost`" —— 调试用的浏览器
+        # 得能打开你自己机器上跑着的页面,而开发服务器常常只绑 loopback,
+        # bridge 下**根本够不着**(host-gateway 走的是 eth0,那儿没人听)。
+        # 为它做端口转发是一整套机制:要么预先列端口,要么按需挂 + 自愈重试。
+        # 共享 netns 把这套机制整个消掉了。
+        #
+        # 代价两条,都写在 works/08 §6.2:没有网络隔离;而且**能不能一机多开
+        # 取决于镜像**(标签 `webmuxd.host_network`)。
         args = [self.docker, "run", "-d",
                 "--name", f"webmuxd-{id}",
                 "--label", f"{LABEL}={id}",
                 "--shm-size=1g",                 # 少于 1G Chromium 会崩
-                # **默认只绑 127.0.0.1。** 要放出去是上层的决定,所以得显式说
-                # `bind=`;而且**只有画面口跟着放** —— CDP 那口比 API 更底层、
-                # 没有动作日志,能连上它就等于绕过整层,它永远只在本地。
-                "-p", f"{bind}:{vnc_port}:{prof.window_port}",
-                "-p", f"127.0.0.1:{cdp_host_port}:{prof.cdp_port}",
-                "--add-host", f"{HOST_ALIAS}:host-gateway"]
+                "--network", "host"]
+        if not prof.window_port_env:
+            raise unavailable(
+                self.name, f"{img} 没说画面口怎么改(webmuxd.window.port_env)",
+                "host 网络下没有 -p 可以映射,画面口只能由镜像自己听在那儿")
+        args += ["-e", f"{prof.window_port_env}={vnc_port}",
+                 "-e", f"{prof.cdp_port_env}={cdp_host_port}"]
         # 变量名全来自标签 —— 这里没有任何一个镜像的名字
         for env_name, value in ((prof.password_env, vnc_pw),
                                 (prof.url_env, url),
@@ -237,7 +213,6 @@ class ContainerRuntime:
                 raise unavailable(self.name, "容器起来了,但 CDP 没出来",
                                   f"docker logs {cid[:12]};"
                                   f"以及确认这个镜像真的转发了 {prof.cdp_port}")
-            procs.update(self._forward_localhost(cid, forward or []))
             procs["sessiond"] = _spawn_sessiond(
                 api_port, f"http://127.0.0.1:{cdp_host_port}", id,
                 tab_max=tab_max, log_limit=log_limit, human_yield=human_yield)
@@ -253,45 +228,14 @@ class ContainerRuntime:
                       {"container_id": cid, "image": img,
                        "cdp_port": cdp_host_port,
                        "vnc_scheme": prof.window_scheme,
-                       "vnc_bind": bind,
+                       # host 网络下没有 `-p` 能限制它;镜像自己听在哪就是哪。
+                       # **如实报出来**,别让上层以为它只在本机。
+                       "vnc_bind": "0.0.0.0",
                        "vnc_user": prof.window_user or "webmuxd",
                        "vnc_password": vnc_pw,
                        "host_network": prof.host_network,
                        "pids": {k: p.pid for k, p in procs.items()},
                        "_procs": procs})
-
-    def _forward_localhost(self, cid: str, ports: list[int]) -> dict[str, Any]:
-        """把**你机器上的 `localhost:<port>`** 搬进容器,名字还叫 `localhost`。
-
-        两跳,因为一跳到不了:
-
-        1. 宿主机这边听 `172.17.0.1:<port>` → `127.0.0.1:<port>`。
-           **只绑在 loopback 上的开发服务器,容器是够不着的** ——
-           `host-gateway` 走的是宿主机的 docker0 地址,而服务不在那儿听。
-           这一跳就是为它准备的;要是那个口上已经有人听(服务本来就绑了
-           `0.0.0.0`),绑不上就跳过,本来也不需要。
-        2. 容器里听 `127.0.0.1:<port>` → `host.docker.internal:<port>`。
-           **必须绑容器的 lo**,不然浏览器里写 `localhost:3000` 还是不对。
-
-        代价说清楚:第 1 跳把那个本来只在 loopback 的服务,暴露给了
-        docker0 上的**所有**容器。session 停了就撤。
-        """
-        out: dict[str, Any] = {}
-        if not ports:
-            return out
-        gw = _docker_gateway(self.docker)
-        for port in ports:
-            if gw and _port_free(gw, port):
-                out[f"fwd{port}"] = subprocess.Popen(
-                    [sys.executable, "-c",
-                     relay_src(gw, port, "127.0.0.1", port)],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=True)
-            subprocess.run(
-                [self.docker, "exec", "-d", cid, "python3", "-c",
-                 relay_src("127.0.0.1", port, HOST_ALIAS, port)],
-                capture_output=True)
-        return out
 
     # ------------------------------------------------------------------ 管
 
@@ -369,24 +313,6 @@ def _kill(procs: dict, pids=()) -> None:
         for pid in pids:
             with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGTERM)
-
-
-def _docker_gateway(docker: str) -> str:
-    r = subprocess.run([docker, "network", "inspect", "bridge", "-f",
-                        "{{range .IPAM.Config}}{{.Gateway}}{{end}}"],
-                       capture_output=True, text=True)
-    return r.stdout.strip()
-
-
-def _port_free(host: str, port: int) -> bool:
-    import socket
-    with socket.socket() as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind((host, port))
-            return True
-        except OSError:
-            return False
 
 
 def _free_port() -> int:

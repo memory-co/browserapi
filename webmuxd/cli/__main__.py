@@ -155,7 +155,6 @@ def cmd_new(args: argparse.Namespace) -> int:
                         url=url, viewport=viewport,
                         volume=args.volume, proxy=args.proxy,
                         endpoint=args.endpoint, image=args.image,
-                        forward=[int(p) for p in args.forward.split(",") if p.strip()],
                         bind=args.bind,
                         token=os.environ.get("WEBMUXD_TOKEN"))
     reg.put(handle)
@@ -525,9 +524,6 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--bind", default="127.0.0.1",
                    help="画面口绑哪个地址。默认只绑本机;"
                         "填 0.0.0.0 就是**对外开放**,拿到密码的人就能用")
-    n.add_argument("--forward", default="",
-                   help="把宿主机的这些端口映射进去,容器里还叫 localhost。"
-                        "逗号分隔,例:--forward 3000,8080")
     n.add_argument("--image", default=None,
                    help="容器镜像。默认读 ~/.webmuxd.json 的 default_container")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")

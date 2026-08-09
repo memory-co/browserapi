@@ -90,9 +90,31 @@ def test_taken_port_is_reported_not_worked_around():
 
 # ------------------------------------------------- container 的命令怎么拼
 
-KASM_LABELS = {'webmuxd.window.port': '6901', 'webmuxd.window.scheme': 'https', 'webmuxd.window.user': 'kasm_user', 'webmuxd.window.password_env': 'VNC_PW', 'webmuxd.cdp.port': '9222', 'webmuxd.chromium.args_env': 'APP_ARGS', 'webmuxd.chromium.url_env': 'LAUNCH_URL', 'webmuxd.host_network': 'single'}
+KASM_LABELS = {
+    'webmuxd.window.port': '6901',
+    'webmuxd.window.scheme': 'https',
+    'webmuxd.window.port_env': 'NO_VNC_PORT',
+    'webmuxd.window.user': 'kasm_user',
+    'webmuxd.window.password_env': 'VNC_PW',
+    'webmuxd.cdp.port': '9222',
+    'webmuxd.cdp.port_env': 'WEBMUXD_CDP_PORT',
+    'webmuxd.chromium.args_env': 'APP_ARGS',
+    'webmuxd.chromium.url_env': 'LAUNCH_URL',
+    'webmuxd.host_network': 'single',
+}
 
-JLESAGE_LABELS = {'webmuxd.window.port': '5800', 'webmuxd.window.scheme': 'http', 'webmuxd.window.user_env': 'WEB_AUTHENTICATION_USERNAME', 'webmuxd.window.password_env': 'WEB_AUTHENTICATION_PASSWORD', 'webmuxd.cdp.port': '9222', 'webmuxd.chromium.args_env': 'CHROMIUM_CUSTOM_ARGS', 'webmuxd.chromium.url_env': 'CHROMIUM_APP_URL', 'webmuxd.host_network': 'multi'}
+JLESAGE_LABELS = {
+    'webmuxd.window.port': '5800',
+    'webmuxd.window.scheme': 'http',
+    'webmuxd.window.port_env': 'WEB_LISTENING_PORT',
+    'webmuxd.window.user_env': 'WEB_AUTHENTICATION_USERNAME',
+    'webmuxd.window.password_env': 'WEB_AUTHENTICATION_PASSWORD',
+    'webmuxd.cdp.port': '9222',
+    'webmuxd.cdp.port_env': 'CHROMIUM_REMOTE_DEBUGGING_PORT',
+    'webmuxd.chromium.args_env': 'CHROMIUM_CUSTOM_ARGS',
+    'webmuxd.chromium.url_env': '',
+    'webmuxd.host_network': 'multi',
+}
 
 
 def _fake_docker(monkeypatch, seen, labels=None):
@@ -130,7 +152,9 @@ def test_container_command_carries_what_the_docs_say(monkeypatch):
         viewport="1280x800", volume="webmuxd-work", token="t0ken1")
 
     joined = " ".join(_run_cmd(seen))
-    assert "-p 127.0.0.1:6901:6901" in joined, "画面口按 profile 映射,而且默认只绑本机"
+    assert "--network host" in joined, "共享 netns 才有那个 localhost"
+    assert "-p " not in joined, "host 网络下不该有端口映射"
+    assert "NO_VNC_PORT=6901" in joined, "画面口是直接告诉镜像的"
     assert "--shm-size=1g" in joined, "少于 1G Chromium 会崩"
     assert "webmuxd.session=work" in joined, "没打 label,server 重启后认不回来"
     assert "webmuxd-work:/data" in joined
@@ -151,7 +175,7 @@ def test_the_env_names_come_from_the_image_not_from_us(monkeypatch):
     kasm = " ".join(_run_cmd(seen))
     assert "VNC_PW=t0ken1" in kasm and "LAUNCH_URL=https://example.com" in kasm
     assert "APP_ARGS=" in kasm
-    assert "-p 127.0.0.1:6901:6901" in kasm
+    assert "NO_VNC_PORT=6901" in kasm
 
     seen.clear()
     _fake_docker(monkeypatch, seen, JLESAGE_LABELS)
@@ -159,9 +183,12 @@ def test_the_env_names_come_from_the_image_not_from_us(monkeypatch):
                              url="https://example.com")
     jl = " ".join(_run_cmd(seen))
     assert "WEB_AUTHENTICATION_PASSWORD=t0ken1" in jl
-    assert "CHROMIUM_APP_URL=https://example.com" in jl
     assert "CHROMIUM_CUSTOM_ARGS=" in jl
-    assert "-p 127.0.0.1:6901:5800" in jl, "画面口在容器里是 5800,由标签说了算"
+    # **这个镜像没有"启动页"这个变量**(它只有 CHROMIUM_APP_URL,而那个映射到
+    # `--app=` 无边框窗口,不是普通启动页)。profile 里宁可缺一项,也不填一个
+    # 语义不对的 —— 缺了就由 webmuxd 连上之后自己 open()。
+    assert "https://example.com" not in jl, "不该把启动页塞给一个没有这个概念的镜像"
+    assert "WEB_LISTENING_PORT=6901" in jl, "换个镜像,改画面口的变量名也不一样"
 
     # 一个都不该串台
     assert "VNC_PW" not in jl and "WEB_AUTHENTICATION_PASSWORD" not in kasm
@@ -202,19 +229,27 @@ def test_we_no_longer_exec_a_cdp_relay_into_the_container(monkeypatch):
     assert not any(a[1] == "exec" for a in seen), "还在 exec 进容器挂中继"
 
 
-def test_the_cdp_port_is_published_but_only_on_loopback(monkeypatch):
-    """CDP 比 API 更底层、没有动作日志,能连上它就等于绕过整层 ——
-    所以它**永远只绑 127.0.0.1**,`bind` 只管画面口。"""
+def test_the_window_port_is_told_to_the_image_not_mapped(monkeypatch):
+    """**host 网络下没有 `-p`。**
+
+    所以画面口不是映射出来的,是**直接告诉镜像听在那儿**。镜像要是没说
+    这个变量叫什么(`webmuxd.window.port_env`),我们就没办法让它听在
+    调用方要的口上 —— 那就直接报错,而不是让它听在默认口上装作成功。
+    """
     seen = []
     _fake_docker(monkeypatch, seen)
-    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901, bind="0.0.0.0")
-
-    run = _run_cmd(seen)
-    published = [run[i + 1] for i, a in enumerate(run) if a == "-p"]
-    cdp = [p for p in published if p.endswith(":9222")]
-    assert cdp and all(p.startswith("127.0.0.1:") for p in cdp), f"CDP 口放出去了:{published}"
-    assert any(p.startswith("0.0.0.0:") for p in published), "画面口该跟着 bind 走"
+    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
     assert h.detail["cdp_port"] not in (0, None)
+    # host 网络下没有 -p 能限制它,如实报出来别让上层以为它只在本机
+    assert h.detail["vnc_bind"] == "0.0.0.0"
+
+    seen.clear()
+    no_port_env = dict(KASM_LABELS)
+    no_port_env.pop("webmuxd.window.port_env")
+    _fake_docker(monkeypatch, seen, no_port_env)
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+    assert "window.port_env" in str(ei.value)
 
 
 def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):
