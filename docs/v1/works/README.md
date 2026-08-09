@@ -68,6 +68,7 @@ print(tab.text())
 | [05-server-session-runtime.md](05-server-session-runtime.md) | server / session / runtime 三层概念,与 tmux 的完整对照 |
 | [06-tab-sync.md](06-tab-sync.md) | **tab 的一进一出** —— `open()` 怎么落到 Chromium,人点出来的新 tab 怎么被感知 |
 | [07-popup-windows.md](07-popup-windows.md) | `window.open` 的 popup 是窗口不是 tab —— 能不能转化掉,以及别人怎么做的 |
+| [08-browser-runtime.md](08-browser-runtime.md) | **浏览器从哪来** —— 契约只有两个端点:一个画面口给人、一个 CDP 给代码。新镜像怎么接进来 |
 
 规格在上一级([`..`](../)):[`api`](../api/) HTTP · [`cli`](../cli/) 命令行 · [`sdk`](../sdk/) Python。
 本目录是**为什么**,那三个目录是**做成什么样**。
