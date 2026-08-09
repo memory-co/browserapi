@@ -7,8 +7,9 @@
 #   docker build -t webmuxd/jlesage-chromium:latest docker/jlesage-chromium/
 #
 # **这个镜像能用 --network host 一机多开。** 它给 Xvnc 的是
-# `-nolisten local -rfbport=-1 -rfbunixpath=...` —— X 和 RFB 都走文件系统上的
-# socket,抽象命名空间里一个带名字的都没有,所以共享 netns 不会撞。
+# `-nolisten local -rfbunixpath=...` —— X 的抽象 socket 关掉了,RFB 走文件系统上的
+# socket,于是抽象命名空间里只剩内核给的匿名 autobind,一个自己起名字的都没有,
+# 所以共享 netns 不会撞。
 ARG BASE=jlesage/chromium:latest
 FROM ${BASE}
 

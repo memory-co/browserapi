@@ -94,9 +94,11 @@ PID 也一样,于是共享 netns 的第二个容器必然撞名:
 - **要 `--network host`**(为了让容器里的 `localhost` 就是宿主机的),
   kasmweb 只能一个;要一机多开就用 `webmuxd/jlesage-chromium`
 
-jlesage 那个没这个问题 —— 它给 Xvnc 的是 `-nolisten local -rfbport=-1
--rfbunixpath=…`,X 和 RFB 都走**文件系统**上的 socket,抽象命名空间里一个带名字的
-都没有。实测两个容器共享 host netns 同时跑,画面和 CDP 都正常。
+jlesage 那个没这个问题 —— 它给 Xvnc 的是 `-nolisten local -rfbunixpath=…`:
+X 的抽象 socket 关掉了,RFB 走**文件系统**上的 socket,抽象命名空间里只剩内核给的
+匿名 autobind,**一个自己起名字的都没有**。(`-rfbport` 不在这条判据里 ——
+端口撞了改一下就好,名字撞了没得改。)实测两个容器共享 host netns 同时跑,
+画面和 CDP 都正常。
 
 标签里写着这件事:
 

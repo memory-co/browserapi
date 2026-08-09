@@ -107,12 +107,14 @@ if (socket->ListenWithAddressAndPort("::1", port, kBackLog) == net::OK)
 
 | | 做法 | 谁在用 |
 | --- | --- | --- |
-| **A** | 容器里垫一跳:`0.0.0.0:9223 → 127.0.0.1:9222`,再 `-p` 出来 | jlesage 内置 socat;kasm 我们 `docker exec` 挂 |
+| **A** | 容器里垫一跳:`0.0.0.0:9223 → 127.0.0.1:9222`,再 `-p` 出来 | jlesage 内置 socat;kasm 由我们的 wrapper 镜像补上 |
 | **B** | 共享 network namespace(`--network host`),两个 loopback 合成一个 | 见 §6.2,有前提 |
 | **C** | 把订阅方搬进去,CDP 一步不出容器 | 早期设计,要求镜像里装 webmuxd —— 弃了 |
 
-**A 是默认。** 它只要求镜像里有个能监听转发的东西(socat,或者 `python3 -c` 喂一段
-二十行的源码),**不要求镜像里装我们的任何代码**。
+**A 是默认,而且这一跳属于镜像,不属于 runtime。** 我们给两个底座各加了一层
+wrapper([docker/](../../../docker/)):底座自带转发就打开它,没有就补一个 ——
+只要求镜像里有个能监听转发的东西(socat,或者镜像自带的 `python3`)。
+**runtime 因此什么都不用 exec**,它只在宿主机上等那个口。
 
 > Chromium 还会校验 Host 头防 DNS rebinding。实测**IP 字面量放行、域名拒绝**
 > (`Host: 127.0.0.1:<任意口>` → 200,`Host: evil.com` → 500)。我们从
@@ -135,7 +137,7 @@ if (socket->ListenWithAddressAndPort("::1", port, kBackLog) == net::OK)
 | 画面口 | 6901 https | 5800 http/https | 3001 https(3000 那个 http 口不可用) |
 | 认证 | `VNC_PW`,用户名写死 `kasm_user` | `WEB_AUTHENTICATION_*`(要同时 `SECURE_CONNECTION=1`) | `CUSTOM_USER` + `PASSWORD` |
 | 注入浏览器参数 | `APP_ARGS` | `CHROMIUM_CUSTOM_ARGS` | `CHROME_CLI` |
-| CDP 转发 | 无,要自己挂 | **内置**(`CHROMIUM_REMOTE_DEBUGGING=1`) | 无,要自己挂 |
+| CDP 转发 | 无,wrapper 补一个 | **内置**,wrapper 只是打开它 | 无 |
 
 **Selkies 那条要注意的是**:它的前端要 secure context,http 口只会回一句
 "This application requires a secure connection (HTTPS)"。
@@ -152,10 +154,18 @@ if (socket->ListenWithAddressAndPort("::1", port, kBackLog) == net::OK)
 | ① | 画面在哪个端口,怎么改 | 6901 / `-p` | 5800 / `WEB_LISTENING_PORT` | 3001 / `-p` |
 | ② | 怎么设访问口令 | `VNC_PW`(**≥6 位**) | `WEB_AUTHENTICATION_*` | `CUSTOM_USER`+`PASSWORD` |
 | ③ | 怎么往 Chromium 塞参数 | `APP_ARGS` | `CHROMIUM_CUSTOM_ARGS` | `CHROME_CLI` |
-| ④ | 启动页怎么给 | `LAUNCH_URL` | `CHROMIUM_APP_URL` | 和参数同一个变量 |
-| ⑤ | CDP 怎么出来 | 自己挂一跳 | 内置 socat | 自己挂一跳 |
+| ④ | 启动页怎么给 | `LAUNCH_URL` | **没有**(见下) | 和参数同一个变量 |
+| ⑤ | CDP 怎么出来 | wrapper 补一跳 | 内置 socat,wrapper 打开它 | 要自己挂 |
 
-这五个问题就是一份 **profile** 的全部内容 —— 它是一张**事实表**,不是配置项:
+④ 那格 jlesage 是**故意留空的**:它只有 `CHROMIUM_APP_URL`,而那个映射到
+`--app=`(无边框应用窗口),不是普通启动页。与其用错模式,不如不声明 ——
+webmuxd 连上之后自己 `open()` 就是了。**profile 里宁可缺一项,也不填一个语义不对的。**
+
+这五个问题就是一份 **profile** 的全部内容,而且它已经**做成机器可读的了** ——
+写在镜像的 `webmuxd.*` 标签里,`docker inspect` 就能读到,所以
+**加一个新镜像不用改 webmuxd 的代码**(见 [docker/README](../../../docker/README.md))。
+
+它是一张**事实表**,不是配置项:
 描述的是"这个镜像长什么样",不是"你想怎么用"。webmuxd 没有配置文件,
 参数从 lib 传([cli/README §5](../cli/README.md));profile 是对**外部世界**的描述。
 
@@ -232,13 +242,19 @@ if (bind(internalSocket, ...)) throw SocketException("failed to bind socket", er
 
 ```
 Xvnc -nolisten tcp -nolisten local -listen unix \
-     -rfbport=-1 -rfbunixpath=/tmp/vnc.sock ... :0
+     -rfbunixpath=/tmp/vnc.sock -rfbport=<配置来的> ... :0
 ```
 
-`-rfbport=-1` 不开 TCP、RFB 走**文件系统** socket、`-nolisten local` 关掉 X 的抽象
-socket。抽象命名空间里只剩匿名 autobind。实测两个容器共享 host netns 同时跑,
-画面和 CDP 都 200,零冲突;宿主机上**只绑 loopback** 的服务在容器里用
-`http://localhost:3456/` 直接打开。
+**决定成败的只有 `-nolisten local`** —— 它关掉 X 的抽象 socket;RFB 又走
+**文件系统**上的 socket(`-rfbunixpath`)。于是抽象命名空间里只剩内核给的匿名
+autobind(`@f0fa9` 这种五位十六进制,天生各不相同),**一个自己起名字的都没有**。
+
+> `-rfbport` 不在这条判据里。早先这里写的是 `-rfbport=-1`(RFB 完全不开 TCP),
+> 那只是某一次配置下的取值 —— 实测也见过 `-rfbport=5900`。**但它不影响结论**:
+> 一个 TCP 端口撞了顶多是端口冲突,改一下就好;抽象 socket 的名字撞了是没得改的。
+
+实测两个容器共享 host netns 同时跑,画面和 CDP 都 200,零冲突;宿主机上
+**只绑 loopback** 的服务在容器里用 `http://localhost:3456/` 直接打开。
 
 **所以"能不能用 host 网络"是 profile 的第六个字段,不是全局开关。**
 
