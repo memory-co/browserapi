@@ -75,9 +75,11 @@ class CDP:
     async def _browser_ws(endpoint: str, timeout: float) -> str:
         """问 `/json/version` 要 ws 地址,**然后把里面的 host:port 换成我们问的那个**。
 
-        Chromium 报的是它自己看到的地址(`127.0.0.1:9222`)。中间但凡隔了
-        一层端口映射或转发,那个地址在我们这边就是错的 —— 我们问得到它,
-        就该从同一个地方连回去。
+        实测:Chromium 报的 `webSocketDebuggerUrl` 是**照抄请求的 Host 头**
+        (`Host: 127.0.0.1:9999` → `ws://127.0.0.1:9999/devtools/…`),
+        所以正常路径上它本来就是对的,这里的改写是**防御性的、不是必需的**。
+        留着是因为代价为零,而"我们问得到它,就该从同一个地方连回去"这条
+        在任何转发拓扑下都成立。
         """
         import urllib.parse
 

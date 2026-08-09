@@ -155,6 +155,7 @@ def cmd_new(args: argparse.Namespace) -> int:
                         url=url, viewport=viewport,
                         volume=args.volume, proxy=args.proxy,
                         endpoint=args.endpoint, image=args.image,
+                        bind=args.bind,
                         token=os.environ.get("WEBMUXD_TOKEN"))
     reg.put(handle)
     _out(args, {"id": args.id, "api_port": handle.api_port,
@@ -163,6 +164,9 @@ def cmd_new(args: argparse.Namespace) -> int:
                 "vnc_user": handle.detail.get("vnc_user", ""),
                 "vnc_password": handle.detail.get("vnc_password", "")},
          f"{args.id}  →  画面 {handle.vnc_url or '(无)'}   API {handle.api_url}")
+    if not args.json and handle.detail.get("vnc_bind") not in (None, "127.0.0.1"):
+        print(f"       ⚠ 画面口绑在 {handle.detail['vnc_bind']} —— "
+              f"**这台机器网络能到的人,拿到密码就能用这个浏览器**", file=sys.stderr)
     if not args.json and handle.detail.get("vnc_password"):
         # 密码是起的时候现生成的,**这是唯一会说出来的一次**
         print(f"       登录 {handle.detail.get('vnc_user')} / "
@@ -514,6 +518,9 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--volume", default=None)
     n.add_argument("--proxy", default=None)
     n.add_argument("--endpoint", default=None)
+    n.add_argument("--bind", default="127.0.0.1",
+                   help="画面口绑哪个地址。默认只绑本机;"
+                        "填 0.0.0.0 就是**对外开放**,拿到密码的人就能用")
     n.add_argument("--image", default=None,
                    help="容器镜像。默认读 ~/.webmuxd.json 的 default_container")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")

@@ -114,6 +114,7 @@ class ContainerRuntime:
               url: str = "about:blank", viewport: str = "1280x800",
               volume: str | None = None, proxy: str | None = None,
               token: str | None = None, image: str | None = None,
+              bind: str = "127.0.0.1",
               tab_max: int | None = None, log_limit: int | None = None,
               human_yield: int | None = None, **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -143,8 +144,10 @@ class ContainerRuntime:
                 "--name", f"webmuxd-{id}",
                 "--label", f"{LABEL}={id}",
                 "--shm-size=1g",                 # 少于 1G Chromium 会崩
-                # **一律只绑 127.0.0.1** —— 要放出去是上层的决定,不是我们的默认
-                "-p", f"127.0.0.1:{vnc_port}:{VNC_INNER}",
+                # **默认只绑 127.0.0.1。** 要放出去是上层的决定,所以得显式说
+                # `bind=`;而且**只有画面口跟着放** —— CDP 那口比 API 更底层、
+                # 没有动作日志,能连上它就等于绕过整层,它永远只在本地。
+                "-p", f"{bind}:{vnc_port}:{VNC_INNER}",
                 "-p", f"127.0.0.1:{relay_port}:{CDP_RELAY}",
                 "-e", f"VNC_PW={vnc_pw}",
                 "-e", f"LAUNCH_URL={url}",
@@ -178,6 +181,7 @@ class ContainerRuntime:
                       {"container_id": cid, "image": img,
                        "cdp_port": relay_port,
                        "vnc_scheme": "https",     # KasmVNC 是自签名 https
+                       "vnc_bind": bind,
                        "vnc_user": VNC_USER, "vnc_password": vnc_pw,
                        "pids": {k: p.pid for k, p in procs.items()},
                        "_procs": procs})
