@@ -252,6 +252,39 @@ def test_the_window_port_is_told_to_the_image_not_mapped(monkeypatch):
     assert "window.port_env" in str(ei.value)
 
 
+def test_bridge_is_still_there_for_when_host_will_not_do(monkeypatch):
+    """**host 是默认,不是唯一。**
+
+    要网络隔离、或者那个镜像在 host 下开不了多个,就用 bridge。代价写在
+    works/08 §6.2:容器里的 `localhost` 是它自己的,够不着你机器上只绑
+    loopback 的服务。
+
+    两种模式下 CDP 口都**只绑 127.0.0.1** —— 它比 API 更底层、没有动作日志。
+    """
+    seen = []
+    _fake_docker(monkeypatch, seen)
+    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+                                 network="bridge", bind="0.0.0.0")
+
+    run = _run_cmd(seen)
+    joined = " ".join(run)
+    assert "--network host" not in joined
+    assert "-p 0.0.0.0:6901:6901" in joined, "画面口跟着 bind 走"
+    published = [run[i + 1] for i, a in enumerate(run) if a == "-p"]
+    cdp = [p for p in published if p.endswith(":9222")]
+    assert cdp and all(p.startswith("127.0.0.1:") for p in cdp), \
+        f"CDP 口放出去了:{published}"
+    assert h.detail["network"] == "bridge"
+    assert h.detail["vnc_bind"] == "0.0.0.0"
+
+    # bridge 下不需要镜像声明"画面口怎么改" —— `-p` 就够了
+    seen.clear()
+    no_port_env = dict(KASM_LABELS)
+    no_port_env.pop("webmuxd.window.port_env")
+    _fake_docker(monkeypatch, seen, no_port_env)
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, network="bridge")
+
+
 def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):
     """kasm 少于 6 位会直接退出,报的错是 `kill: usage:`、和密码毫无关系。"""
     seen = []

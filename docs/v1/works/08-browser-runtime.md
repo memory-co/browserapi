@@ -209,7 +209,7 @@ Xvnc :N -rfbport <vnc_port>               →  127.0.0.1:<vnc>    画面
 
 它是 server 的子进程,`kill-server` 跟着死([works/05 §3.2](05-server-session-runtime.md))。
 
-### 6.2 `--network host` —— 这是唯一的跑法
+### 6.2 `--network host` —— 默认的跑法
 
 共享 netns 之后,容器里的 `127.0.0.1` **就是**你的 `127.0.0.1`。这买到的是
 **调试用的浏览器能打开你自己机器上跑着的页面** —— 而开发服务器常常只绑 loopback,
@@ -225,6 +225,10 @@ bridge 下根本够不着(`host-gateway` 走的是 eth0,那儿没人听)。
 - **能不能一机多开取决于镜像** —— 支持的就支持,不支持就不支持,
   标签 `webmuxd.host_network` 如实写着。硬前提是:**那个镜像不能用带名字的
   抽象 unix socket。**
+
+**这两条哪条你都不能接受,就用 `network="bridge"`** —— 它还在,只是不是默认。
+换来隔离和一机多开,换掉的是那个 `localhost`。**默认不等于唯一**,
+只是"多数时候你要的是哪个"。
 
 抽象 socket(`sun_path[0] == '\0'`)**归 network namespace 管**,不是文件系统。
 两个容器共享 netns,就共享这个命名空间。

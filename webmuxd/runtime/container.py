@@ -143,6 +143,7 @@ class ContainerRuntime:
               url: str = "about:blank", viewport: str = "1280x800",
               volume: str | None = None, proxy: str | None = None,
               token: str | None = None, image: str | None = None,
+              network: str = "host", bind: str = "127.0.0.1",
               tab_max: int | None = None, log_limit: int | None = None,
               human_yield: int | None = None, **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -167,27 +168,37 @@ class ContainerRuntime:
             app_args.append(f"--proxy-server={proxy}")
 
         cdp_host_port = _free_port()
-        # **`--network host`,没有 `-p`。**
-        #
-        # 换来的是"容器里的 `localhost` 就是你的 `localhost`" —— 调试用的浏览器
-        # 得能打开你自己机器上跑着的页面,而开发服务器常常只绑 loopback,
-        # bridge 下**根本够不着**(host-gateway 走的是 eth0,那儿没人听)。
-        # 为它做端口转发是一整套机制:要么预先列端口,要么按需挂 + 自愈重试。
-        # 共享 netns 把这套机制整个消掉了。
-        #
-        # 代价两条,都写在 works/08 §6.2:没有网络隔离;而且**能不能一机多开
-        # 取决于镜像**(标签 `webmuxd.host_network`)。
         args = [self.docker, "run", "-d",
                 "--name", f"webmuxd-{id}",
                 "--label", f"{LABEL}={id}",
-                "--shm-size=1g",                 # 少于 1G Chromium 会崩
-                "--network", "host"]
-        if not prof.window_port_env:
-            raise unavailable(
-                self.name, f"{img} 没说画面口怎么改(webmuxd.window.port_env)",
-                "host 网络下没有 -p 可以映射,画面口只能由镜像自己听在那儿")
-        args += ["-e", f"{prof.window_port_env}={vnc_port}",
-                 "-e", f"{prof.cdp_port_env}={cdp_host_port}"]
+                "--shm-size=1g"]                 # 少于 1G Chromium 会崩
+
+        if network == "host":
+            # **默认。** 换来的是"容器里的 `localhost` 就是你的 `localhost`" ——
+            # 调试用的浏览器得能打开你自己机器上跑着的页面,而开发服务器常常
+            # 只绑 loopback,bridge 下**根本够不着**(host-gateway 走的是 eth0)。
+            #
+            # 代价两条:没有网络隔离;**能不能一机多开取决于镜像**
+            # (标签 `webmuxd.host_network`,works/08 §6.2)。
+            #
+            # 没有 `-p`,所以画面口不是映射出来的,是**直接告诉镜像听在那儿**。
+            if not prof.window_port_env:
+                raise unavailable(
+                    self.name, f"{img} 没说画面口怎么改(webmuxd.window.port_env)",
+                    "host 网络下没有 -p 可以映射;换 network=\"bridge\" 就不需要它")
+            args += ["--network", "host",
+                     "-e", f"{prof.window_port_env}={vnc_port}",
+                     "-e", f"{prof.cdp_port_env}={cdp_host_port}"]
+        else:
+            # **要网络隔离、或者那个镜像 host 下开不了多个,就用它。**
+            # 代价是容器里的 `localhost` 是它自己的 —— 宿主机上只绑 loopback
+            # 的服务够不着。
+            #
+            # 画面口跟着 `bind` 走(**默认只在本机**,放出去是上层的决定);
+            # CDP 口**永远只绑 127.0.0.1** —— 它比 API 更底层、没有动作日志,
+            # 能连上就等于绕过整层。
+            args += ["-p", f"{bind}:{vnc_port}:{prof.window_port}",
+                     "-p", f"127.0.0.1:{cdp_host_port}:{prof.cdp_port}"]
         # 变量名全来自标签 —— 这里没有任何一个镜像的名字
         for env_name, value in ((prof.password_env, vnc_pw),
                                 (prof.url_env, url),
@@ -228,9 +239,10 @@ class ContainerRuntime:
                       {"container_id": cid, "image": img,
                        "cdp_port": cdp_host_port,
                        "vnc_scheme": prof.window_scheme,
-                       # host 网络下没有 `-p` 能限制它;镜像自己听在哪就是哪。
+                       "network": network,
+                       # host 下没有 `-p` 能限制它,镜像自己听在哪就是哪 ——
                        # **如实报出来**,别让上层以为它只在本机。
-                       "vnc_bind": "0.0.0.0",
+                       "vnc_bind": "0.0.0.0" if network == "host" else bind,
                        "vnc_user": prof.window_user or "webmuxd",
                        "vnc_password": vnc_pw,
                        "host_network": prof.host_network,

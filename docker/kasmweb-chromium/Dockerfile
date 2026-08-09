@@ -1,15 +1,23 @@
-# webmuxd/kasmweb-chromium —— kasm 原厂镜像 + 一个把 CDP 搬出来的中继。
+# webmuxd/kasmweb-chromium —— 把 kasm 原厂镜像改造成一个 webmuxd 能用的镜像。
 #
-# **只加一层,不改底座的任何脚本。** 窗那一半原样是 kasm 的
-# (KasmVNC,6901 自签名 https,VNC_PW 定口令),我们只补上 webmuxd 需要的
-# 第二个端点:一个 `-p` 够得着的 CDP 口。
+# 窗那一半原样是 kasm 的(KasmVNC,6901 自签名 https,`VNC_PW` 定口令),
+# 我们**只动两处**,而且都是原厂镜像跑不起来的地方:
+#
+#   ① 补上 CDP 端点 —— 底座没有把 Chromium 的调试口送出来
+#   ② 让它在 `--network host` 下能起来 —— 底座的启动脚本会死循环
+#
+# ② 意味着**要改底座的一行启动脚本**。这是有代价的(kasm 升版本要复核),
+# 但没有别的办法:那个循环没有开关。所以补丁打不上就让 build 失败,
+# 绝不静默留一份没改的 —— 那会在运行时卡死,而报错指向别处。
 #
 #   docker build -t webmuxd/kasmweb-chromium:1.18.0 docker/kasmweb-chromium/
 #
 # **host 网络下这个镜像一台机器只能跑一个。** KasmVNC 用
 # `.KasmVNCSock<pid>` 这个抽象 unix socket 做内部会合点,而抽象 socket 归
 # network namespace 管、名字来自 Xvnc 的容器内 PID —— 共享 netns 的第二个
-# 容器必然撞名(kasmtech/KasmVNC#363)。要一机多开就别用 --network host。
+# 容器必然撞名(kasmtech/KasmVNC#363)。**这个绕不过去**,不像 ② 那样能 patch
+# (名字编译在 KasmVNC 二进制里)。要一机多开:用 jlesage 那个,或者
+# `--network bridge`。
 ARG BASE=kasmweb/chromium:1.18.0
 FROM ${BASE}
 

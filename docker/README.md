@@ -90,11 +90,19 @@ PID 也一样,于是共享 netns 的第二个容器必然撞名:
 
 所以:
 
-**webmuxd 只用 `--network host` 跑**(为了让容器里的 `localhost` 就是宿主机的,
-works/08 §6.2),所以这条限制是实打实的:
+**`--network host` 是默认跑法**(为了让容器里的 `localhost` 就是宿主机的,
+works/08 §6.2),所以这条限制在默认路径上是实打实的。三种组合:
 
-- **kasmweb:一台机器一个 session。** 画面最好,单开够用就选它
-- **jlesage:能一机多开。** 要同时跑好几个就选它
+| | `--network host`(默认) | `--network bridge` |
+| --- | --- | --- |
+| **kasmweb** | **一台机器一个** | 想开几个开几个 |
+| **jlesage** | 想开几个开几个 | 想开几个开几个 |
+| 容器里的 `localhost` | **就是你的** | 是它自己的 |
+| 网络隔离 | 没有 | 有 |
+
+怎么选:**画面最好又只开一个 → kasmweb + host**(默认);**要同时跑好几个又想要
+那个 `localhost` → jlesage + host**;**要网络隔离 → 谁都行,但加 `--network bridge`,
+代价是够不着你机器上只绑 loopback 的服务**。
 
 **不去硬绕。** `--pid host` 能解开 socket 撞名,但会让 kasm 的 `pgrep chromium`
 误判、第二个浏览器不启动 —— 解开一个就绑住另一个。
