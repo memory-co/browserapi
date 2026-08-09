@@ -5,6 +5,7 @@
 **没验的部分明说,不假装**。
 """
 
+import json
 import socket
 import time
 
@@ -89,14 +90,23 @@ def test_taken_port_is_reported_not_worked_around():
 
 # ------------------------------------------------- container 的命令怎么拼
 
-def _fake_docker(monkeypatch, seen):
-    """一台"docker 什么都答应"的假机器。"""
+KASM_LABELS = {'webmuxd.window.port': '6901', 'webmuxd.window.scheme': 'https', 'webmuxd.window.user': 'kasm_user', 'webmuxd.window.password_env': 'VNC_PW', 'webmuxd.cdp.port': '9222', 'webmuxd.chromium.args_env': 'APP_ARGS', 'webmuxd.chromium.url_env': 'LAUNCH_URL', 'webmuxd.host_network': 'single'}
+
+JLESAGE_LABELS = {'webmuxd.window.port': '5800', 'webmuxd.window.scheme': 'http', 'webmuxd.window.user_env': 'WEB_AUTHENTICATION_USERNAME', 'webmuxd.window.password_env': 'WEB_AUTHENTICATION_PASSWORD', 'webmuxd.cdp.port': '9222', 'webmuxd.chromium.args_env': 'CHROMIUM_CUSTOM_ARGS', 'webmuxd.chromium.url_env': 'CHROMIUM_APP_URL', 'webmuxd.host_network': 'multi'}
+
+
+def _fake_docker(monkeypatch, seen, labels=None):
+    """一台"docker 什么都答应"的假机器,镜像的标签由调用方给。"""
+    labels = KASM_LABELS if labels is None else labels
+
     class R:
         def __init__(self, rc=0, out="deadbeef"):
             self.returncode, self.stdout, self.stderr = rc, out, ""
 
     def fake(args, **kw):
         seen.append(args)
+        if "inspect" in args and "Config.Labels" in " ".join(args):
+            return R(out=json.dumps(labels))
         return R()
 
     monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
@@ -107,100 +117,123 @@ def _fake_docker(monkeypatch, seen):
                                                        "terminate": lambda self: None})())
 
 
+def _run_cmd(seen):
+    return next(a for a in seen if a[1] == "run" and "-d" in a)
+
+
 def test_container_command_carries_what_the_docs_say(monkeypatch):
-    """没有 docker 也能验命令 —— 端口映射、label、shm、镜像。"""
+    """端口映射、label、shm、镜像。"""
     seen = []
     _fake_docker(monkeypatch, seen)
+    h = ContainerRuntime(image="webmuxd/kasmweb-chromium:1.18.0").start(
+        "work", api_port=7900, vnc_port=6901,
+        viewport="1280x800", volume="webmuxd-work", token="t0ken1")
 
-    impl = ContainerRuntime(image="kasmweb/chromium:1.18.0")
-    h = impl.start("work", api_port=7900, vnc_port=6901,
-                   viewport="1280x800", volume="webmuxd-work", token="t0ken1")
-
-    run = next(a for a in seen if a[1] == "run")
-    joined = " ".join(run)
-    assert "-p 127.0.0.1:6901:6901" in joined, \
-        "画面口要映射,而且**只绑 127.0.0.1** —— 放出去是上层的决定"
+    joined = " ".join(_run_cmd(seen))
+    assert "-p 127.0.0.1:6901:6901" in joined, "画面口按 profile 映射,而且默认只绑本机"
     assert "--shm-size=1g" in joined, "少于 1G Chromium 会崩"
     assert "webmuxd.session=work" in joined, "没打 label,server 重启后认不回来"
-    assert "VNC_PW=t0ken1" in joined, "token 就是 KasmVNC 的密码,拿着它的人能看画面"
     assert "webmuxd-work:/data" in joined
-    assert run[-1] == "kasmweb/chromium:1.18.0"
+    assert _run_cmd(seen)[-1] == "webmuxd/kasmweb-chromium:1.18.0"
     assert h.detail["container_id"] == "deadbeef"
 
 
-def test_nothing_of_ours_is_installed_into_the_image(monkeypatch):
-    """**跑的就是 kasm 原厂镜像,没有派生层。**
+def test_the_env_names_come_from_the_image_not_from_us(monkeypatch):
+    """**这条是这次重写的全部意义。**
 
-    容器里唯一多出来的东西是那一跳中继,而它用的是镜像自带的 python3 ——
-    所以 `--image` 指哪个 kasm 镜像都能用,起 session 也不用等 pip。
+    同一份代码,喂两套标签,产出的变量名跟着变 —— 说明 runtime 里没有
+    任何一个镜像的名字。加第三个镜像不用改代码,给它打标签就行。
     """
+    seen = []
+    _fake_docker(monkeypatch, seen, KASM_LABELS)
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, token="t0ken1",
+                             url="https://example.com")
+    kasm = " ".join(_run_cmd(seen))
+    assert "VNC_PW=t0ken1" in kasm and "LAUNCH_URL=https://example.com" in kasm
+    assert "APP_ARGS=" in kasm
+    assert "-p 127.0.0.1:6901:6901" in kasm
+
+    seen.clear()
+    _fake_docker(monkeypatch, seen, JLESAGE_LABELS)
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, token="t0ken1",
+                             url="https://example.com")
+    jl = " ".join(_run_cmd(seen))
+    assert "WEB_AUTHENTICATION_PASSWORD=t0ken1" in jl
+    assert "CHROMIUM_APP_URL=https://example.com" in jl
+    assert "CHROMIUM_CUSTOM_ARGS=" in jl
+    assert "-p 127.0.0.1:6901:5800" in jl, "画面口在容器里是 5800,由标签说了算"
+
+    # 一个都不该串台
+    assert "VNC_PW" not in jl and "WEB_AUTHENTICATION_PASSWORD" not in kasm
+
+
+def test_the_window_scheme_and_multi_open_come_from_labels(monkeypatch):
+    """报给人的 URL 用什么 scheme、能不能一机多开,都是镜像的事实。"""
+    for labels, scheme, host_net in ((KASM_LABELS, "https", "single"),
+                                     (JLESAGE_LABELS, "http", "multi")):
+        seen = []
+        _fake_docker(monkeypatch, seen, labels)
+        h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+        assert h.detail["vnc_scheme"] == scheme
+        assert h.detail["host_network"] == host_net
+
+
+def test_an_image_without_labels_is_a_hard_error(monkeypatch):
+    """**没有标签就不猜。** 猜错的后果是容器起来了、画面在别的口上,
+    而报错指向"连不上",查半天。"""
+    seen = []
+    _fake_docker(monkeypatch, seen, {})
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+    assert "标签" in str(ei.value)
+    assert not any(a[1] == "run" and "-d" in a for a in seen), "不知道怎么驱动还去 docker run"
+
+
+def test_we_no_longer_exec_a_cdp_relay_into_the_container(monkeypatch):
+    """CDP 是**镜像自己送出来的**(wrapper 那一层负责),runtime 不再 exec 中继。"""
     seen = []
     _fake_docker(monkeypatch, seen)
     ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
-
     for call in seen:
         line = " ".join(call)
         assert "pip install" not in line and "apt-get" not in line, \
             f"往容器里装东西了:{line}"
         assert call[1] != "build", "又去 build 镜像了"
-    execs = [a for a in seen if a[1] == "exec"]
-    assert execs, "没有 exec 进去起中继"
-    assert not any("webmuxd.serve" in " ".join(a) for a in execs), \
-        "sessiond 不该起在容器里 —— 它跑在调用方这边"
+    assert not any(a[1] == "exec" for a in seen), "还在 exec 进容器挂中继"
 
 
-def test_the_only_thing_exec_ed_in_is_a_relay_that_needs_nothing(monkeypatch):
-    """中继只用 `python3 -c`,**不依赖镜像里装了什么**。"""
+def test_the_cdp_port_is_published_but_only_on_loopback(monkeypatch):
+    """CDP 比 API 更底层、没有动作日志,能连上它就等于绕过整层 ——
+    所以它**永远只绑 127.0.0.1**,`bind` 只管画面口。"""
     seen = []
     _fake_docker(monkeypatch, seen)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901, bind="0.0.0.0")
 
-    relay = next(a for a in seen if a[1] == "exec" and "python3" in a)
-    assert relay[-2] == "-c", "中继该是内联源码,不是容器里的某个文件"
-    assert "asyncio.start_server" in relay[-1]
-
-
-def test_the_cdp_port_is_published_because_chromium_will_not_bind_outward(monkeypatch):
-    """Chromium 把调试口绑死在容器内 127.0.0.1,`-p` 够不着它 ——
-    所以中继监听 9223,映射出去的是 9223,**不是 9222**。
-
-    而且它和另外两个口一样**只绑 127.0.0.1**:CDP 比 API 更底层、
-    没有动作日志,能连上它就等于绕过了整层。
-    """
-    seen = []
-    _fake_docker(monkeypatch, seen)
-    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
-
-    run = next(a for a in seen if a[1] == "run")
+    run = _run_cmd(seen)
     published = [run[i + 1] for i, a in enumerate(run) if a == "-p"]
-    assert all(p.startswith("127.0.0.1:") for p in published), \
-        f"有口绑到了 0.0.0.0:{published}"
-    assert not any(p.endswith(":9222") for p in published), \
-        f"直接映射 9222 是空的,Chromium 没在 eth0 上听:{published}"
-    assert any(p.endswith(":9223") for p in published), f"中继口没映射:{published}"
+    cdp = [p for p in published if p.endswith(":9222")]
+    assert cdp and all(p.startswith("127.0.0.1:") for p in cdp), f"CDP 口放出去了:{published}"
+    assert any(p.startswith("0.0.0.0:") for p in published), "画面口该跟着 bind 走"
     assert h.detail["cdp_port"] not in (0, None)
-    # 浏览器那边确实开着调试口,只是只在容器内 127.0.0.1 上
-    assert "--remote-debugging-port=9222" in " ".join(run)
 
 
-def test_a_too_short_vnc_password_is_caught_here(monkeypatch):
-    """kasm 要求至少 6 位,短了容器直接退出,**报的错和密码毫无关系**
-    (`kill: usage: ...`)—— 所以在这儿拦住。"""
+def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):
+    """kasm 少于 6 位会直接退出,报的错是 `kill: usage:`、和密码毫无关系。"""
     seen = []
     _fake_docker(monkeypatch, seen)
     with pytest.raises(RuntimeUnavailable) as ei:
         ContainerRuntime().start("work", api_port=7900, vnc_port=6901, token="x")
     assert "6" in str(ei.value)
-    assert not any(a[1] == "run" for a in seen), "都知道要失败了还去 docker run"
+    assert not any(a[1] == "run" and "-d" in a for a in seen), "都知道要失败了还去 docker run"
 
 
 def test_container_discover_parses_published_ports(monkeypatch):
     """server 重启后靠 label 把跑着的容器认回来 —— 它们本来就活着。
 
     **认回来的只有容器。** sessiond 跑在调用方那边,跟着上一个 server 死了,
-    所以 `api_port` 是 0 —— 接管的一方要自己重新起一个,而不是以为它还在。
+    所以 `api_port` 是 0 —— 接管的一方要自己重新起一个。
     """
-    out = "abc123\twork\t0.0.0.0:6901->6901/tcp, 0.0.0.0:41234->9223/tcp\n"
+    out = "abc123\twork\t127.0.0.1:6901->6901/tcp, 127.0.0.1:41234->9222/tcp\n"
 
     class R:
         returncode, stdout, stderr = 0, out, ""
@@ -212,7 +245,6 @@ def test_container_discover_parses_published_ports(monkeypatch):
     h = handles[0]
     assert (h.id, h.vnc_port) == ("work", 6901)
     assert h.api_port == 0, "sessiond 不在容器里,认不回来"
-    assert h.detail["cdp_port"] == 41234, "中继口要认回来,重新起 sessiond 得用它"
     assert h.detail["adopted"] is True
 
 

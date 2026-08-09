@@ -89,7 +89,7 @@ r.candidates  # [{'name': '提交订单', …}, {'name': '取消订单', …}]
 `examples/quickstart.py` 走的是这条,自带一个页面服务器,不联网:
 
 ```bash
-docker build -t webmuxd-dev -f docker/dev.Dockerfile docker/
+docker build -t webmuxd-dev docker/dev/
 docker run --rm -v "$PWD":/src webmuxd-dev python /src/examples/quickstart.py
 ```
 

@@ -4,7 +4,7 @@
 # (KasmVNC,6901 自签名 https,VNC_PW 定口令),我们只补上 webmuxd 需要的
 # 第二个端点:一个 `-p` 够得着的 CDP 口。
 #
-#   docker build -t webmuxd/kasmweb-chromium:1.18.0 -f docker/kasmweb-chromium.Dockerfile docker/
+#   docker build -t webmuxd/kasmweb-chromium:1.18.0 docker/kasmweb-chromium/
 #
 # **host 网络下这个镜像一台机器只能跑一个。** KasmVNC 用
 # `.KasmVNCSock<pid>` 这个抽象 unix socket 做内部会合点,而抽象 socket 归
@@ -14,8 +14,8 @@ ARG BASE=kasmweb/chromium:1.18.0
 FROM ${BASE}
 
 USER root
-COPY cdp-relay.py       /usr/local/bin/cdp-relay.py
-COPY entrypoint-kasm.sh /usr/local/bin/webmuxd-entrypoint
+COPY cdp-relay.py  /usr/local/bin/cdp-relay.py
+COPY entrypoint.sh /usr/local/bin/webmuxd-entrypoint
 RUN chmod 755 /usr/local/bin/webmuxd-entrypoint /usr/local/bin/cdp-relay.py
 USER 1000
 

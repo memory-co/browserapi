@@ -39,26 +39,36 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
+from dataclasses import dataclass
 from typing import Any
 
 from webmuxd import env
 from webmuxd.runtime.base import Handle, require_ports, unavailable, wait_http
 
 #: kasm 官方镜像 —— 桌面那一半是它做的,我们不重复造,也不在它上面加层。
-IMAGE = os.environ.get("WEBMUXD_IMAGE", "kasmweb/chromium:1.18.0")
+IMAGE = os.environ.get("WEBMUXD_IMAGE", "webmuxd/kasmweb-chromium:1.18.0")
 #: 打在容器上的标签 —— server 重启后靠它把跑着的 session 认回来。
 LABEL = "webmuxd.session"
 
-#: 容器里的端口,固定。对外映射成什么由调用方决定(端口必须自己传)。
-VNC_INNER, CDP_INNER, CDP_RELAY = 6901, 9222, 9223
+#: 密码下限。kasm 少于 6 位会**直接退出**,而且报的错和密码毫无关系
+#: (`kill: usage:`),所以统一在这儿拦住。
+PW_MIN = 6
 
-#: kasm 的登录名是写死的,密码是 `VNC_PW`,**而且它要求至少 6 位** ——
-#: 短了容器会直接退出,报一句和密码毫无关系的 `kill: usage:`。
-VNC_USER, VNC_PW_MIN = "kasm_user", 6
+#: docker 给容器的那个宿主机地址。`--add-host` 把它写进容器的 hosts。
+HOST_ALIAS = "host.docker.internal"
 
-#: 容器里那一跳。只用镜像自带的 python3,不装任何东西。
-RELAY_SRC = """
-import asyncio, sys
+#: 一段二十行的 TCP 转发。**两个方向都用它**,只是监听和目标不同:
+#:
+#: - CDP:容器内 `0.0.0.0:9223` → `127.0.0.1:9222`
+#:   (Chromium 只肯听容器内的 lo,`-p` 是 DNAT 到 eth0,够不着)
+#: - localhost 映射:容器内 `127.0.0.1:<port>` → `host.docker.internal:<port>`
+#:   (让容器里的 `localhost:3000` 就是你机器上的 `localhost:3000`)
+#:
+#: 用 `python3 -c` 喂进去,**不依赖镜像里装了什么** —— 镜像因此可以完全原厂。
+def relay_src(listen: str, listen_port: int, target: str, target_port: int) -> str:
+    return f"""
+import asyncio
 async def pipe(r, w):
     try:
         while True:
@@ -73,15 +83,68 @@ async def pipe(r, w):
         except Exception: pass
 async def on(cr, cw):
     try:
-        sr, sw = await asyncio.open_connection("127.0.0.1", %d)
+        sr, sw = await asyncio.open_connection({target!r}, {target_port})
     except Exception:
         cw.close(); return
     await asyncio.gather(pipe(cr, sw), pipe(sr, cw))
 async def main():
-    s = await asyncio.start_server(on, "0.0.0.0", %d)
+    s = await asyncio.start_server(on, {listen!r}, {listen_port})
     await s.serve_forever()
 asyncio.run(main())
-""" % (CDP_INNER, CDP_RELAY)
+"""
+
+
+@dataclass
+class Profile:
+    """一个镜像**长什么样**,从它自己的标签读出来。
+
+    这就是 works/08 §5 那五个问题的答案:画面在哪个口、口令从哪个变量来、
+    往 Chromium 塞参数用哪个变量、CDP 在哪个口、能不能一机多开。
+
+    **不硬编码任何一个镜像的变量名。** 加一个新镜像不用改这里 ——
+    给它打上标签就行(docker/README.md)。
+    """
+
+    window_port: int
+    window_scheme: str
+    password_env: str
+    cdp_port: int
+    args_env: str
+    url_env: str
+    window_user: str = ""
+    window_user_env: str = ""
+    host_network: str = "single"
+
+    @classmethod
+    def read(cls, docker: str, image: str) -> "Profile":
+        r = subprocess.run([docker, "inspect", "-f", "{{json .Config.Labels}}", image],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise unavailable("container", f"本机没有镜像 {image}",
+                              "先 docker pull,或者按 docker/README.md build 一个 wrapper")
+        try:
+            got = json.loads(r.stdout or "null") or {}
+        except Exception:
+            got = {}
+        lab = {k[len("webmuxd."):]: v for k, v in got.items() if k.startswith("webmuxd.")}
+
+        if not lab.get("window.port"):
+            # **没有标签就不猜。** 猜错的后果是容器起来了、画面在别的口上、
+            # 而报错指向"连不上",查半天。
+            raise unavailable(
+                "container", f"{image} 没有 webmuxd.* 标签,不知道怎么驱动它",
+                "用 webmuxd/kasmweb-chromium,或按 docker/README.md 给它加一层")
+        return cls(
+            window_port=int(lab["window.port"]),
+            window_scheme=lab.get("window.scheme", "http"),
+            password_env=lab.get("window.password_env", ""),
+            cdp_port=int(lab.get("cdp.port", 9222)),
+            args_env=lab.get("chromium.args_env", ""),
+            url_env=lab.get("chromium.url_env", ""),
+            window_user=lab.get("window.user", ""),
+            window_user_env=lab.get("window.user_env", ""),
+            host_network=lab.get("host_network", "single"),
+        )
 
 
 class ContainerRuntime:
@@ -114,7 +177,7 @@ class ContainerRuntime:
               url: str = "about:blank", viewport: str = "1280x800",
               volume: str | None = None, proxy: str | None = None,
               token: str | None = None, image: str | None = None,
-              bind: str = "127.0.0.1",
+              bind: str = "127.0.0.1", forward: list[int] | None = None,
               tab_max: int | None = None, log_limit: int | None = None,
               human_yield: int | None = None, **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -125,21 +188,20 @@ class ContainerRuntime:
                               "(页面跑在你自己机器上)")
         require_ports(api_port, vnc_port)
         img = image or self.image
+        prof = Profile.read(self.docker, img)
 
         vnc_pw = token or secrets.token_urlsafe(9)
-        if len(vnc_pw) < VNC_PW_MIN:
-            # kasm 那边的失败信息毫无线索,所以在这儿拦住
+        if len(vnc_pw) < PW_MIN:
             raise unavailable(self.name,
-                              f"VNC 密码至少 {VNC_PW_MIN} 位,给的是 {len(vnc_pw)} 位",
+                              f"画面口令至少 {PW_MIN} 位,给的是 {len(vnc_pw)} 位",
                               "kasm 会因为这个直接退出,而且报的错和密码没关系")
 
         w, _, h = viewport.partition("x")
-        app_args = [f"--remote-debugging-port={CDP_INNER}",
-                    "--start-maximized", f"--window-size={w},{h or 800}"]
+        app_args = ["--start-maximized", f"--window-size={w},{h or 800}"]
         if proxy:
             app_args.append(f"--proxy-server={proxy}")
 
-        relay_port = _free_port()
+        cdp_host_port = _free_port()
         args = [self.docker, "run", "-d",
                 "--name", f"webmuxd-{id}",
                 "--label", f"{LABEL}={id}",
@@ -147,11 +209,16 @@ class ContainerRuntime:
                 # **默认只绑 127.0.0.1。** 要放出去是上层的决定,所以得显式说
                 # `bind=`;而且**只有画面口跟着放** —— CDP 那口比 API 更底层、
                 # 没有动作日志,能连上它就等于绕过整层,它永远只在本地。
-                "-p", f"{bind}:{vnc_port}:{VNC_INNER}",
-                "-p", f"127.0.0.1:{relay_port}:{CDP_RELAY}",
-                "-e", f"VNC_PW={vnc_pw}",
-                "-e", f"LAUNCH_URL={url}",
-                "-e", f"APP_ARGS={' '.join(app_args)}"]
+                "-p", f"{bind}:{vnc_port}:{prof.window_port}",
+                "-p", f"127.0.0.1:{cdp_host_port}:{prof.cdp_port}",
+                "--add-host", f"{HOST_ALIAS}:host-gateway"]
+        # 变量名全来自标签 —— 这里没有任何一个镜像的名字
+        for env_name, value in ((prof.password_env, vnc_pw),
+                                (prof.url_env, url),
+                                (prof.args_env, " ".join(app_args)),
+                                (prof.window_user_env, "webmuxd")):
+            if env_name:
+                args += ["-e", f"{env_name}={value}"]
         if volume:
             args += ["-v", f"{volume}:/data"]
         args.append(img)
@@ -164,10 +231,15 @@ class ContainerRuntime:
 
         procs: dict[str, Any] = {}
         try:
-            self._wait_cdp(cid)
-            self._start_relay(cid, relay_port)
+            # **CDP 是镜像自己送出来的**(wrapper 那一层负责,docker/README.md),
+            # 所以这里直接在宿主机等,不用 exec 进去挂中继。
+            if not wait_http(f"http://127.0.0.1:{cdp_host_port}/json/version", 150):
+                raise unavailable(self.name, "容器起来了,但 CDP 没出来",
+                                  f"docker logs {cid[:12]};"
+                                  f"以及确认这个镜像真的转发了 {prof.cdp_port}")
+            procs.update(self._forward_localhost(cid, forward or []))
             procs["sessiond"] = _spawn_sessiond(
-                api_port, f"http://127.0.0.1:{relay_port}", id,
+                api_port, f"http://127.0.0.1:{cdp_host_port}", id,
                 tab_max=tab_max, log_limit=log_limit, human_yield=human_yield)
             if not wait_http(f"http://127.0.0.1:{api_port}/healthz", 30):
                 raise unavailable(self.name, "sessiond 没起来",
@@ -179,31 +251,47 @@ class ContainerRuntime:
 
         return Handle(self.name, id, api_port, vnc_port,
                       {"container_id": cid, "image": img,
-                       "cdp_port": relay_port,
-                       "vnc_scheme": "https",     # KasmVNC 是自签名 https
+                       "cdp_port": cdp_host_port,
+                       "vnc_scheme": prof.window_scheme,
                        "vnc_bind": bind,
-                       "vnc_user": VNC_USER, "vnc_password": vnc_pw,
+                       "vnc_user": prof.window_user or "webmuxd",
+                       "vnc_password": vnc_pw,
+                       "host_network": prof.host_network,
                        "pids": {k: p.pid for k, p in procs.items()},
                        "_procs": procs})
 
-    def _wait_cdp(self, cid: str) -> None:
-        """等容器里的 Chromium 把调试口开起来。**在容器里等**,外面还连不上。"""
-        r = subprocess.run(
-            [self.docker, "exec", cid, "bash", "-c",
-             f"for i in $(seq 1 90); do "
-             f"curl -sf http://127.0.0.1:{CDP_INNER}/json/version >/dev/null "
-             f"&& exit 0; sleep 1; done; exit 1"],
-            capture_output=True, text=True, timeout=150)
-        if r.returncode != 0:
-            raise unavailable(self.name, "容器起来了,但 Chromium 的 CDP 没开",
-                              f"docker logs {cid[:12]} 看看 chromium 起没起")
+    def _forward_localhost(self, cid: str, ports: list[int]) -> dict[str, Any]:
+        """把**你机器上的 `localhost:<port>`** 搬进容器,名字还叫 `localhost`。
 
-    def _start_relay(self, cid: str, relay_port: int) -> None:
-        subprocess.run([self.docker, "exec", "-d", cid,
-                        "python3", "-c", RELAY_SRC], capture_output=True)
-        if not wait_http(f"http://127.0.0.1:{relay_port}/json/version", 20):
-            raise unavailable(self.name, "容器里那一跳中继没起来",
-                              f"docker exec {cid[:12]} python3 -c … 手工跑一遍")
+        两跳,因为一跳到不了:
+
+        1. 宿主机这边听 `172.17.0.1:<port>` → `127.0.0.1:<port>`。
+           **只绑在 loopback 上的开发服务器,容器是够不着的** ——
+           `host-gateway` 走的是宿主机的 docker0 地址,而服务不在那儿听。
+           这一跳就是为它准备的;要是那个口上已经有人听(服务本来就绑了
+           `0.0.0.0`),绑不上就跳过,本来也不需要。
+        2. 容器里听 `127.0.0.1:<port>` → `host.docker.internal:<port>`。
+           **必须绑容器的 lo**,不然浏览器里写 `localhost:3000` 还是不对。
+
+        代价说清楚:第 1 跳把那个本来只在 loopback 的服务,暴露给了
+        docker0 上的**所有**容器。session 停了就撤。
+        """
+        out: dict[str, Any] = {}
+        if not ports:
+            return out
+        gw = _docker_gateway(self.docker)
+        for port in ports:
+            if gw and _port_free(gw, port):
+                out[f"fwd{port}"] = subprocess.Popen(
+                    [sys.executable, "-c",
+                     relay_src(gw, port, "127.0.0.1", port)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True)
+            subprocess.run(
+                [self.docker, "exec", "-d", cid, "python3", "-c",
+                 relay_src("127.0.0.1", port, HOST_ALIAS, port)],
+                capture_output=True)
+        return out
 
     # ------------------------------------------------------------------ 管
 
@@ -238,12 +326,15 @@ class ContainerRuntime:
             if len(parts) < 3:
                 continue
             cid, sid, ports = parts
-            vnc = _published(ports, VNC_INNER)
-            cdp = _published(ports, CDP_RELAY)
+            vnc = _published_first(ports)
+            cdp = None
             out.append(Handle(self.name, sid, 0, vnc or 0,
                               {"container_id": cid, "adopted": True,
-                               "cdp_port": cdp, "vnc_scheme": "https",
-                               "vnc_user": VNC_USER}))
+                               "cdp_port": cdp,
+                               # 认回来的容器**读不到 profile 里的 scheme/登录名**
+                               # —— 那要 inspect 镜像,而这里只有 `docker ps` 一行。
+                               # 接管的一方要么自己 inspect,要么就当不知道。
+                               }))
         return out
 
 
@@ -280,11 +371,40 @@ def _kill(procs: dict, pids=()) -> None:
                 os.kill(pid, signal.SIGTERM)
 
 
+def _docker_gateway(docker: str) -> str:
+    r = subprocess.run([docker, "network", "inspect", "bridge", "-f",
+                        "{{range .IPAM.Config}}{{.Gateway}}{{end}}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def _port_free(host: str, port: int) -> bool:
+    import socket
+    with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
 def _free_port() -> int:
     import socket
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _published_first(ports: str) -> int | None:
+    """认回来的容器,画面口是哪个 —— **不能按固定的容器内端口去找**,
+    因为那是 profile 决定的,而这里只有 `docker ps` 那一行。
+    取第一个映射到 127.0.0.1 的口就够(CDP 那个也绑 127.0.0.1,但它排在后面)。"""
+    for chunk in ports.split(","):
+        chunk = chunk.strip()
+        if "->" in chunk and chunk.startswith("127.0.0.1:"):
+            return int(chunk.split("->")[0].rsplit(":", 1)[-1])
+    return None
 
 
 def _published(ports: str, inner: int) -> int | None:

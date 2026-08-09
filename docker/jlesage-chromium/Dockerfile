@@ -4,7 +4,7 @@
 # loopback 的调试口搬到 0.0.0.0。wrapper 只是把它默认打开,并把端口的名字
 # 统一成 `WEBMUXD_CDP_PORT`,好让两个镜像对外长得一样。
 #
-#   docker build -t webmuxd/jlesage-chromium:latest -f docker/jlesage-chromium.Dockerfile docker/
+#   docker build -t webmuxd/jlesage-chromium:latest docker/jlesage-chromium/
 #
 # **这个镜像能用 --network host 一机多开。** 它给 Xvnc 的是
 # `-nolisten local -rfbport=-1 -rfbunixpath=...` —— X 和 RFB 都走文件系统上的
@@ -12,7 +12,7 @@
 ARG BASE=jlesage/chromium:latest
 FROM ${BASE}
 
-COPY entrypoint-jlesage.sh /usr/local/bin/webmuxd-entrypoint
+COPY entrypoint.sh /usr/local/bin/webmuxd-entrypoint
 RUN chmod 755 /usr/local/bin/webmuxd-entrypoint
 
 # 默认打开底座自带的 CDP 转发。端口沿用它自己的变量名,理由见 entrypoint。

@@ -21,9 +21,19 @@ webmuxd 需要两个端点([works/08](../docs/v1/works/08-browser-runtime.md)):
 
 ## 构建
 
+**一个镜像一个目录**,构建上下文就是那个目录 —— 看目录就知道这个镜像由哪几个
+文件构成,不用在一堆平铺的文件里对着 `-f` 猜。
+
+```
+docker/
+├── kasmweb-chromium/   Dockerfile  entrypoint.sh  cdp-relay.py
+├── jlesage-chromium/   Dockerfile  entrypoint.sh
+└── dev/                Dockerfile              ← 跑测试用的,和上面两个无关
+```
+
 ```bash
-docker build -t webmuxd/kasmweb-chromium:1.18.0 -f docker/kasmweb-chromium.Dockerfile docker/
-docker build -t webmuxd/jlesage-chromium:latest -f docker/jlesage-chromium.Dockerfile docker/
+docker build -t webmuxd/kasmweb-chromium:1.18.0 docker/kasmweb-chromium/
+docker build -t webmuxd/jlesage-chromium:latest docker/jlesage-chromium/
 ```
 
 换底座版本用 `--build-arg BASE=...`。
@@ -116,8 +126,9 @@ docker inspect -f '{{index .Config.Labels "webmuxd.host_network"}}' <镜像>
 
 写一个新的 Dockerfile,回答同样那几个问题:
 
+0. **新建一个目录** `docker/<出处>-<应用>/`,Dockerfile 和它要的文件都放里面
 1. **CDP 怎么出来** —— 底座自带转发就打开它(像 jlesage);没有就补一个中继
-   (像 kasmweb,用 `cdp-relay.py`,只依赖镜像里有 `python3`)
+   (抄 `kasmweb-chromium/cdp-relay.py`,只依赖镜像里有 `python3`)
 2. **怎么往 Chromium 塞 `--remote-debugging-port`** —— 找到它注入参数的那个变量,
    **别覆盖调用方已有的值**,追加
 3. **把标签填全**
@@ -133,5 +144,5 @@ docker inspect -f '{{index .Config.Labels "webmuxd.host_network"}}' <镜像>
 
 ## 另一个文件
 
-`dev.Dockerfile` 和这两个无关 —— 那是跑测试用的(alpine-chrome + python),
+`dev/` 和这两个无关 —— 那是跑测试用的(alpine-chrome + python),
 见 [QUICKSTART](../QUICKSTART.md)。

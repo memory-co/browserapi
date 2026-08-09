@@ -155,6 +155,7 @@ def cmd_new(args: argparse.Namespace) -> int:
                         url=url, viewport=viewport,
                         volume=args.volume, proxy=args.proxy,
                         endpoint=args.endpoint, image=args.image,
+                        forward=[int(p) for p in args.forward.split(",") if p.strip()],
                         bind=args.bind,
                         token=os.environ.get("WEBMUXD_TOKEN"))
     reg.put(handle)
@@ -169,8 +170,11 @@ def cmd_new(args: argparse.Namespace) -> int:
               f"**这台机器网络能到的人,拿到密码就能用这个浏览器**", file=sys.stderr)
     if not args.json and handle.detail.get("vnc_password"):
         # 密码是起的时候现生成的,**这是唯一会说出来的一次**
+        # 证书那句只对 https 的镜像成立 —— 镜像的 scheme 是它自己标签说的
+        tail = ("   (自签名证书,浏览器会拦一下)"
+                if handle.detail.get("vnc_scheme") == "https" else "")
         print(f"       登录 {handle.detail.get('vnc_user')} / "
-              f"{handle.detail['vnc_password']}   (自签名证书,浏览器会拦一下)")
+              f"{handle.detail['vnc_password']}{tail}")
     for note in handle.detail.get("notes") or []:
         print(f"  ⚠ {note}", file=sys.stderr)
     return 0
@@ -521,6 +525,9 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--bind", default="127.0.0.1",
                    help="画面口绑哪个地址。默认只绑本机;"
                         "填 0.0.0.0 就是**对外开放**,拿到密码的人就能用")
+    n.add_argument("--forward", default="",
+                   help="把宿主机的这些端口映射进去,容器里还叫 localhost。"
+                        "逗号分隔,例:--forward 3000,8080")
     n.add_argument("--image", default=None,
                    help="容器镜像。默认读 ~/.webmuxd.json 的 default_container")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
