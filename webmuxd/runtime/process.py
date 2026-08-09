@@ -32,19 +32,15 @@ class ProcessRuntime:
     name = "process"
 
     def available(self) -> tuple[bool, str]:
-        rec = env.runtime_info("process")
-        if rec is not None:
-            # **信记录,不重探** —— 每次都探等于 `webmuxd install` 白做
-            return bool(rec.get("ok")), rec.get("why", "")
+        # 现探。**`install` 不记 chromium** —— 它只回答 docker 和镜像那两个
+        # 问题(cli/install.md §2),而 `shutil.which` 本来就不值得记
         if not _which(CHROMIUM_NAMES):
             return False, ("本机没有 chromium。装一个,或者改用 runtime=container "
                            "(那样浏览器在镜像里)")
         return True, ""
 
     def _chromium(self) -> str | None:
-        """记录里的路径优先。**但要验它还在** —— 记录会撒谎(cli/install.md §4)。"""
-        rec = env.runtime_info("process") or {}
-        p = rec.get("chromium")
+        p = os.environ.get("WEBMUXD_CHROMIUM")
         if p:
             if os.path.exists(p):
                 return p
@@ -62,7 +58,7 @@ class ProcessRuntime:
         require_ports(api_port)
 
         chromium = self._chromium()
-        vnc = (env.runtime_info("process") or {}).get("vnc", _which(VNC_NAMES))
+        vnc = _which(VNC_NAMES)
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
         cdp_port = _free_port()

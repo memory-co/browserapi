@@ -14,10 +14,18 @@ DEFAULT = "container"
 
 
 def default() -> str:
-    """默认 runtime。装过就用记录里那个(它知道 docker 通不通)。"""
+    """默认 runtime。**docker 探到了就是 container**,否则退到本机跑。
+
+    这不是配置,是从"这台机器有什么"推出来的 —— 记录里只有事实,
+    没有"你想用哪个"这种键。
+    """
     from webmuxd import env
+    if env.get("docker"):
+        return "container"
     rec = env.load()
-    return (rec or {}).get("default_runtime") or DEFAULT
+    if rec is not None:
+        return "process"                 # 探过了,没探到 docker
+    return DEFAULT
 
 
 def get(name: str = DEFAULT) -> Runtime:
@@ -35,10 +43,11 @@ def detect() -> dict[str, bool]:
     没装过也照常能用,`install` 省的是重复开销,不是"必须先装"。
     """
     from webmuxd import env
-    rec = env.load()
-    if rec:
-        return {k: bool(v.get("ok"))
-                for k, v in (rec.get("runtimes") or {}).items()}
+    if env.get("docker"):
+        # container 那条信记录(**docker 在不在是机器的事实**);
+        # 另外两条本来就是现探的,便宜
+        return {"container": True, "process": ProcessRuntime().available()[0],
+                "remote": True}
     out = {}
     for name, make in _MAKERS.items():
         try:

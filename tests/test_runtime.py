@@ -89,78 +89,118 @@ def test_taken_port_is_reported_not_worked_around():
 
 # ------------------------------------------------- container 的命令怎么拼
 
-def test_container_command_carries_what_the_docs_say(monkeypatch):
-    """没有 docker 也能验命令 —— 端口映射、label、shm、镜像。"""
-    seen = {}
-
-    class FakeRun:
+def _fake_docker(monkeypatch, seen):
+    """一台"docker 什么都答应"的假机器。"""
+    class R:
         def __init__(self, rc=0, out="deadbeef"):
             self.returncode, self.stdout, self.stderr = rc, out, ""
 
     def fake(args, **kw):
-        seen.setdefault("calls", []).append(args)
-        if "NetworkSettings.Ports" in " ".join(args):
-            return FakeRun(out='{"7900/tcp":[{"HostPort":"7900"}]}')
-        return FakeRun()
+        seen.append(args)
+        return R()
 
     monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
     monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: "/usr/bin/docker")
     monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: True)
+    monkeypatch.setattr("webmuxd.runtime.container._spawn_sessiond",
+                        lambda *a, **k: type("P", (), {"pid": 4242,
+                                                       "terminate": lambda self: None})())
 
-    impl = ContainerRuntime(image="webmuxd/kasm-chromium:0.1.0")
+
+def test_container_command_carries_what_the_docs_say(monkeypatch):
+    """没有 docker 也能验命令 —— 端口映射、label、shm、镜像。"""
+    seen = []
+    _fake_docker(monkeypatch, seen)
+
+    impl = ContainerRuntime(image="kasmweb/chromium:1.18.0")
     h = impl.start("work", api_port=7900, vnc_port=6901,
-                   viewport="1280x800", volume="webmuxd-work", token="t0k")
+                   viewport="1280x800", volume="webmuxd-work", token="t0ken1")
 
-    run = next(a for a in seen["calls"] if a[1] == "run")
+    run = next(a for a in seen if a[1] == "run")
     joined = " ".join(run)
-    assert "-p 127.0.0.1:6901:6901" in joined and "-p 127.0.0.1:7900:7900" in joined, \
-        "两个口都要映射,而且**只绑 127.0.0.1** —— 放出去是上层的决定"
+    assert "-p 127.0.0.1:6901:6901" in joined, \
+        "画面口要映射,而且**只绑 127.0.0.1** —— 放出去是上层的决定"
     assert "--shm-size=1g" in joined, "少于 1G Chromium 会崩"
     assert "webmuxd.session=work" in joined, "没打 label,server 重启后认不回来"
-    assert "VNC_PW=t0k" in joined, "token 就是 KasmVNC 的密码,拿着它的人能看画面"
+    assert "VNC_PW=t0ken1" in joined, "token 就是 KasmVNC 的密码,拿着它的人能看画面"
     assert "webmuxd-work:/data" in joined
-    assert run[-1] == "webmuxd/kasm-chromium:0.1.0"
+    assert run[-1] == "kasmweb/chromium:1.18.0"
     assert h.detail["container_id"] == "deadbeef"
 
 
-def test_the_cdp_port_never_leaves_the_container(monkeypatch):
-    """**对外只有两个口:KasmVNC 给人,webmuxd API 给代码。**
+def test_nothing_of_ours_is_installed_into_the_image(monkeypatch):
+    """**跑的就是 kasm 原厂镜像,没有派生层。**
 
-    调试口一旦映射出去,任何能连上的人就绕过了 API 那层直接控浏览器。
+    容器里唯一多出来的东西是那一跳中继,而它用的是镜像自带的 python3 ——
+    所以 `--image` 指哪个 kasm 镜像都能用,起 session 也不用等 pip。
     """
-    seen = {}
-
-    class FakeRun:
-        def __init__(self, rc=0, out="deadbeef"):
-            self.returncode, self.stdout, self.stderr = rc, out, ""
-
-    def fake(args, **kw):
-        seen.setdefault("calls", []).append(args)
-        if "NetworkSettings.Ports" in " ".join(args):
-            return FakeRun(out='{"7900/tcp":[{"HostPort":"7900"}]}')
-        return FakeRun()
-
-    monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
-    monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: "/usr/bin/docker")
-    monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: True)
-
+    seen = []
+    _fake_docker(monkeypatch, seen)
     ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
 
-    run = next(a for a in seen["calls"] if a[1] == "run")
+    for call in seen:
+        line = " ".join(call)
+        assert "pip install" not in line and "apt-get" not in line, \
+            f"往容器里装东西了:{line}"
+        assert call[1] != "build", "又去 build 镜像了"
+    execs = [a for a in seen if a[1] == "exec"]
+    assert execs, "没有 exec 进去起中继"
+    assert not any("webmuxd.serve" in " ".join(a) for a in execs), \
+        "sessiond 不该起在容器里 —— 它跑在调用方这边"
+
+
+def test_the_only_thing_exec_ed_in_is_a_relay_that_needs_nothing(monkeypatch):
+    """中继只用 `python3 -c`,**不依赖镜像里装了什么**。"""
+    seen = []
+    _fake_docker(monkeypatch, seen)
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+
+    relay = next(a for a in seen if a[1] == "exec" and "python3" in a)
+    assert relay[-2] == "-c", "中继该是内联源码,不是容器里的某个文件"
+    assert "asyncio.start_server" in relay[-1]
+
+
+def test_the_cdp_port_is_published_because_chromium_will_not_bind_outward(monkeypatch):
+    """Chromium 把调试口绑死在容器内 127.0.0.1,`-p` 够不着它 ——
+    所以中继监听 9223,映射出去的是 9223,**不是 9222**。
+
+    而且它和另外两个口一样**只绑 127.0.0.1**:CDP 比 API 更底层、
+    没有动作日志,能连上它就等于绕过了整层。
+    """
+    seen = []
+    _fake_docker(monkeypatch, seen)
+    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+
+    run = next(a for a in seen if a[1] == "run")
     published = [run[i + 1] for i, a in enumerate(run) if a == "-p"]
-    assert not any(":9222" in p for p in published), \
-        f"CDP 口被映射出去了:{published}"
-    # 但浏览器那边确实开着调试口,只是只在容器内 127.0.0.1 上
+    assert all(p.startswith("127.0.0.1:") for p in published), \
+        f"有口绑到了 0.0.0.0:{published}"
+    assert not any(p.endswith(":9222") for p in published), \
+        f"直接映射 9222 是空的,Chromium 没在 eth0 上听:{published}"
+    assert any(p.endswith(":9223") for p in published), f"中继口没映射:{published}"
+    assert h.detail["cdp_port"] not in (0, None)
+    # 浏览器那边确实开着调试口,只是只在容器内 127.0.0.1 上
     assert "--remote-debugging-port=9222" in " ".join(run)
 
-    # 而 sessiond 是 exec 进容器里起的 —— 它和 Chromium 同一个 netns
-    assert any(a[1] == "exec" and "webmuxd.serve" in " ".join(a)
-               for a in seen["calls"]), "sessiond 没起在容器里"
+
+def test_a_too_short_vnc_password_is_caught_here(monkeypatch):
+    """kasm 要求至少 6 位,短了容器直接退出,**报的错和密码毫无关系**
+    (`kill: usage: ...`)—— 所以在这儿拦住。"""
+    seen = []
+    _fake_docker(monkeypatch, seen)
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ContainerRuntime().start("work", api_port=7900, vnc_port=6901, token="x")
+    assert "6" in str(ei.value)
+    assert not any(a[1] == "run" for a in seen), "都知道要失败了还去 docker run"
 
 
 def test_container_discover_parses_published_ports(monkeypatch):
-    """server 重启后靠 label 把跑着的容器认回来 —— 它们本来就活着。"""
-    out = "abc123\twork\t0.0.0.0:6901->6901/tcp, 0.0.0.0:7900->7900/tcp\n"
+    """server 重启后靠 label 把跑着的容器认回来 —— 它们本来就活着。
+
+    **认回来的只有容器。** sessiond 跑在调用方那边,跟着上一个 server 死了,
+    所以 `api_port` 是 0 —— 接管的一方要自己重新起一个,而不是以为它还在。
+    """
+    out = "abc123\twork\t0.0.0.0:6901->6901/tcp, 0.0.0.0:41234->9223/tcp\n"
 
     class R:
         returncode, stdout, stderr = 0, out, ""
@@ -170,7 +210,9 @@ def test_container_discover_parses_published_ports(monkeypatch):
     handles = ContainerRuntime().discover()
     assert len(handles) == 1
     h = handles[0]
-    assert (h.id, h.api_port, h.vnc_port) == ("work", 7900, 6901)
+    assert (h.id, h.vnc_port) == ("work", 6901)
+    assert h.api_port == 0, "sessiond 不在容器里,认不回来"
+    assert h.detail["cdp_port"] == 41234, "中继口要认回来,重新起 sessiond 得用它"
     assert h.detail["adopted"] is True
 
 
@@ -220,21 +262,3 @@ def test_manager_starts_a_session_that_is_not_there_yet():
         web.shutdown()          # process 的跟着死
     time.sleep(0.5)
     assert port_free(api), "shutdown 之后端口还占着 —— 进程没清干净"
-
-
-# ------------------------------------------------------------- 加料镜像
-
-def test_the_image_is_kasm_plus_a_pinned_webmuxd():
-    """底座是 kasm 官方的,我们只加 python + webmuxd。
-
-    **版本要钉死** —— 镜像里的 sessiond 和外面的库说的是同一套协议,
-    浮动版本等于让它们哪天悄悄对不上。
-    """
-    from webmuxd.runtime.container import BASE_IMAGE, dockerfile
-
-    df = dockerfile("0.1.0")
-    assert df.startswith(f"FROM {BASE_IMAGE}")
-    assert "kasmweb/chromium" in BASE_IMAGE, "桌面那一半不自己造"
-    assert 'webmuxd==0.1.0' in df, "没钉版本"
-    assert "USER 1000" in df.splitlines()[-2:][0] or df.rstrip().endswith("USER 1000"), \
-        "build 完要切回 kasm 那个非 root 用户"

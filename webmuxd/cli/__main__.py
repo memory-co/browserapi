@@ -154,7 +154,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     handle = impl.start(args.id, api_port=args.port, vnc_port=args.vnc_port or 0,
                         url=url, viewport=viewport,
                         volume=args.volume, proxy=args.proxy,
-                        endpoint=args.endpoint,
+                        endpoint=args.endpoint, image=args.image,
                         token=os.environ.get("WEBMUXD_TOKEN"))
     reg.put(handle)
     _out(args, {"id": args.id, "api_port": handle.api_port,
@@ -221,7 +221,7 @@ def cmd_info(args: argparse.Namespace) -> int:
     from webmuxd import env
     rows = Registry(name=args.socket_name).list()
     rec = env.load()
-    info = {"version": "0.1.0", "runtimes": rt.detect(),
+    info = {"version": __import__("webmuxd").__version__, "runtimes": rt.detect(),
             "default_runtime": rt.default(),
             "env_record": {"at": rec["at"]} if rec else None,
             "sessions": {"total": len(rows),
@@ -514,6 +514,8 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--volume", default=None)
     n.add_argument("--proxy", default=None)
     n.add_argument("--endpoint", default=None)
+    n.add_argument("--image", default=None,
+                   help="容器镜像。默认读 ~/.webmuxd.json 的 default_container")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
 
     ins = add("install", cmd_install, target=False,

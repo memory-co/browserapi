@@ -5,23 +5,22 @@ pip install webmuxd
 webmuxd install
 ```
 
-`install` 只做一件正经事:**确认 docker 能用**,然后把底座
-`kasmweb/chromium` 拉下来、在上面 build 一层 `python + webmuxd`。
-第一次要几分钟(底座 4 GB 左右),之后再跑就是秒回。
+`install` 只回答两个问题:**docker 能用吗、这个网络环境拉得到镜像吗**。
+它不 build 也不预拉(`docker manifest inspect` 一秒问一下,不下 4 GB)。
 
 ```console
 $ webmuxd install
 探测环境…
-  python      3.11.2                                   ✓
-  docker      29.7.2                                   ✓
-拉底座 kasmweb/chromium:1.18.0 …(4 GB 左右,第一次会久)
-build webmuxd/kasm-chromium:0.1.0 …(在底座上加 python + webmuxd)
-  ✓ 镜像就绪
+  python      3.11.2                             ✓
+  docker      29.7.2                             ✓
+  镜像          kasmweb/chromium:1.18.0            ✓
 
-可用的 runtime:container  remote
-默认:container
 记录写到 /home/you/.webmuxd.json
 ```
+
+拉不到就**不写 `default_container`**,让你自己指:`webmuxd new --image <你的镜像>`。
+
+第一次 `webmuxd new` 会真的去拉那 4 GB,慢一次,之后秒起。
 
 ## 起一个
 
@@ -94,17 +93,27 @@ docker build -t webmuxd-dev -f docker/dev.Dockerfile docker/
 docker run --rm -v "$PWD":/src webmuxd-dev python /src/examples/quickstart.py
 ```
 
-## 对外只有两个口
+## 容器里没有我们的代码
+
+跑的就是**原厂 `kasmweb/chromium`**,一层派生都没有:
+
+```console
+$ docker exec webmuxd-demo python3 -c "import webmuxd"
+ModuleNotFoundError: No module named 'webmuxd'
+```
+
+sessiond 跑在你这边。容器里唯一多出来的东西是一个二十行的 TCP 中继,
+用镜像自带的 python3 起的 —— 因为 Chromium 把调试口绑死在容器内的
+`127.0.0.1`,`docker -p` 够不着([works/01 §4](docs/v1/works/01-container.md#4-sessiond))。
 
 ```
         6901  KasmVNC ──→ 人
         7900  webmuxd ──→ 代码
-        ──────────────────────────
-        9222  CDP     ──→ 出不去(只绑容器内 127.0.0.1)
+        随机   CDP 中继 ──→ 只给 sessiond 用
 ```
 
-调试口一次都不映射出来 —— 能连上它就等于绕过 API 直接控浏览器。
-两个口都**只绑 `127.0.0.1`**;要放到公网上是上层的决定,不是我们的默认。
+三个口**都只绑 `127.0.0.1`**。CDP 那个尤其:它比 API 更底层、没有动作日志,
+能连上它就等于绕过整层 —— 要放到公网上是上层的决定,不是我们的默认。
 
 ## 现在还缺什么
 

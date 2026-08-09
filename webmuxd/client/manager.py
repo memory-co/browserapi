@@ -126,7 +126,7 @@ class Webmuxd:
 
     def info(self) -> dict:
         if self._t is None:
-            return {"version": "0.1.0", "listen": None,
+            return {"version": __import__("webmuxd").__version__, "listen": None,
                     "sessions": {"total": len(self._live)},
                     "runtimes": rt.detect(), "default_runtime": rt.DEFAULT}
         return self._t.get("/api/server")

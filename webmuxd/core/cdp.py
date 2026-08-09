@@ -73,15 +73,26 @@ class CDP:
 
     @staticmethod
     async def _browser_ws(endpoint: str, timeout: float) -> str:
+        """问 `/json/version` 要 ws 地址,**然后把里面的 host:port 换成我们问的那个**。
+
+        Chromium 报的是它自己看到的地址(`127.0.0.1:9222`)。中间但凡隔了
+        一层端口映射或转发,那个地址在我们这边就是错的 —— 我们问得到它,
+        就该从同一个地方连回去。
+        """
+        import urllib.parse
+
         import aiohttp
 
-        url = endpoint.rstrip("/") + "/json/version"
+        base = endpoint.rstrip("/")
+        url = base + "/json/version"
         try:
             async with aiohttp.ClientSession() as s:
                 async with s.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
-                    return (await r.json())["webSocketDebuggerUrl"]
+                    ws = (await r.json())["webSocketDebuggerUrl"]
         except Exception as e:  # 连不上 = 浏览器没了,这是平台级的事
             raise ChromeGone(f"问不到 CDP 端点({url}): {e}", code="chrome_gone") from e
+        return urllib.parse.urlparse(ws)._replace(
+            netloc=urllib.parse.urlparse(base).netloc).geturl()
 
     async def close(self) -> None:
         if self._pump:
