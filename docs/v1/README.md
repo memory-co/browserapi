@@ -1,9 +1,9 @@
 # webmuxd v1 · 规格
 
-**再往上一层** —— webmuxd 和 tmuxd 共同属于的那个东西:
+**再往上一层** —— webmuxd 和 tmuxd 共同属于的那个东西,规范定在 [shellbase](https://github.com/memory-co/shellbase):
 
-- [new-interface.md](new-interface.md) —— **为什么**是这个形状:HTTP 上的一扇窗 + 一个能控它的把手
-- [muxd-spec.md](muxd-spec.md) —— **算不算**一个 `*muxd` 组件:13 条必须、6 条应该、一致性检查清单
+- [new-interface.md](https://github.com/memory-co/shellbase/blob/main/docs/v1/new-interface.md) —— **为什么**是这个形状:HTTP 上的一扇窗 + 一个能控它的把手
+- [muxd-spec.md](https://github.com/memory-co/shellbase/blob/main/docs/v1/muxd-spec.md) —— **算不算**一个 `*muxd` 组件:13 条必须、6 条应该、一致性检查清单
 
 设计稿在 [`works`](works/) —— 讲**为什么**。这三个目录讲**做成什么样**。
 

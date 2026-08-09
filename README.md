@@ -17,5 +17,9 @@ webmuxd new -s demo -p 7900 --vnc-port 6901 --runtime container
 **先跑一遍:[QUICKSTART.md](QUICKSTART.md)** —— 浏览器打开 VNC 那个口看着,
 同时用命令行点一下,页面会在你眼前跳过去。
 
+**webmuxd 是一个 `*muxd` 组件** —— 一扇 HTTP 上的窗给人,一个 Python 把手给程序。
+这一族的规范定在 [shellbase](https://github.com/memory-co/shellbase):
+[new-interface](https://github.com/memory-co/shellbase/blob/main/docs/v1/new-interface.md)(为什么是这个形状) · [muxd-spec](https://github.com/memory-co/shellbase/blob/main/docs/v1/muxd-spec.md)(算不算一个组件)
+
 设计文档:[`docs/v1/works`](docs/v1/works/) —— 为什么这么做
 规格([`docs/v1`](docs/v1/)):[`sdk`](docs/v1/sdk/) Python(主体) · [`api`](docs/v1/api/) HTTP 导出面 · [`cli`](docs/v1/cli/) 命令行
