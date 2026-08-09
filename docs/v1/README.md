@@ -1,5 +1,8 @@
 # webmuxd v1 · 规格
 
+**再往上一层:[new-interface.md](new-interface.md)** —— webmuxd 和 tmuxd 共同属于的那个东西:
+HTTP 上的一扇窗 + 一个能控它的把手,以及这一族的七条规范。
+
 设计稿在 [`works`](works/) —— 讲**为什么**。这三个目录讲**做成什么样**。
 
 | 目录 | 是什么 | 谁用 |
