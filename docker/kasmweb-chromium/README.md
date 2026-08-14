@@ -75,6 +75,10 @@ addr.sun_path[0] = '\0';                 // ← 抽象命名空间
 
 | | |
 | --- | --- |
-| `VNC_PW` | 画面口令,**至少 6 位** —— 短了容器直接退出,而报的错是 `kill: usage:`,和密码毫无关系 |
 | `LAUNCH_URL` | 启动页 |
 | `APP_ARGS` | 追加给 Chromium 的参数(我们会在后面接上调试口) |
+
+**画面口令用统一的 `WEBMUXD_PASSWORD`**(wrapper 翻译成底座的 `VNC_PW`),
+**至少 6 位** —— 短了容器直接退出,而报的错是 `kill: usage:`、和密码毫无关系。
+
+**用户名是 `kasm_user`,改不了** —— KasmVNC 写死的。

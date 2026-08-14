@@ -44,10 +44,32 @@ exec socat TCP-LISTEN:${CHROMIUM_REMOTE_DEBUGGING_PORT},fork \
 
 | | |
 | --- | --- |
-| `WEB_AUTHENTICATION_USERNAME` / `_PASSWORD` | 画面登录。**要同时 `SECURE_CONNECTION=1`**,否则容器启动就报错退出 |
-| `SECURE_CONNECTION=1` | 画面走 https(自签名) |
 | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | 分辨率 |
 | `CHROMIUM_CUSTOM_ARGS` | 追加给 Chromium 的参数 |
+
+**画面口令用统一的 `WEBMUXD_PASSWORD`**,用户名用 `WEBMUXD_USER`(默认 `webmuxd`)。
+
+给了口令时 wrapper 会**顺手把 `SECURE_CONNECTION=1` 也开上** —— 这个底座
+要求"开认证就必须走 https",否则容器启动直接退出,而报错埋在一堆 cont-init
+日志中间,不看到底翻不出来。既然口令是我们要求的,这个就替调用方开掉。
+
+所以这个镜像的画面也是 **https(自签名)**,和 kasm 一致。
+
+### 它的鉴权不是 basic auth
+
+看过镜像里的 `auth.conf` 和 `10-webauth.sh`:这一版用 nginx 的 **`auth_request`**
+模块 —— 每个请求发一个内部子请求去校验,校验方靠 **cookie 里的 token** 判断;
+没通过就 302 到登录页,登录成功才发 cookie。
+
+**没有 basic auth 这个选项。** 所以拿 `curl -u` 去探会看到 302,那是跳登录页,
+不是口令没生效 —— 我第一次就被这个骗过。
+
+底座还有个 `WEB_AUTHENTICATION_ALLOW_INSECURE=1`,能在 http 下开认证(它自己会打
+一大段警告说凭据和 token 明文传输)。**我们特意不用**:既然要口令,就别让它裸奔。
+
+不想要鉴权就别给 `WEBMUXD_PASSWORD` —— 底座默认就是不开。但默认跑法是
+`--network host`,而这个底座的窗口绑 `0.0.0.0`,**不设口令等于把一个能操作的
+浏览器直接放出去**。
 
 **没有"启动页"这个变量。** 它只有 `CHROMIUM_APP_URL`,而那个映射到 `--app=`
 (无边框应用窗口),不是普通启动页 —— 所以标签里 `chromium.url_env` 是空的,

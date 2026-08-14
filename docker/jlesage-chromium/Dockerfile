@@ -11,9 +11,9 @@ ENV CHROMIUM_REMOTE_DEBUGGING=1
 EXPOSE 5800 9222
 
 LABEL webmuxd.window.port=5800 \
-      webmuxd.window.scheme=http \
-      webmuxd.window.user_env=WEB_AUTHENTICATION_USERNAME \
-      webmuxd.window.password_env=WEB_AUTHENTICATION_PASSWORD \
+      webmuxd.window.scheme=https \
+      webmuxd.window.user_env=WEBMUXD_USER \
+      webmuxd.window.password_env=WEBMUXD_PASSWORD \
       webmuxd.window.port_env=WEBMUXD_WINDOW_PORT \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \

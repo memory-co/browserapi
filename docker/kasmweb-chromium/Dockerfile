@@ -33,7 +33,7 @@ EXPOSE 6901 9222
 LABEL webmuxd.window.port=6901 \
       webmuxd.window.scheme=https \
       webmuxd.window.user=kasm_user \
-      webmuxd.window.password_env=VNC_PW \
+      webmuxd.window.password_env=WEBMUXD_PASSWORD \
       webmuxd.window.port_env=WEBMUXD_WINDOW_PORT \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \

@@ -26,12 +26,16 @@ def _have_image():
 
 
 def test_the_labels_say_a_different_thing_than_kasm():
-    """同一套代码要驱动两个完全不同的镜像,靠的就是这些值不一样。"""
+    """同一套代码要驱动两个完全不同的镜像,靠的就是这些值不一样。
+
+    **端口和口令那几个是故意一样的** —— wrapper 把它们翻译掉了,所以
+    `docker run` 的人不用记哪个镜像用哪个变量名。剩下的才是真差异。
+    """
     from webmuxd.runtime.container import Profile
 
     p = Profile.read("docker", IMAGE)
-    assert (p.window_port, p.window_scheme) == (5800, "http")
-    assert p.password_env == "WEB_AUTHENTICATION_PASSWORD"
+    assert (p.window_port, p.window_scheme) == (5800, "https")
+    assert p.password_env == "WEBMUXD_PASSWORD"
     assert p.args_env == "CHROMIUM_CUSTOM_ARGS"
     # **故意是空的**:这个底座只有 CHROMIUM_APP_URL,而它映射到 `--app=`
     # (无边框应用窗口),不是普通启动页。与其用错模式,不如不声明 ——

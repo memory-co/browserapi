@@ -24,7 +24,7 @@ def test_the_labels_say_what_this_image_is():
 
     p = Profile.read("docker", IMAGE)
     assert (p.window_port, p.window_scheme) == (6901, "https")
-    assert p.password_env == "VNC_PW"
+    assert p.password_env == "WEBMUXD_PASSWORD"
     assert p.args_env == "APP_ARGS" and p.url_env == "LAUNCH_URL"
     assert p.window_user == "kasm_user"
     # KasmVNC 的 .KasmVNCSock<pid> 是抽象 socket、归 netns 管,

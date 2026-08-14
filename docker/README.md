@@ -59,6 +59,8 @@ docker build -t ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1 docker/jlesa
 | --- | --- | --- |
 | `WEBMUXD_WINDOW_PORT` | 窗听在哪个口 —— 人用浏览器开的那个 | 底座各自的(6901 / 5800) |
 | `WEBMUXD_CDP_PORT` | CDP 听在哪个口 —— webmuxd 连的那个 | `9222` |
+| `WEBMUXD_PASSWORD` | 看画面要的口令(**至少 6 位**) | 不给就用底座自己的默认 |
+| `WEBMUXD_USER` | 登录名 | jlesage `webmuxd`;**kasm 写死 `kasm_user`,改不了** |
 
 ```bash
 docker run -d --shm-size=1g --network host \
@@ -118,7 +120,7 @@ docker inspect -f '{{json .Config.Labels}}' ghcr.io/memory-co/webmuxd/kasmweb-ch
 | `webmuxd.window.port` / `.scheme` | 窗在哪个口、什么协议 |
 | `webmuxd.window.port_env` | 改窗口端口的变量名(两个都是 `WEBMUXD_WINDOW_PORT`) |
 | `webmuxd.window.user` / `.user_env` | 登录名写死的还是变量定的 |
-| `webmuxd.window.password_env` | 口令从哪个变量来 |
+| `webmuxd.window.password_env` | 口令从哪个变量来(两个都是 `WEBMUXD_PASSWORD`) |
 | `webmuxd.cdp.port` / `.port_env` | CDP 默认口、改它的变量名 |
 | `webmuxd.chromium.args_env` / `.url_env` | 往 Chromium 塞参数 / 给启动页的变量名(空 = 没有这个概念) |
 | `webmuxd.host_network` | `multi` = 能一机多开;`single` = host 下只能一个 |
@@ -126,7 +128,9 @@ docker inspect -f '{{json .Config.Labels}}' ghcr.io/memory-co/webmuxd/kasmweb-ch
 ## 加第三个镜像
 
 1. 新目录 `docker/<出处>-<应用>/`,Dockerfile、entrypoint、README 都放里面
-2. entrypoint 把 `WEBMUXD_WINDOW_PORT` / `WEBMUXD_CDP_PORT` **翻译成底座认的名字**
+2. entrypoint 把 `WEBMUXD_WINDOW_PORT` / `WEBMUXD_CDP_PORT` / `WEBMUXD_PASSWORD`
+   **翻译成底座认的名字**(翻译时用 `if`,别写 `[ -n … ] && export …` ——
+   配上 `set -e`,不给那个变量时它返回非零会**直接把容器杀掉**,日志里毫无线索)
 3. CDP:底座自带转发就打开它,没有就补一个(抄
    [`cdp-relay.py`](kasmweb-chromium/cdp-relay.py),只依赖镜像里有 `python3`)
 4. 把标签填全
