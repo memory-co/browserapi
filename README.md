@@ -48,13 +48,16 @@ pip install webmuxd
 webmuxd install          # 只做两件事:确认 docker 能用、镜像拉不拉得到
 ```
 
+`install` 把探到的镜像记进 `~/.webmuxd.json` 的 `default_container`,
+**所以下面的例子都不用写镜像**。要用别的镜像就显式指定 —— 见[镜像](#镜像)。
+
 ### 当库用
 
 ```python
 from webmuxd import Webmuxd
 
 web = Webmuxd()
-sess = web.session(id="work", port=7900, vnc_port=8090)
+sess = web.session(id="work", port=7900, vnc_port=8090)   # 镜像用记录里的默认
 tab = sess.open("https://news.ycombinator.com")
 
 print(tab.observe().as_prompt())      # 元素表,直接喂多模态模型
@@ -67,7 +70,7 @@ tab.click("new")
 ### 用命令行
 
 ```bash
-webmuxd new      -s work -p 7900 --vnc-port 8090
+webmuxd new      -s work -p 7900 --vnc-port 8090     # 镜像用记录里的默认
 webmuxd new-tab  -t work -u https://example.com
 webmuxd click    -t work "Learn more"
 webmuxd observe  -t work                  # 喂给模型的元素表
@@ -130,8 +133,24 @@ docker pull docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0  # 国内
 绑死在容器内的 loopback,`docker -p` 够不着),并把端口变量名统一成
 `WEBMUXD_WINDOW_PORT` / `WEBMUXD_CDP_PORT`。
 
+### 镜像填在哪
+
+**默认那个不用填** —— `webmuxd install` 已经把它记进 `~/.webmuxd.json` 了。
+要换成别的,两条路都接同一个参数:
+
+```python
+sess = web.session(id="work", port=7900, vnc_port=8090,
+                   image="docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1")
+```
+
+```bash
+webmuxd new -s work -p 7900 --vnc-port 8090 \
+  --image docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1
+```
+
 **换镜像不用改 webmuxd 的代码** —— 它读镜像的 `webmuxd.*` 标签认它,不认名字。
-自己加第三个镜像怎么做,见 [docker/](docker/README.md)。
+所以你自己 build 的镜像只要打上标签,`--image` 指过去就能用;
+没有标签就直接报错,不猜。怎么加一个新镜像,见 [docker/](docker/README.md)。
 
 ## 依赖
 
