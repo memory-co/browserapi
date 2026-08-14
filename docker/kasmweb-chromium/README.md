@@ -82,3 +82,6 @@ addr.sun_path[0] = '\0';                 // ← 抽象命名空间
 **至少 6 位** —— 短了容器直接退出,而报的错是 `kill: usage:`、和密码毫无关系。
 
 **用户名是 `kasm_user`,改不了** —— KasmVNC 写死的。
+
+**`WEBMUXD_BIND` 也是 patch 出来的。** 底座把 `-interface 0.0.0.0` 写死在同一个
+启动脚本里(和那个死循环一个文件),build 时一起 `sed` 成变量。

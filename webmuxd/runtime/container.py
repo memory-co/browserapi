@@ -74,6 +74,7 @@ class Profile:
     args_env: str
     url_env: str
     window_port_env: str = ""
+    window_bind_env: str = ""
     cdp_port_env: str = "WEBMUXD_CDP_PORT"
     window_user: str = ""
     window_user_env: str = ""
@@ -106,6 +107,7 @@ class Profile:
             args_env=lab.get("chromium.args_env", ""),
             url_env=lab.get("chromium.url_env", ""),
             window_port_env=lab.get("window.port_env", ""),
+            window_bind_env=lab.get("window.bind_env", ""),
             cdp_port_env=lab.get("cdp.port_env") or "WEBMUXD_CDP_PORT",
             window_user=lab.get("window.user", ""),
             window_user_env=lab.get("window.user_env", ""),
@@ -189,6 +191,15 @@ class ContainerRuntime:
             args += ["--network", "host",
                      "-e", f"{prof.window_port_env}={vnc_port}",
                      "-e", f"{prof.cdp_port_env}={cdp_host_port}"]
+            # host 下容器的网络栈就是宿主机的,所以 `bind` 直接传给镜像。
+            if prof.window_bind_env:
+                args += ["-e", f"{prof.window_bind_env}={bind}"]
+            elif bind != "0.0.0.0":
+                # **管不住就说管不住**,别让调用方以为它只在本机
+                raise unavailable(
+                    self.name, f"{img} 没说画面口绑哪个地址怎么配"
+                                f"(webmuxd.window.bind_env),没法限制成 {bind}",
+                    "换个镜像,或者显式 bind=\"0.0.0.0\" 承认它是对外的")
         else:
             # **要网络隔离、或者那个镜像 host 下开不了多个,就用它。**
             # 代价是容器里的 `localhost` 是它自己的 —— 宿主机上只绑 loopback
@@ -197,6 +208,10 @@ class ContainerRuntime:
             # 画面口跟着 `bind` 走(**默认只在本机**,放出去是上层的决定);
             # CDP 口**永远只绑 127.0.0.1** —— 它比 API 更底层、没有动作日志,
             # 能连上就等于绕过整层。
+            # **容器内必须绑 0.0.0.0**,否则 `-p` 够不着它(DNAT 到的是 eth0);
+            # 对外收不收得住由 `-p` 前面那个地址决定 —— 这一层才是 `bind` 的落点。
+            if prof.window_bind_env:
+                args += ["-e", f"{prof.window_bind_env}=0.0.0.0"]
             args += ["-p", f"{bind}:{vnc_port}:{prof.window_port}",
                      "-p", f"127.0.0.1:{cdp_host_port}:{prof.cdp_port}"]
         # 变量名全来自标签 —— 这里没有任何一个镜像的名字
@@ -240,9 +255,9 @@ class ContainerRuntime:
                        "cdp_port": cdp_host_port,
                        "vnc_scheme": prof.window_scheme,
                        "network": network,
-                       # host 下没有 `-p` 能限制它,镜像自己听在哪就是哪 ——
-                       # **如实报出来**,别让上层以为它只在本机。
-                       "vnc_bind": "0.0.0.0" if network == "host" else bind,
+                       # 两种模式下 `bind` 都真的生效了:host 是镜像自己绑,
+                       # bridge 是 `-p` 那一层收着。如实报出来。
+                       "vnc_bind": bind,
                        "vnc_user": prof.window_user or "webmuxd",
                        "vnc_password": vnc_pw,
                        "host_network": prof.host_network,

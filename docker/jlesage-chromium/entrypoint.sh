@@ -6,6 +6,13 @@ set -e
 export WEB_LISTENING_PORT="${WEBMUXD_WINDOW_PORT:-5800}"
 export CHROMIUM_REMOTE_DEBUGGING_PORT="${WEBMUXD_CDP_PORT:-9222}"
 
+# 窗绑哪个地址。底座只给了个布尔(只听 loopback 与否),所以这里把地址翻译成
+# 布尔 —— 它表达不了"绑某个具体网卡",而我们也只需要这两种。
+case "${WEBMUXD_BIND:-0.0.0.0}" in
+    127.0.0.1|localhost|::1) export WEB_LOCALHOST_ONLY=1 ;;
+    *)                       export WEB_LOCALHOST_ONLY=0 ;;
+esac
+
 if [ -n "${WEBMUXD_PASSWORD:-}" ]; then
     export WEB_AUTHENTICATION=1
     export WEB_AUTHENTICATION_USERNAME="${WEBMUXD_USER:-webmuxd}"

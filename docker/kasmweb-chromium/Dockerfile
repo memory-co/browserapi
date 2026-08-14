@@ -22,6 +22,9 @@ RUN chmod 755 /usr/local/bin/webmuxd-entrypoint /usr/local/bin/cdp-relay.py
 # 绝不静默留一份没改的(那会在运行时卡死,报错还指向别处)。
 RUN grep -q 'function wait_for_network_devices() {' /dockerstartup/vnc_startup.sh \
  && sed -i 's|function wait_for_network_devices() {|&\n\treturn 0  # webmuxd: 宿主机网卡不叫 eth*|' \
+        /dockerstartup/vnc_startup.sh \
+ && grep -q -- '-interface 0.0.0.0' /dockerstartup/vnc_startup.sh \
+ && sed -i 's|-interface 0.0.0.0|-interface ${KASM_INTERFACE:-0.0.0.0}|g' \
         /dockerstartup/vnc_startup.sh
 USER 1000
 
@@ -35,6 +38,7 @@ LABEL webmuxd.window.port=6901 \
       webmuxd.window.user=kasm_user \
       webmuxd.window.password_env=WEBMUXD_PASSWORD \
       webmuxd.window.port_env=WEBMUXD_WINDOW_PORT \
+      webmuxd.window.bind_env=WEBMUXD_BIND \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \
       webmuxd.chromium.args_env=APP_ARGS \

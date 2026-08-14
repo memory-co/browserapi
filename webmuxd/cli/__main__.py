@@ -525,8 +525,8 @@ def _parser() -> argparse.ArgumentParser:
                    help="host(默认)= 容器里的 localhost 就是你的;"
                         "bridge = 有网络隔离,但够不着你的 localhost")
     n.add_argument("--bind", default="127.0.0.1",
-                   help="画面口绑哪个地址,只在 --network bridge 下有效。"
-                        "默认只绑本机;填 0.0.0.0 就是对外开放,拿到密码的人就能用")
+                   help="画面口绑哪个地址。默认只绑本机;"
+                        "填 0.0.0.0 就是对外开放,拿到密码的人就能用")
     n.add_argument("--image", default=None,
                    help="容器镜像。默认读 ~/.webmuxd.json 的 default_container")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")

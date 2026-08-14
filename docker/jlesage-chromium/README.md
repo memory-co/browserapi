@@ -47,7 +47,11 @@ exec socat TCP-LISTEN:${CHROMIUM_REMOTE_DEBUGGING_PORT},fork \
 | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | 分辨率 |
 | `CHROMIUM_CUSTOM_ARGS` | 追加给 Chromium 的参数 |
 
-**画面口令用统一的 `WEBMUXD_PASSWORD`**,用户名用 `WEBMUXD_USER`(默认 `webmuxd`)。
+**画面口令用统一的 `WEBMUXD_PASSWORD`**,用户名用 `WEBMUXD_USER`(默认 `webmuxd`),
+绑定地址用 `WEBMUXD_BIND`。
+
+底座的 `WEB_LOCALHOST_ONLY` 是个**布尔**(只听 loopback 与否),所以 wrapper 把
+地址翻译成布尔 —— 它表达不了"绑某个具体网卡",而我们也只需要这两种。
 
 给了口令时 wrapper 会**顺手把 `SECURE_CONNECTION=1` 也开上** —— 这个底座
 要求"开认证就必须走 https",否则容器启动直接退出,而报错埋在一堆 cont-init

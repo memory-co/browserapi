@@ -61,6 +61,7 @@ docker build -t ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1 docker/jlesa
 | `WEBMUXD_CDP_PORT` | CDP 听在哪个口 —— webmuxd 连的那个 | `9222` |
 | `WEBMUXD_PASSWORD` | 看画面要的口令(**至少 6 位**) | 不给就用底座自己的默认 |
 | `WEBMUXD_USER` | 登录名 | jlesage `webmuxd`;**kasm 写死 `kasm_user`,改不了** |
+| `WEBMUXD_BIND` | 窗绑哪个地址 —— `127.0.0.1` 只在本机,`0.0.0.0` 对外 | `0.0.0.0` |
 
 ```bash
 docker run -d --shm-size=1g --network host \
@@ -119,6 +120,7 @@ docker inspect -f '{{json .Config.Labels}}' ghcr.io/memory-co/webmuxd/kasmweb-ch
 | --- | --- |
 | `webmuxd.window.port` / `.scheme` | 窗在哪个口、什么协议 |
 | `webmuxd.window.port_env` | 改窗口端口的变量名(两个都是 `WEBMUXD_WINDOW_PORT`) |
+| `webmuxd.window.bind_env` | 改窗口绑定地址的变量名(空 = 这个镜像绑不了,只能对外) |
 | `webmuxd.window.user` / `.user_env` | 登录名写死的还是变量定的 |
 | `webmuxd.window.password_env` | 口令从哪个变量来(两个都是 `WEBMUXD_PASSWORD`) |
 | `webmuxd.cdp.port` / `.port_env` | CDP 默认口、改它的变量名 |

@@ -4,6 +4,9 @@
 set -e
 
 export NO_VNC_PORT="${WEBMUXD_WINDOW_PORT:-6901}"
+# 窗绑哪个地址。底座把 `-interface 0.0.0.0` 写死在启动脚本里,我们在 build
+# 时把它 patch 成了变量(见 Dockerfile)。
+export KASM_INTERFACE="${WEBMUXD_BIND:-0.0.0.0}"
 # 画面口令。**用户名 kasm_user 是 KasmVNC 写死的**,这个镜像改不了。
 #
 # 写成 if,不写 `[ -n … ] && export …` —— 后者在不给口令时返回非零,

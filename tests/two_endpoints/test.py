@@ -101,6 +101,7 @@ KASM_LABELS = {
     'webmuxd.chromium.args_env': 'APP_ARGS',
     'webmuxd.chromium.url_env': 'LAUNCH_URL',
     'webmuxd.host_network': 'single',
+    'webmuxd.window.bind_env': 'WEBMUXD_BIND',
 }
 
 JLESAGE_LABELS = {
@@ -114,6 +115,7 @@ JLESAGE_LABELS = {
     'webmuxd.chromium.args_env': 'CHROMIUM_CUSTOM_ARGS',
     'webmuxd.chromium.url_env': '',
     'webmuxd.host_network': 'multi',
+    'webmuxd.window.bind_env': 'WEBMUXD_BIND',
 }
 
 
@@ -240,8 +242,8 @@ def test_the_window_port_is_told_to_the_image_not_mapped(monkeypatch):
     _fake_docker(monkeypatch, seen)
     h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
     assert h.detail["cdp_port"] not in (0, None)
-    # host 网络下没有 -p 能限制它,如实报出来别让上层以为它只在本机
-    assert h.detail["vnc_bind"] == "0.0.0.0"
+    # 默认只在本机 —— host 下没有 `-p`,但镜像自己能绑(见 bind_env 那条)
+    assert h.detail["vnc_bind"] == "127.0.0.1"
 
     seen.clear()
     no_port_env = dict(KASM_LABELS)
@@ -283,6 +285,45 @@ def test_bridge_is_still_there_for_when_host_will_not_do(monkeypatch):
     no_port_env.pop("webmuxd.window.port_env")
     _fake_docker(monkeypatch, seen, no_port_env)
     ContainerRuntime().start("work", api_port=7900, vnc_port=6901, network="bridge")
+
+
+def test_bind_reaches_the_image_in_both_network_modes(monkeypatch):
+    """**"绑哪个地址"在两种模式下落点不同,但对调用方是同一个参数。**
+
+    - host:容器的网络栈就是宿主机的,所以直接告诉镜像绑哪儿
+    - bridge:容器内**必须**绑 `0.0.0.0`(否则 `-p` 够不着,DNAT 到的是 eth0),
+      对外收不收得住由 `-p` 前面那个地址决定
+    """
+    seen = []
+    _fake_docker(monkeypatch, seen)
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+                             bind="127.0.0.1")
+    assert "WEBMUXD_BIND=127.0.0.1" in " ".join(_run_cmd(seen))
+
+    seen.clear()
+    _fake_docker(monkeypatch, seen)
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+                             network="bridge", bind="127.0.0.1")
+    joined = " ".join(_run_cmd(seen))
+    assert "WEBMUXD_BIND=0.0.0.0" in joined, "bridge 下容器内必须绑 0.0.0.0"
+    assert "-p 127.0.0.1:6901:6901" in joined, "对外收在 -p 这一层"
+
+
+def test_an_image_that_cannot_be_restricted_says_so(monkeypatch):
+    """镜像没说"绑哪儿"怎么配,而调用方要求只在本机 —— **管不住就说管不住**,
+    别让他以为限制住了。"""
+    no_bind = {k: v for k, v in KASM_LABELS.items() if k != "webmuxd.window.bind_env"}
+    seen = []
+    _fake_docker(monkeypatch, seen, no_bind)
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+                                 bind="127.0.0.1")
+    assert "bind_env" in str(ei.value)
+
+    # 但显式承认它是对外的,就放行
+    seen.clear()
+    _fake_docker(monkeypatch, seen, no_bind)
+    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, bind="0.0.0.0")
 
 
 def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):

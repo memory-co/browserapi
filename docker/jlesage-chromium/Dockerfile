@@ -15,6 +15,7 @@ LABEL webmuxd.window.port=5800 \
       webmuxd.window.user_env=WEBMUXD_USER \
       webmuxd.window.password_env=WEBMUXD_PASSWORD \
       webmuxd.window.port_env=WEBMUXD_WINDOW_PORT \
+      webmuxd.window.bind_env=WEBMUXD_BIND \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \
       webmuxd.chromium.args_env=CHROMIUM_CUSTOM_ARGS \
