@@ -75,6 +75,8 @@ class Profile:
     url_env: str
     window_port_env: str = ""
     window_bind_env: str = ""
+    auth_env: str = ""
+    tls_env: str = ""
     cdp_port_env: str = "WEBMUXD_CDP_PORT"
     window_user: str = ""
     window_user_env: str = ""
@@ -108,6 +110,8 @@ class Profile:
             url_env=lab.get("chromium.url_env", ""),
             window_port_env=lab.get("window.port_env", ""),
             window_bind_env=lab.get("window.bind_env", ""),
+            auth_env=lab.get("window.auth_env", ""),
+            tls_env=lab.get("window.tls_env", ""),
             cdp_port_env=lab.get("cdp.port_env") or "WEBMUXD_CDP_PORT",
             window_user=lab.get("window.user", ""),
             window_user_env=lab.get("window.user_env", ""),
@@ -146,6 +150,7 @@ class ContainerRuntime:
               volume: str | None = None, proxy: str | None = None,
               token: str | None = None, image: str | None = None,
               network: str = "host", bind: str = "127.0.0.1",
+              auth: bool = True, tls: bool = True,
               tab_max: int | None = None, log_limit: int | None = None,
               human_yield: int | None = None, **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -158,11 +163,19 @@ class ContainerRuntime:
         img = image or self.image
         prof = Profile.read(self.docker, img)
 
-        vnc_pw = token or secrets.token_urlsafe(9)
-        if len(vnc_pw) < PW_MIN:
-            raise unavailable(self.name,
-                              f"画面口令至少 {PW_MIN} 位,给的是 {len(vnc_pw)} 位",
-                              "kasm 会因为这个直接退出,而且报的错和密码没关系")
+        if auth:
+            vnc_pw = token or secrets.token_urlsafe(9)
+            if len(vnc_pw) < PW_MIN:
+                raise unavailable(self.name,
+                                  f"画面口令至少 {PW_MIN} 位,给的是 {len(vnc_pw)} 位",
+                                  "kasm 会因为这个直接退出,而且报的错和密码没关系")
+        else:
+            # **关掉鉴权得镜像支持**,不能默默留着口令装作关了
+            if not prof.auth_env:
+                raise unavailable(
+                    self.name, f"{img} 没说怎么关鉴权(webmuxd.window.auth_env)",
+                    "换个镜像,或者别关 —— 画面口一旦对外,没口令就是谁都能用")
+            vnc_pw = ""
 
         w, _, h = viewport.partition("x")
         app_args = ["--start-maximized", f"--window-size={w},{h or 800}"]
@@ -215,6 +228,16 @@ class ContainerRuntime:
             args += ["-p", f"{bind}:{vnc_port}:{prof.window_port}",
                      "-p", f"127.0.0.1:{cdp_host_port}:{prof.cdp_port}"]
         # 变量名全来自标签 —— 这里没有任何一个镜像的名字
+        if prof.auth_env:
+            args += ["-e", f"{prof.auth_env}={1 if auth else 0}"]
+        if not tls and not prof.tls_env:
+            # KasmVNC 就是恒 TLS(实测:拿掉 -sslOnly 也一样)。**说不行就是不行**,
+            # 不能让调用方按 http 去拼 URL。
+            raise unavailable(self.name, f"{img} 的画面口关不掉 TLS"
+                                         f"(没有 webmuxd.window.tls_env)",
+                              "它就是 https。要 http 就换个镜像")
+        if prof.tls_env:
+            args += ["-e", f"{prof.tls_env}={1 if tls else 0}"]
         for env_name, value in ((prof.password_env, vnc_pw),
                                 (prof.url_env, url),
                                 (prof.args_env, " ".join(app_args)),
@@ -253,13 +276,16 @@ class ContainerRuntime:
         return Handle(self.name, id, api_port, vnc_port,
                       {"container_id": cid, "image": img,
                        "cdp_port": cdp_host_port,
-                       "vnc_scheme": prof.window_scheme,
+                       # scheme 是**算出来的**:标签给的是默认,而 tls 开关能改它。
+                       # 报错的 scheme 会让人拼出一个连不上的 URL。
+                       "vnc_scheme": prof.window_scheme if tls else "http",
                        "network": network,
                        # 两种模式下 `bind` 都真的生效了:host 是镜像自己绑,
                        # bridge 是 `-p` 那一层收着。如实报出来。
                        "vnc_bind": bind,
-                       "vnc_user": prof.window_user or "webmuxd",
+                       "vnc_user": (prof.window_user or "webmuxd") if auth else "",
                        "vnc_password": vnc_pw,
+                       "auth": auth,
                        "host_network": prof.host_network,
                        "pids": {k: p.pid for k, p in procs.items()},
                        "_procs": procs})

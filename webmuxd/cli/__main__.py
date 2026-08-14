@@ -156,6 +156,7 @@ def cmd_new(args: argparse.Namespace) -> int:
                         volume=args.volume, proxy=args.proxy,
                         endpoint=args.endpoint, image=args.image,
                         network=args.network, bind=args.bind,
+                        auth=not args.no_auth, tls=not args.no_tls,
                         token=os.environ.get("WEBMUXD_TOKEN"))
     reg.put(handle)
     _out(args, {"id": args.id, "api_port": handle.api_port,
@@ -167,6 +168,9 @@ def cmd_new(args: argparse.Namespace) -> int:
     if not args.json and handle.detail.get("vnc_bind") not in (None, "127.0.0.1"):
         print(f"       ⚠ 画面口绑在 {handle.detail['vnc_bind']} —— "
               f"**这台机器网络能到的人,拿到密码就能用这个浏览器**", file=sys.stderr)
+    if not args.json and handle.detail.get("auth") is False:
+        print("       ⚠ 画面口没有口令 —— 谁能连上这个地址,谁就能操作这个浏览器",
+              file=sys.stderr)
     if not args.json and handle.detail.get("vnc_password"):
         # 密码是起的时候现生成的,**这是唯一会说出来的一次**
         # 证书那句只对 https 的镜像成立 —— 镜像的 scheme 是它自己标签说的
@@ -524,6 +528,12 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--network", default="host", choices=["host", "bridge"],
                    help="host(默认)= 容器里的 localhost 就是你的;"
                         "bridge = 有网络隔离,但够不着你的 localhost")
+    n.add_argument("--no-tls", action="store_true",
+                   help="画面口用 http 而不是 https。不是每个镜像都支持"
+                        "(KasmVNC 恒 TLS),不支持会直接报错")
+    n.add_argument("--no-auth", action="store_true",
+                   help="画面口不要口令。**只在 --bind 127.0.0.1 时才该用**,"
+                        "否则等于把一个能操作的浏览器直接放出去")
     n.add_argument("--bind", default="127.0.0.1",
                    help="画面口绑哪个地址。默认只绑本机;"
                         "填 0.0.0.0 就是对外开放,拿到密码的人就能用")

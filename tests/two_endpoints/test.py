@@ -102,6 +102,7 @@ KASM_LABELS = {
     'webmuxd.chromium.url_env': 'LAUNCH_URL',
     'webmuxd.host_network': 'single',
     'webmuxd.window.bind_env': 'WEBMUXD_BIND',
+    'webmuxd.window.auth_env': 'WEBMUXD_AUTH',
 }
 
 JLESAGE_LABELS = {
@@ -116,6 +117,8 @@ JLESAGE_LABELS = {
     'webmuxd.chromium.url_env': '',
     'webmuxd.host_network': 'multi',
     'webmuxd.window.bind_env': 'WEBMUXD_BIND',
+    'webmuxd.window.auth_env': 'WEBMUXD_AUTH',
+    'webmuxd.window.tls_env': 'WEBMUXD_TLS',
 }
 
 
@@ -324,6 +327,43 @@ def test_an_image_that_cannot_be_restricted_says_so(monkeypatch):
     seen.clear()
     _fake_docker(monkeypatch, seen, no_bind)
     ContainerRuntime().start("work", api_port=7900, vnc_port=6901, bind="0.0.0.0")
+
+
+def test_auth_and_tls_are_switches_when_the_image_has_them(monkeypatch):
+    """**组合是调用方的事,我们只负责把开关接出来。**
+
+    host + 只绑本机 + 不要口令 + http,是个合理组合(自己机器上调试);
+    对外暴露还关口令则是另一回事 —— 那是调用方的决定,不是我们替他拦。
+    """
+    seen = []
+    _fake_docker(monkeypatch, seen, JLESAGE_LABELS)
+    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+                                 bind="127.0.0.1", auth=False, tls=False)
+    joined = " ".join(_run_cmd(seen))
+    assert "WEBMUXD_AUTH=0" in joined and "WEBMUXD_TLS=0" in joined
+    assert "WEBMUXD_BIND=127.0.0.1" in joined
+    assert h.detail["auth"] is False
+    assert h.detail["vnc_password"] == "" and h.detail["vnc_user"] == ""
+    # **scheme 得跟着算**,不然调用方会拼出一个连不上的 URL
+    assert h.detail["vnc_scheme"] == "http"
+
+
+def test_a_capability_the_image_lacks_is_an_error_not_a_pretence(monkeypatch):
+    """KasmVNC 的画面口恒 TLS(实测:拿掉 `-sslOnly` 也一样),
+    所以要求 http 只能报错 —— **装作可以,调用方就会按 http 去拼 URL**。"""
+    seen = []
+    _fake_docker(monkeypatch, seen, KASM_LABELS)     # 没有 tls_env
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ContainerRuntime().start("work", api_port=7900, vnc_port=6901, tls=False)
+    assert "TLS" in str(ei.value)
+
+    # 关鉴权同理:镜像没这个能力就不能默默留着口令装作关了
+    no_auth_env = {k: v for k, v in KASM_LABELS.items()
+                   if k != "webmuxd.window.auth_env"}
+    seen.clear()
+    _fake_docker(monkeypatch, seen, no_auth_env)
+    with pytest.raises(RuntimeUnavailable):
+        ContainerRuntime().start("work", api_port=7900, vnc_port=6901, auth=False)
 
 
 def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):

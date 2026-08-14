@@ -15,6 +15,12 @@ if [ -n "${WEBMUXD_PASSWORD:-}" ]; then
     export VNC_PW="$WEBMUXD_PASSWORD"
 fi
 
+# 关掉鉴权。KasmVNC 的参数叫 `-DisableBasicAuth`(BoolParameter,默认 false)。
+# **追加到 VNCOPTIONS,不覆盖** —— 底座在那儿放了画质相关的一串默认值。
+case "${WEBMUXD_AUTH:-1}" in
+    0|false|no) export VNCOPTIONS="${VNCOPTIONS:-} -DisableBasicAuth" ;;
+esac
+
 CDP_PORT="${WEBMUXD_CDP_PORT:-9222}"
 INNER=$((CDP_PORT + 1))          # Chromium 只肯听 127.0.0.1,它在里面那个口
 
