@@ -19,6 +19,21 @@ docker pull ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0
 docker pull ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1
 ```
 
+**国内用 CNB 那份**,内容完全一样(同一个 digest),只是 ghcr 在国内常常拉不动:
+
+```bash
+docker pull docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0
+docker pull docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1
+```
+
+镜像名不同不影响用法 —— `--image` 指过去就行,webmuxd 是**读镜像标签**认它的,
+不认名字:
+
+```bash
+webmuxd new -s demo -p 7900 --vnc-port 8090 \
+  --image docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0
+```
+
 **tag 跟着底座走,不用 `latest`** —— 底座换版本 = 换一个镜像,不是同一个东西
 变了。想知道自己跑的是哪一版,`docker inspect` 看 tag 就够。
 

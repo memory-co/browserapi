@@ -21,5 +21,8 @@ webmuxd new -s demo -p 7900 --vnc-port 6901 --runtime container
 这一族的规范定在 [shellbase](https://github.com/memory-co/shellbase):
 [new-interface](https://github.com/memory-co/shellbase/blob/main/docs/v1/new-interface.md)(为什么是这个形状) · [muxd-spec](https://github.com/memory-co/shellbase/blob/main/docs/v1/muxd-spec.md)(算不算一个组件)
 
+代码同时放在 [GitHub](https://github.com/memory-co/webmuxd) 和
+[CNB](https://cnb.cool/agentuse/webmuxd)(国内访问),两边是同一份。
+
 设计文档:[`docs/v1/works`](docs/v1/works/) —— 为什么这么做
 规格([`docs/v1`](docs/v1/)):[`sdk`](docs/v1/sdk/) Python(主体) · [`api`](docs/v1/api/) HTTP 导出面 · [`cli`](docs/v1/cli/) 命令行
