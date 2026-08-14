@@ -12,7 +12,7 @@ import pytest
 
 from tests.image_conftest import free_port, need_image, session_on, sweep
 
-IMAGE = "webmuxd/jlesage-chromium:latest"
+IMAGE = "ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1"
 
 pytestmark = pytest.mark.slow
 

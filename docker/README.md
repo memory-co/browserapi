@@ -6,23 +6,30 @@ webmuxd 需要两个端点:**一扇窗**给人、**一个 CDP** 给代码
 
 | 镜像 | 底座 | 挑它的理由 |
 | --- | --- | --- |
-| `webmuxd/kasmweb-chromium:1.18.0` | `kasmweb/chromium` | **画面最好** |
-| `webmuxd/jlesage-chromium:latest` | `jlesage/chromium` | **`--network host` 下能一机多开** |
+| `ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0` | `kasmweb/chromium` | **画面最好** |
+| `ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1` | `jlesage/chromium` | **`--network host` 下能一机多开** |
 
 各自的技术细节和代价在自己的目录里:
 [kasmweb-chromium/](kasmweb-chromium/README.md) · [jlesage-chromium/](jlesage-chromium/README.md)
 
-## 还没推到任何镜像仓库
-
-**现在只能自己 build。** 没有推到 ghcr.io,也没有推到 Docker Hub ——
-所以 `docker pull webmuxd/...` 是拉不到的。
+## 拉
 
 ```bash
-docker build -t webmuxd/kasmweb-chromium:1.18.0 docker/kasmweb-chromium/
-docker build -t webmuxd/jlesage-chromium:latest docker/jlesage-chromium/
+docker pull ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0
+docker pull ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1
 ```
 
-一个镜像一个目录,构建上下文就是那个目录。换底座版本用 `--build-arg BASE=...`。
+**tag 跟着底座走,不用 `latest`** —— 底座换版本 = 换一个镜像,不是同一个东西
+变了。想知道自己跑的是哪一版,`docker inspect` 看 tag 就够。
+
+自己 build 也行,一个镜像一个目录,构建上下文就是那个目录:
+
+```bash
+docker build -t ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0 docker/kasmweb-chromium/
+docker build -t ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1 docker/jlesage-chromium/
+```
+
+换底座版本用 `--build-arg BASE=...`(记得把 tag 也跟着改)。
 
 `webmuxd install` 只探测 `default_container` 在不在本机或拉得到,**它不 build**
 ([cli/install.md](../docs/v1/cli/install.md))。
@@ -42,11 +49,11 @@ docker build -t webmuxd/jlesage-chromium:latest docker/jlesage-chromium/
 docker run -d --shm-size=1g --network host \
   -e WEBMUXD_WINDOW_PORT=8090 -e WEBMUXD_CDP_PORT=9222 \
   -e VNC_PW=至少六位 \
-  webmuxd/kasmweb-chromium:1.18.0
+  ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0
 
 docker run -d --shm-size=1g --network host \
   -e WEBMUXD_WINDOW_PORT=8091 -e WEBMUXD_CDP_PORT=9333 \
-  webmuxd/jlesage-chromium:latest
+  ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1
 ```
 
 **换镜像不用改这两行。** 这也是 webmuxd 自己驱动它们的方式 —— 它读镜像标签
@@ -60,7 +67,7 @@ docker run -d --shm-size=1g --network host \
 ```bash
 docker run -d --shm-size=1g \
   -p 127.0.0.1:8090:6901 -p 127.0.0.1:9222:9222 \
-  -e VNC_PW=至少六位 webmuxd/kasmweb-chromium:1.18.0
+  -e VNC_PW=至少六位 ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0
 ```
 
 ## 谁能一机多开
@@ -88,7 +95,7 @@ docker run -d --shm-size=1g \
 **加一个新镜像不用改 webmuxd 的代码**:
 
 ```bash
-docker inspect -f '{{json .Config.Labels}}' webmuxd/kasmweb-chromium:1.18.0 | jq
+docker inspect -f '{{json .Config.Labels}}' ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0 | jq
 ```
 
 | 标签 | 意思 |

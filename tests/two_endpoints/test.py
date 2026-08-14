@@ -147,7 +147,7 @@ def test_container_command_carries_what_the_docs_say(monkeypatch):
     """端口映射、label、shm、镜像。"""
     seen = []
     _fake_docker(monkeypatch, seen)
-    h = ContainerRuntime(image="webmuxd/kasmweb-chromium:1.18.0").start(
+    h = ContainerRuntime(image="ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0").start(
         "work", api_port=7900, vnc_port=6901,
         viewport="1280x800", volume="webmuxd-work", token="t0ken1")
 
@@ -158,7 +158,7 @@ def test_container_command_carries_what_the_docs_say(monkeypatch):
     assert "--shm-size=1g" in joined, "少于 1G Chromium 会崩"
     assert "webmuxd.session=work" in joined, "没打 label,server 重启后认不回来"
     assert "webmuxd-work:/data" in joined
-    assert _run_cmd(seen)[-1] == "webmuxd/kasmweb-chromium:1.18.0"
+    assert _run_cmd(seen)[-1] == "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0"
     assert h.detail["container_id"] == "deadbeef"
 
 

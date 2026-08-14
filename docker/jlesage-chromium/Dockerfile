@@ -1,6 +1,6 @@
 # 把 jlesage/chromium 改造成 webmuxd 能用的镜像:底座本来就有 CDP
 # 转发,这一层只是默认打开它、并统一端口变量名。见 ./README.md。
-ARG BASE=jlesage/chromium:latest
+ARG BASE=jlesage/chromium:v26.08.1
 FROM ${BASE}
 
 COPY entrypoint.sh /usr/local/bin/webmuxd-entrypoint

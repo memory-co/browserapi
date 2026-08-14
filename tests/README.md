@@ -44,8 +44,8 @@ docker run --rm -v "$PWD":/src webmuxd-dev pytest -q tests/pointing_at_things
 **两个镜像场景要在宿主机上跑**,因为它们要 `docker run`(dev 镜像里没有 docker):
 
 ```bash
-docker build -t webmuxd/kasmweb-chromium:1.18.0 docker/kasmweb-chromium/
-docker build -t webmuxd/jlesage-chromium:latest docker/jlesage-chromium/
+docker build -t ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0 docker/kasmweb-chromium/
+docker build -t ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1 docker/jlesage-chromium/
 pytest tests/image_kasmweb tests/image_jlesage
 ```
 

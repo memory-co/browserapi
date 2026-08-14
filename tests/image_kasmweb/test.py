@@ -4,7 +4,7 @@ import pytest
 
 from tests.image_conftest import need_image, session_on, sweep
 
-IMAGE = "webmuxd/kasmweb-chromium:1.18.0"
+IMAGE = "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0"
 
 pytestmark = pytest.mark.slow
 

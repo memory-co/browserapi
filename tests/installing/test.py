@@ -83,7 +83,7 @@ def test_install_records_docker_and_the_image(record_file, fake_probe):
 
     assert rec["docker"] == "/usr/bin/docker"
     assert rec["docker_version"] == "29.7.2"
-    assert rec["default_container"] == "webmuxd/kasmweb-chromium:1.18.0"
+    assert rec["default_container"] == "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0"
     assert env.load()["default_container"] == rec["default_container"]
     assert "记录写到" in out.getvalue()
 

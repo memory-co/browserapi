@@ -47,7 +47,7 @@ from webmuxd import env
 from webmuxd.runtime.base import Handle, require_ports, unavailable, wait_http
 
 #: kasm 官方镜像 —— 桌面那一半是它做的,我们不重复造,也不在它上面加层。
-IMAGE = os.environ.get("WEBMUXD_IMAGE", "webmuxd/kasmweb-chromium:1.18.0")
+IMAGE = os.environ.get("WEBMUXD_IMAGE", "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0")
 #: 打在容器上的标签 —— server 重启后靠它把跑着的 session 认回来。
 LABEL = "webmuxd.session"
 
