@@ -1,15 +1,5 @@
-# webmuxd/jlesage-chromium —— jlesage 原厂镜像 + 默认打开它自带的 CDP 转发。
-#
-# 这个底座**本来就做了**我们要的事:内置一个 socat 服务把 Chromium 那个只绑
-# loopback 的调试口搬到 0.0.0.0。wrapper 只是把它默认打开,并把端口的名字
-# 统一成 `WEBMUXD_CDP_PORT`,好让两个镜像对外长得一样。
-#
-#   docker build -t webmuxd/jlesage-chromium:latest docker/jlesage-chromium/
-#
-# **这个镜像能用 --network host 一机多开。** 它给 Xvnc 的是
-# `-nolisten local -rfbunixpath=...` —— X 的抽象 socket 关掉了,RFB 走文件系统上的
-# socket,于是抽象命名空间里只剩内核给的匿名 autobind,一个自己起名字的都没有,
-# 所以共享 netns 不会撞。
+# 把 jlesage/chromium 改造成 webmuxd 能用的镜像:底座本来就有 CDP
+# 转发,这一层只是默认打开它、并统一端口变量名。见 ./README.md。
 ARG BASE=jlesage/chromium:latest
 FROM ${BASE}
 
@@ -24,9 +14,9 @@ LABEL webmuxd.window.port=5800 \
       webmuxd.window.scheme=http \
       webmuxd.window.user_env=WEB_AUTHENTICATION_USERNAME \
       webmuxd.window.password_env=WEB_AUTHENTICATION_PASSWORD \
-      webmuxd.window.port_env=WEB_LISTENING_PORT \
+      webmuxd.window.port_env=WEBMUXD_WINDOW_PORT \
       webmuxd.cdp.port=9222 \
-      webmuxd.cdp.port_env=CHROMIUM_REMOTE_DEBUGGING_PORT \
+      webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \
       webmuxd.chromium.args_env=CHROMIUM_CUSTOM_ARGS \
       webmuxd.chromium.url_env="" \
       webmuxd.host_network=multi
