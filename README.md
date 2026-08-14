@@ -6,7 +6,7 @@
 
 **Chromium 做成一个 Python 库:活得比连接久、程序能驱动、人能用浏览器打开的浏览器。**
 
-**简体中文** · [GitHub](https://github.com/memory-co/webmuxd) · [CNB](https://cnb.cool/agentuse/webmuxd)(国内)
+**简体中文** · [更新日志](CHANGELOG.md) · [GitHub](https://github.com/memory-co/webmuxd) · [CNB](https://cnb.cool/agentuse/webmuxd)(国内)
 
 **webmuxd 是一个 `*muxd` 组件** —— 一扇 HTTP 上的窗给人,一个 Python 把手给程序。
 这一族的规范定在 [shellbase](https://github.com/memory-co/shellbase):
