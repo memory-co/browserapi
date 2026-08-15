@@ -83,9 +83,34 @@ class Observation:
         raise NotFound(f"这次观测里没有 role={role} name={name}", code="not_found",
                        details={"candidates": [vars_of(e) for e in self.elements[:3]]})
 
+    @property
+    def viewport(self) -> tuple[int, int]:
+        """页面视口 —— **元素坐标就活在这个尺寸里**。"""
+        p = self._d.get("page") or {}
+        return int(p.get("w") or 0), int(p.get("h") or 0)
+
+    @property
+    def screen(self) -> tuple[int, int]:
+        """桌面分辨率。
+
+        **它会被"有人打开观看页面"改掉** —— 客户端能请求 remote resize
+        (Xvnc 那边 `-AcceptSetDesktopSize` 是开着的)。分辨率一变,响应式站点
+        会重排,上一次观测拿到的坐标就作废了。所以这个值要如实带出来,
+        让调用方能发现"地动了",而不是纳闷为什么点偏了。
+        """
+        p = self._d.get("page") or {}
+        return int(p.get("screenW") or 0), int(p.get("screenH") or 0)
+
     def as_prompt(self) -> str:
         """紧凑排版,**纯客户端,不请求网络**。直接进 prompt。"""
         out = []
+        vw, vh = self.viewport
+        sw, sh = self.screen
+        if vw and vh:
+            head = f"视口 {vw}x{vh}"
+            if sw and sh and (sw, sh) != (vw, vh):
+                head += f"(桌面 {sw}x{sh})"
+            out.append(head)
         for e in self.elements:
             line = f'[{e.id}] {e.role:8} "{e.name}"'
             if e.value is not None:

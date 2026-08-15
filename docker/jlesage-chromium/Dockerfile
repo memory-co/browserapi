@@ -21,6 +21,7 @@ LABEL webmuxd.window.port=5800 \
       webmuxd.window.bind_env=WEBMUXD_BIND \
       webmuxd.window.auth_env=WEBMUXD_AUTH \
       webmuxd.tz_env=TZ \
+      webmuxd.resolution_env=WEBMUXD_RESOLUTION \
       webmuxd.window.tls_env=WEBMUXD_TLS \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \

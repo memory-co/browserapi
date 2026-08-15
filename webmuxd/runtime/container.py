@@ -78,6 +78,7 @@ class Profile:
     auth_env: str = ""
     tls_env: str = ""
     tz_env: str = ""
+    resolution_env: str = ""
     cdp_port_env: str = "WEBMUXD_CDP_PORT"
     window_user: str = ""
     window_user_env: str = ""
@@ -114,6 +115,7 @@ class Profile:
             auth_env=lab.get("window.auth_env", ""),
             tls_env=lab.get("window.tls_env", ""),
             tz_env=lab.get("tz_env", ""),
+            resolution_env=lab.get("resolution_env", ""),
             cdp_port_env=lab.get("cdp.port_env") or "WEBMUXD_CDP_PORT",
             window_user=lab.get("window.user", ""),
             window_user_env=lab.get("window.user_env", ""),
@@ -244,6 +246,11 @@ class ContainerRuntime:
         # 免得下一个镜像换了名字时这里要改代码。
         if tz and prof.tz_env:
             args += ["-e", f"{prof.tz_env}={tz}"]
+        # **桌面分辨率跟着 viewport 一起定。** 早先只把它传给了 Chromium 的
+        # --window-size,桌面还是底座的默认(kasm 1024x768),于是窗口比桌面大、
+        # 边上被裁 —— 而这东西的全部意义就是"人看到的和截图是同一个"。
+        if prof.resolution_env:
+            args += ["-e", f"{prof.resolution_env}={viewport}"]
         for env_name, value in ((prof.password_env, vnc_pw),
                                 (prof.url_env, url),
                                 (prof.args_env, " ".join(app_args)),

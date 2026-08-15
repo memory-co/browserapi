@@ -85,3 +85,18 @@ addr.sun_path[0] = '\0';                 // ← 抽象命名空间
 
 **`WEBMUXD_BIND` 也是 patch 出来的。** 底座把 `-interface 0.0.0.0` 写死在同一个
 启动脚本里(和那个死循环一个文件),build 时一起 `sed` 成变量。
+
+## 已知没做到:桌面分辨率改不了
+
+`WEBMUXD_RESOLUTION` 这个镜像**不声明**(标签里没有 `webmuxd.resolution_env`),
+所以 webmuxd 不会去设它 —— 桌面固定在底座默认的 **1024×768**。
+
+不是没接:环境变量确实到了容器里(`VNC_RESOLUTION=1280x800`),启动脚本也确实写着
+`vncserver … -geometry $VNC_RESOLUTION`,但 Xvnc 最终拿到的是 `-geometry 1024x768`。
+中间被什么盖掉了还没挖到 —— 排除过 `~/.vnc/config` 和默认 profile 里的 `.vnc/`;
+下一个可疑点是 `vncserver` 那个 perl 包装脚本里的 `$geometry = "1024x768"`。
+
+**在挖清楚之前不声明这个能力** —— 声明了就等于让调用方以为设过了,
+而画面和截图尺寸对不上是最难查的那类问题。
+
+[jlesage 那个](../jlesage-chromium/README.md)可以:`DISPLAY_WIDTH/HEIGHT` 直接生效。

@@ -6,6 +6,12 @@ set -e
 export WEB_LISTENING_PORT="${WEBMUXD_WINDOW_PORT:-5800}"
 export CHROMIUM_REMOTE_DEBUGGING_PORT="${WEBMUXD_CDP_PORT:-9222}"
 
+# 桌面分辨率。底座分成宽高两个变量,这里把 WxH 拆开。
+if [ -n "${WEBMUXD_RESOLUTION:-}" ]; then
+    export DISPLAY_WIDTH="${WEBMUXD_RESOLUTION%x*}"
+    export DISPLAY_HEIGHT="${WEBMUXD_RESOLUTION#*x}"
+fi
+
 # 窗绑哪个地址。底座只给了个布尔(只听 loopback 与否),所以这里把地址翻译成
 # 布尔 —— 它表达不了"绑某个具体网卡",而我们也只需要这两种。
 case "${WEBMUXD_BIND:-0.0.0.0}" in

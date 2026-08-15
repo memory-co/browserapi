@@ -116,7 +116,8 @@ _PAGE_JS = """(() => JSON.stringify({
   loading: document.readyState !== 'complete',
   scrollY: window.scrollY, maxY: Math.max(0, document.body
       ? document.body.scrollHeight - window.innerHeight : 0),
-  w: window.innerWidth, h: window.innerHeight
+  w: window.innerWidth, h: window.innerHeight,
+  screenW: screen.width, screenH: screen.height
 }))()"""
 
 
