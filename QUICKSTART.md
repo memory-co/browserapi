@@ -61,7 +61,7 @@ CLI 只是薄薄一层,**库才是主体**:
 from webmuxd import Webmuxd
 
 web  = Webmuxd(user="me")                                      # 空壳管理实例
-sess = web.session(id="demo", port=7900, view_port=6901,        # 一个浏览器
+sess = web.session(id="demo", api_port=7900, view_port=6901,        # 一个浏览器
                    runtime="container")
 print(sess.view_url, sess.view_login, sess.view_password)          # 人从这儿进去看
 

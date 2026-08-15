@@ -18,6 +18,19 @@ RUN chmod 755 /usr/local/bin/webmuxd-entrypoint /usr/local/bin/cdp-relay.py
 # eth0),于是 Xvnc 和 Chromium 一个都起不来 —— 而症状是"容器 Up、日志停住、
 # 没有任何报错"。
 #
+# 第二处同类的:`VNC_IP=$(hostname -i)`。很多云主机(阿里云是典型)的
+# `/etc/hosts` 里根本没有自己 hostname 的 IPv4 记录,`hostname -i` 直接失败;
+# 而脚本开头是 `set -e`、第 76 行 `trap cleanup ... ERR`,于是:
+#
+#     hostname -i 失败 → ERR trap → cleanup() 里 `kill -s SIGTERM $!`
+#     → 此时 $! 是空的 → `kill: usage:` → 容器 Exited (2)
+#
+# **而那个值只用来打日志**(616 行 DEBUG 时 echo 一次,667 行写进一条 log),
+# 没有任何东西绑它。整个容器为一个谁都不用的变量死掉。
+#
+# 两处都是同一个根源:**kasm 的启动脚本假设自己跑在 docker bridge 里**,
+# host 网络下这些假设一条条塌。
+#
 # **改在我们这一层,底座镜像本身不动。** 补丁打不上就让 build 失败,
 # 绝不静默留一份没改的(那会在运行时卡死,报错还指向别处)。
 RUN grep -q 'function wait_for_network_devices() {' /dockerstartup/vnc_startup.sh \
@@ -25,6 +38,9 @@ RUN grep -q 'function wait_for_network_devices() {' /dockerstartup/vnc_startup.s
         /dockerstartup/vnc_startup.sh \
  && grep -q -- '-interface 0.0.0.0' /dockerstartup/vnc_startup.sh \
  && sed -i 's|-interface 0.0.0.0|-interface ${KASM_INTERFACE:-0.0.0.0}|g' \
+        /dockerstartup/vnc_startup.sh \
+ && grep -q 'hostname -i' /dockerstartup/vnc_startup.sh \
+ && sed -i 's|$(hostname -i)|$(hostname -i 2>/dev/null \|\| echo 127.0.0.1)|g' \
         /dockerstartup/vnc_startup.sh
 USER 1000
 

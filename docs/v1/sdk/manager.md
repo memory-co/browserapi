@@ -30,7 +30,7 @@ web = Webmuxd(name="ci")                                    # = CLI 的 -L ci
 **只有一个入口,幂等:同一个 `id` 永远给你同一个 session。**
 
 ```python
-sess = web.session(id="work", port=7900, view_port=6901, runtime="container")
+sess = web.session(id="work", api_port=7900, view_port=6901, runtime="container")
 sess = web.session(id="work")            # 已经有了 → 同一个,后面的参数都不用再给
 ```
 
@@ -53,7 +53,7 @@ web.session(id="work") is web.session(id="work")   # True
 
 ```python
 web.session(id="work")                    # ✗ 这个 id 还不存在 → BadRequest,缺 port
-web.session(id="work", port=7900, view_port=6901)   # ✓
+web.session(id="work", api_port=7900, view_port=6901)   # ✓
 ```
 
 **不自动分配。** 端口是**部署决定**的 —— compose 或 k8s 里映射写死在配置文件里,
@@ -67,8 +67,8 @@ web.session(id="work", port=7900, view_port=6901)   # ✓
 ### `runtime` —— 怎么把它拉起来
 
 ```python
-web.session(id="work", port=7900, view_port=6901, runtime="container")  # 默认
-web.session(id="dev",  port=7901, view_port=6902, runtime="process")
+web.session(id="work", api_port=7900, view_port=6901, runtime="container")  # 默认
+web.session(id="dev",  api_port=7901, view_port=6902, runtime="process")
 web.session(id="prod", runtime="remote", endpoint="https://browser.internal:7800")
 ```
 
@@ -89,7 +89,7 @@ web.session(id="prod", runtime="remote", endpoint="https://browser.internal:7800
 ### 其余参数
 
 ```python
-sess = web.session(id="work", port=7900, view_port=6901,
+sess = web.session(id="work", api_port=7900, view_port=6901,
                    url="https://example.com", window_size="1024x768",
                    volume="webmuxd-work", proxy="http://egress:3128")
 ```
@@ -111,7 +111,7 @@ web.shutdown()                 # 等价 kill-server
 看这个列表就行,没有单独的 `has()`。
 
 ```python
-with web.session(id="tmp", port=7901, view_port=6902) as sess:
+with web.session(id="tmp", api_port=7901, view_port=6902) as sess:
     tab = sess.open("https://example.com")
 # 退出时 kill —— 但只有这次调用真的把它建起来时才 kill
 ```
@@ -122,7 +122,7 @@ with web.session(id="tmp", port=7901, view_port=6902) as sess:
 
 ```python
 try:
-    sess = web.session(id="work", port=7900, view_port=6901)
+    sess = web.session(id="work", api_port=7900, view_port=6901)
 except RuntimeUnavailable as e:
     print(e.hint)     # "改用 runtime=process,但那样没有隔离"
 ```
@@ -138,7 +138,7 @@ docker 不通时**不会静默换成 `process`** —— 那等于把页面偷偷
 
 ```python
 web = Webmuxd()
-sessions = [web.session(id=f"w{i}", port=7900+i, view_port=6901+i)
+sessions = [web.session(id=f"w{i}", api_port=7900+i, view_port=6901+i)
             for i in range(4)]                 # 四个容器,四个 Chromium,八个端口
 ```
 
@@ -151,7 +151,7 @@ sessions = [web.session(id=f"w{i}", port=7900+i, view_port=6901+i)
 | --- | --- |
 | `Webmuxd()` | unix socket,不经 HTTP |
 | `Webmuxd(port=)` / `Webmuxd(url, token=)` | `<host:port>/api` |
-| `web.session(id=, port=, view_port=, ...)` | `GET /api/sessions/{id}`,404 就 `POST /api/sessions` |
+| `web.session(id=, api_port=, view_port=, ...)` | `GET /api/sessions/{id}`,404 就 `POST /api/sessions` |
 | `web.sessions()` | `GET /api/sessions` |
 | `web.kill(id)` | `DELETE /api/sessions/{id}` |
 | `web.info()` | `GET /api/server` |

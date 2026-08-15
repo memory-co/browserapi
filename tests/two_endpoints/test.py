@@ -422,6 +422,29 @@ def test_an_unpullable_image_says_why(monkeypatch):
     assert "manifest unknown" in str(ei.value)
 
 
+def test_host_mode_pins_the_hostname_to_loopback(monkeypatch):
+    """**云主机的 /etc/hosts 里常常没有自己 hostname 的 IPv4 记录**
+    (阿里云是典型)。host 网络下容器沿用这份 hosts,kasm 启动时 `xauth` 拿
+    hostname 拼显示名就失败,容器起不来 —— 而报出来的是 `kill: usage:` 和
+    `Exited (2)`,和 hostname 一点关系看不出来。
+
+    所以 host 模式下自己钉一条,**不去动宿主机的系统文件**。
+    """
+    import socket
+
+    seen = []
+    _fake_docker(monkeypatch, seen)
+    ContainerRuntime().start("work", api_port=7900, view_port=6901)
+    joined = " ".join(_run_cmd(seen))
+    assert f"--add-host {socket.gethostname()}:127.0.0.1" in joined
+
+    # bridge 下 docker 自己会把容器 hostname 写进 /etc/hosts,不用我们管
+    seen.clear()
+    _fake_docker(monkeypatch, seen)
+    ContainerRuntime().start("work", api_port=7900, view_port=6901, network="bridge")
+    assert "--add-host" not in " ".join(_run_cmd(seen))
+
+
 def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):
     """kasm 少于 6 位会直接退出,报的错是 `kill: usage:`、和密码毫无关系。"""
     seen = []

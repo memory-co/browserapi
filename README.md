@@ -26,7 +26,7 @@ webmuxd 让这两件事落在**同一个浏览器**上:
 from webmuxd import Webmuxd
 
 web  = Webmuxd(user="claudecode")                            # 空壳,不起任何东西
-sess = web.session(id="work", port=7900, view_port=8090)      # 这行才起一个浏览器
+sess = web.session(id="work", api_port=7900, view_port=8090)      # 这行才起一个浏览器
 tab  = sess.open("https://example.com")
 
 tab.type("手机号", "13800000000")
@@ -57,7 +57,7 @@ webmuxd install          # 只做两件事:确认 docker 能用、镜像拉不�
 from webmuxd import Webmuxd
 
 web = Webmuxd()
-sess = web.session(id="work", port=7900, view_port=8090)   # 镜像用记录里的默认
+sess = web.session(id="work", api_port=7900, view_port=8090)   # 镜像用记录里的默认
 tab = sess.open("https://news.ycombinator.com")
 
 print(tab.observe().as_prompt())      # 元素表,直接喂多模态模型
@@ -139,7 +139,7 @@ docker pull docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0  # 国内
 要换成别的,两条路都接同一个参数:
 
 ```python
-sess = web.session(id="work", port=7900, view_port=8090,
+sess = web.session(id="work", api_port=7900, view_port=8090,
                    image="docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1")
 ```
 

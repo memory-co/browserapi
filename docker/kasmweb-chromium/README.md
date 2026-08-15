@@ -42,6 +42,39 @@ sleep 1        # 认不出就永远转下去
 **补丁打不上就让 build 失败**,绝不静默留一份没改的:那会在运行时卡死,
 而报错指向别处。
 
+### 还有一处:hostname 解析不了就整个死掉
+
+同一个脚本里两处 `$(hostname -i)`。`--network host` 下 docker 会把**宿主机的
+`/etc/hosts` 抄一份**给容器,而不少云主机(阿里云是典型)里没有自己 hostname 的
+IPv4 记录,于是:
+
+```
+hostname -i           → Name or service not known      (set -e + ERR trap)
+cleanup() 里 kill $!  → $! 是空的 → kill: usage: …
+                      → 容器 Exited (2)
+```
+
+**这两个值只用来打日志**(一处 DEBUG 时 echo,一处写进 log),没有任何东西绑它 ——
+容器为一个谁都不用的变量死掉,报出来的还是 `kill: usage:`。所以 `sed` 成解析不了
+就退回 `127.0.0.1`。
+
+**光这条还不够**:`xauth` 拿 hostname 拼显示名(`<主机名>:1`),hostname 不解析
+一样过不去(`bad display name`)。那半边在 webmuxd 里 —— host 模式下 `docker run`
+带 `--add-host <宿主机 hostname>:127.0.0.1`。**不去改宿主机的 `/etc/hosts`**:
+那是为了迁就容器动系统文件,换台机器还得再来一次。
+
+### 顺带查清的:`-geometry` 是被无视的
+
+用 kasm 自带的 `KASM_DEBUG=1`(会开 `set -x`)能看到真实展开:
+
+```
+vncserver :1 … -geometry 1280x720 … -interface 0.0.0.0 …
+```
+
+**命令行上有值,Xvnc 最终仍用它自己的 1024x768** —— 这个 KasmVNC 版本的
+`vncserver` 根本没吃命令行上的这些选项。所以下面"分辨率改不了"是上游的事,
+不是我们没接上。
+
 ## ⚠ `--network host` 下一台机器只能跑一个
 
 KasmVNC 内部用 `.KasmVNCSock<pid>` 做会合点

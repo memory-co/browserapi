@@ -38,6 +38,7 @@ import json
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -238,7 +239,18 @@ class ContainerRuntime:
                 raise unavailable(
                     self.name, f"{img} 没说画面口怎么改(webmuxd.view.port_env)",
                     "host 网络下没有 -p 可以映射;换 network=\"bridge\" 就不需要它")
+            # **把宿主机的 hostname 在容器里钉到回环。**
+            #
+            # 很多云主机(阿里云是典型)的 /etc/hosts 里没有自己 hostname 的
+            # IPv4 记录。host 网络下容器沿用这份 hosts,于是 kasm 启动时
+            # `xauth` 拿 hostname 拼显示名(`<主机名>:1`)直接失败,容器起不来
+            # —— 而报出来的是 `kill: usage:` 和 `Exited (2)`,和 hostname
+            # 一点关系都看不出来。
+            #
+            # **不去改宿主机的 /etc/hosts** —— 那是为了迁就容器去动系统文件,
+            # 而且换台机器还得再来一次。`--add-host` 只作用于这个容器。
             args += ["--network", "host",
+                     "--add-host", f"{socket.gethostname()}:127.0.0.1",
                      "-e", f"{prof.view_port_env}={view_port}",
                      "-e", f"{prof.cdp_port_env}={cdp_host_port}"]
             # host 下容器的网络栈就是宿主机的,所以 `bind` 直接传给镜像。

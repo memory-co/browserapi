@@ -1,5 +1,42 @@
 # 更新日志
 
+## 0.4.2
+
+**修:云主机上 `--network host` 起不来**(阿里云是典型)。
+
+那类机器的 `/etc/hosts` 里没有自己 hostname 的 IPv4 记录。host 网络下容器沿用
+这份 hosts,于是 kasm 的启动脚本连环失败:
+
+```
+hostname -i           → Name or service not known      (set -e + ERR trap)
+cleanup() 里 kill $!  → $! 是空的 → kill: usage: …
+                      → 容器 Exited (2)
+```
+
+**两处都修了,而且都不用动你的宿主机:**
+
+1. 镜像里把 `$(hostname -i)` 改成解析不了就退回 `127.0.0.1` ——
+   那两个值**只用来打日志**(一处 DEBUG 时 echo,一处写进 log),
+   没有任何东西绑它。整个容器为一个谁都不用的变量死掉。
+2. host 模式下 `docker run` 加 `--add-host <宿主机 hostname>:127.0.0.1` ——
+   `xauth` 拿 hostname 拼显示名(`<主机名>:1`),这一步光靠上面那条救不了。
+
+**不改宿主机的 `/etc/hosts`**:那是为了迁就容器去动系统文件,而且换台机器
+还得再来一次;报错又是 `kill: usage:`,和 hostname 一点关系看不出来。
+
+### 顺带查清一桩悬案
+
+用 kasm 自带的 `KASM_DEBUG=1`(会开 `set -x`)看到真实展开:
+
+```
+vncserver :1 … -geometry 1280x720 … -interface 0.0.0.0 …
+```
+
+**命令行上 `-geometry` 有值,而 Xvnc 最终仍用它自己的 1024x768** ——
+这个 KasmVNC 版本的 `vncserver` 根本没吃命令行上的这些选项。
+所以"kasm 桌面分辨率改不了"是上游的事,不是我们没接上;
+那个能力继续不声明。
+
 ## 0.4.1
 
 **本机没有镜像时自己拉,不再叫你去 `docker pull`。**

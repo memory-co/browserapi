@@ -4,7 +4,7 @@
 从 [`Webmuxd`](manager.md) 那儿拿:
 
 ```python
-sess = web.session(id="work", port=7900, view_port=6901)     # 新建一个
+sess = web.session(id="work", api_port=7900, view_port=6901)     # 新建一个
 sess = web.session(id="work")     # 同一个 id → 同一个 session
 ```
 

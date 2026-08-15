@@ -100,7 +100,7 @@ tab    new-tab  tabs  select-tab  kill-tab  move-tab
 参数从 **lib** 传([sdk/manager.md §1](../sdk/manager.md#1-session--拿一个-session)):
 
 ```python
-web.session(id="work", port=7900, view_port=6901,
+web.session(id="work", api_port=7900, view_port=6901,
             runtime="process", window_size="1024x768")
 ```
 

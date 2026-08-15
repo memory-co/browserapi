@@ -32,7 +32,7 @@ pip install webmuxd
 from webmuxd import Webmuxd
 
 web  = Webmuxd()                                   # ① 管理实例:空壳,不起任何浏览器
-sess = web.session(id="work", port=7900,           # ② 一个 session = 一个 kasm 容器
+sess = web.session(id="work", api_port=7900,           # ② 一个 session = 一个 kasm 容器
                    view_port=6901, runtime="container")
 tab  = sess.open("https://shop.example.com")       # ③ 一个 tab = 一个页面句柄
 
@@ -126,7 +126,7 @@ tab.click("登录", user="claudecode")
 sess.open(url, user="human")
 
 web  = Webmuxd(user="claudecode")               # 设默认,底下所有 session 继承
-sess = web.session(id="w2", port=7901, view_port=6902,
+sess = web.session(id="w2", api_port=7901, view_port=6902,
                    user="cursor")              # 也能按 session 覆盖
 ```
 
@@ -199,7 +199,7 @@ except PlatformError:
 
 ```python
 web = Webmuxd()
-sessions = [web.session(id=f"w{i}", port=7900+i, view_port=6901+i)
+sessions = [web.session(id=f"w{i}", api_port=7900+i, view_port=6901+i)
             for i in range(4)]
 with ThreadPoolExecutor(4) as pool:
     pool.map(run_one, sessions)          # 一个线程一个 session
@@ -226,7 +226,7 @@ except BusyHuman as e:
 | lib | 导出成 |
 | --- | --- |
 | `Webmuxd()` / `Webmuxd(port=)` | socket / `<host:port>/api`,见 [manager.md](manager.md) |
-| `web.session(id=, port=, view_port=)` | `GET /api/sessions/{id}`,404 就 `POST` |
+| `web.session(id=, api_port=, view_port=)` | `GET /api/sessions/{id}`,404 就 `POST` |
 | `web.sessions()` `web.kill()` | `GET` `DELETE /api/sessions[/{id}]` |
 | `web.info()` `web.shutdown()` | `GET /api/server` `POST /api/server/shutdown` |
 | `sess.open(url)` | `POST /api/tabs {url}` |
