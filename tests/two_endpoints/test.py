@@ -422,6 +422,99 @@ def test_an_unpullable_image_says_why(monkeypatch):
     assert "manifest unknown" in str(ei.value)
 
 
+def test_alive_means_you_can_use_it_not_just_that_docker_says_up(monkeypatch):
+    """**容器活着不等于这个 session 能用。**
+
+    sessiond 掉了、容器没掉的时候,`alive()` 只问 docker 就会报 ready,于是
+    `webmuxd new` 说一句"已经在跑了"然后什么都不做 —— 而 `api_url` 是死的,
+    人就卡在那儿。`ready` 承诺的是"你现在就能用它"。
+    """
+    class R:
+        returncode, stdout, stderr = 0, "true", ""
+
+    monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", lambda *a, **k: R())
+    h = Handle("container", "work", 7900, 6901, {"container_id": "deadbeef"})
+
+    monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: False)
+    assert not ContainerRuntime().alive(h), "API 不应答就不算 ready"
+
+    monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: True)
+    assert ContainerRuntime().alive(h)
+
+
+def _fake_docker_with_prior(monkeypatch, seen, *, running, view=6901, cdp=9333):
+    """假机器上**已经有一个叫 webmuxd-work 的容器**了。"""
+    inspected = [{
+        "Id": "c9cda52032c1", "State": {"Running": running},
+        "Config": {"Image": "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0",
+                   "Env": [f"WEBMUXD_VIEW_PORT={view}", f"WEBMUXD_CDP_PORT={cdp}",
+                           "WEBMUXD_PASSWORD=old-one", "WEBMUXD_LOGIN=kasm_user"]},
+    }]
+
+    class R:
+        def __init__(self, rc=0, out="deadbeef"):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    def fake(args, **kw):
+        seen.append(args)
+        joined = " ".join(args)
+        if "inspect" in args and "Config.Labels" in joined:
+            return R(out=json.dumps(KASM_LABELS))
+        if "inspect" in args and "webmuxd-work" in args:
+            return R(out=json.dumps(inspected))
+        return R()
+
+    monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
+    monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: "/usr/bin/docker")
+    monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: True)
+    monkeypatch.setattr("webmuxd.runtime.container._spawn_sessiond",
+                        lambda *a, **k: type("P", (), {"pid": 4242, "poll": lambda s: None})())
+
+
+def test_a_dead_container_left_over_gets_cleared_not_reported(monkeypatch):
+    """**上次起失败留下的尸体不该挡住这次。**
+
+    它一直占着 `webmuxd-work` 这个名字,于是下一次 `webmuxd new` 撞在
+    docker 的 "name is already in use" 上 —— 报错指向 docker,而真正该做的事
+    (把尸体删掉)一个字都没提。停着的容器里没有任何值得留的东西。
+    """
+    seen = []
+    _fake_docker_with_prior(monkeypatch, seen, running=False)
+    ContainerRuntime().start("work", api_port=7900, view_port=6901)
+
+    assert any(a[1] == "rm" and "c9cda52032c1" in a for a in seen), "尸体没删掉"
+    assert _run_cmd(seen), "删完要照常起一个新的"
+
+
+def test_a_live_container_is_reattached_not_rebuilt(monkeypatch):
+    """**活着的容器不重建** —— 同一个 id 就是同一个浏览器,这才叫幂等。
+
+    重建等于把人正开着的页面、登录态、下载全丢掉。走到这里说明 sessiond 掉了、
+    容器没掉,把 sessiond 接回去就行。
+    """
+    seen = []
+    _fake_docker_with_prior(monkeypatch, seen, running=True, cdp=9333)
+    h = ContainerRuntime().start("work", api_port=7900, view_port=6901)
+
+    assert not any(a[1] == "run" and "-d" in a for a in seen), "不该重建"
+    assert not any(a[1] == "rm" for a in seen), "更不该删"
+    assert h.detail["reattached"] and h.detail["cdp_port"] == 9333
+    assert h.detail["view_password"] == "old-one", "口令是容器启动那刻定的,得如实报"
+    assert h.view_url.startswith("https://"), "scheme 仍然从镜像标签读"
+
+
+def test_reattach_refuses_to_pretend_the_view_port_changed(monkeypatch):
+    """容器的画面口是它启动那一刻定的,**改不了**。
+
+    默默沿用旧口的话,调用方会拿着 `--view-port` 给的那个去连一个空端口。
+    """
+    seen = []
+    _fake_docker_with_prior(monkeypatch, seen, running=True, view=6901)
+    with pytest.raises(RuntimeUnavailable) as e:
+        ContainerRuntime().start("work", api_port=7900, view_port=8090)
+    assert "6901" in str(e.value) and "8090" in str(e.value)
+
+
 def test_host_mode_pins_the_hostname_to_loopback(monkeypatch):
     """**云主机的 /etc/hosts 里常常没有自己 hostname 的 IPv4 记录**
     (阿里云是典型)。host 网络下容器沿用这份 hosts,kasm 启动时 `xauth` 拿

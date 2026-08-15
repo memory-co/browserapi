@@ -1,6 +1,6 @@
 [project]
 name = "webmuxd"
-version = "0.4.2"
+version = "0.4.4"
 description = "tmux + ttyd for a browser: a persistent Chromium you can watch and drive"
 readme = "README.md"
 requires-python = ">=3.10"

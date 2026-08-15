@@ -194,6 +194,22 @@ class ContainerRuntime:
             raise unavailable(self.name, why,
                               "可以改用 runtime=process,但那样没有隔离"
                               "(页面跑在你自己机器上)")
+        # **同一个 id 再来一次,不该撞在"名字被占了"上。**
+        # 这个名字只可能是 webmuxd 自己上一次留下的,所以我们有资格处理它。
+        prior = self._by_name(f"webmuxd-{id}")
+        if prior and prior["running"]:
+            # **还活着的容器不重建** —— 同一个 id 就是同一个浏览器,这才叫幂等。
+            # 重建等于把人正开着的页面、登录态、下载全丢掉。
+            # (走到这里说明 sessiond 掉了,容器没掉;把 sessiond 接回去就行。)
+            return self._reattach(prior, id, api_port=api_port, view_port=view_port,
+                                  tab_max=tab_max, log_limit=log_limit,
+                                  human_yield=human_yield)
+        if prior:
+            # **停着的容器直接删。** 那是上次失败留下的尸体 —— 状态早就没了,
+            # 留着只会一直占住名字,而报错还指向 docker 而不是指向它。
+            subprocess.run([self.docker, "rm", "-f", prior["id"]],
+                           capture_output=True)
+
         require_ports(api_port, view_port)
         img = image or self.image
         prof = Profile.read(self.docker, img)
@@ -309,7 +325,8 @@ class ContainerRuntime:
         r = subprocess.run(args, capture_output=True, text=True)
         if r.returncode != 0:
             raise unavailable(self.name, f"docker run 失败:{r.stderr.strip()[:200]}",
-                              "先手工 docker run 一次看看")
+                              f"上面是 docker 的原话。`docker logs webmuxd-{id}` "
+                              f"通常能看到更具体的")
         cid = r.stdout.strip()
 
         procs: dict[str, Any] = {}
@@ -348,6 +365,83 @@ class ContainerRuntime:
                        "pids": {k: p.pid for k, p in procs.items()},
                        "_procs": procs})
 
+    # ------------------------------------------------------------------ 重来
+
+    def _by_name(self, name: str) -> dict[str, Any] | None:
+        """这个名字上有没有容器 —— **停着的也算**,`docker ps` 看不见它们。"""
+        r = subprocess.run(
+            [self.docker, "inspect", name], capture_output=True, text=True)
+        if r.returncode != 0:
+            return None
+        try:
+            d = json.loads(r.stdout)[0]
+        except Exception:
+            return None
+        envs = dict(e.split("=", 1) for e in (d["Config"].get("Env") or [])
+                    if "=" in e)
+        # bridge 下端口在 `-p` 映射里、不在环境变量里,两边都得能读
+        pub: dict[int, int] = {}
+        for spec, binds in (d.get("NetworkSettings", {}).get("Ports") or {}).items():
+            if binds:
+                pub[int(spec.split("/")[0])] = int(binds[0]["HostPort"])
+        return {"id": d["Id"], "running": d["State"].get("Running", False),
+                "image": d["Config"].get("Image", ""), "env": envs, "pub": pub}
+
+    def _reattach(self, prior: dict[str, Any], id: str, *, api_port: int,
+                  view_port: int, tab_max, log_limit, human_yield) -> Handle:
+        """容器还活着,只是没人跟它说话了 —— 重新起一个 sessiond 接上去。"""
+        env_, pub = prior["env"], prior["pub"]
+        # 镜像还在本机,所以照旧**读标签**(不会去拉);读不到就退回默认值,
+        # 容器还跑着,为了一个 scheme 报错不值当。
+        try:
+            prof = Profile.read(self.docker, prior["image"], pull=False)
+            scheme, dflt_login, tls_env = prof.view_scheme, prof.view_login, prof.tls_env
+            in_cdp, in_view = prof.cdp_port, prof.view_port
+        except Exception:
+            scheme, dflt_login, tls_env = "https", "", ""
+            in_cdp, in_view = 9222, 0
+
+        # host 模式下端口是**告诉镜像的**(env),bridge 模式下是 `-p` 映射出来的
+        cdp = int(env_.get("WEBMUXD_CDP_PORT") or 0) or pub.get(in_cdp, 0)
+        had = int(env_.get("WEBMUXD_VIEW_PORT") or 0) or pub.get(in_view, 0)
+        if not cdp:
+            # 认不出 CDP 口就**不猜** —— 猜错的话 sessiond 会连上另一个浏览器,
+            # 而一切看起来都正常。
+            raise unavailable(
+                self.name, f"webmuxd-{id} 还在跑,但读不出它的 CDP 口",
+                f"docker rm -f webmuxd-{id} 之后重来")
+        if had and view_port and had != view_port:
+            # **不假装换了口。** 容器的口是它启动那一刻定的,改不了;
+            # 默默沿用旧口的话,调用方会拿着 --view-port 给的那个去连一个空端口。
+            raise unavailable(
+                self.name,
+                f"webmuxd-{id} 还在跑,画面在 {had},不是 --view-port 要的 {view_port}",
+                f"用 --view-port {had} 接着用,或者 webmuxd kill -t {id} 重开一个")
+        require_ports(api_port)
+        if not wait_http(f"http://127.0.0.1:{cdp}/json/version", 10):
+            raise unavailable(
+                self.name, f"webmuxd-{id} 容器在跑,但 CDP({cdp})没响应",
+                f"docker rm -f webmuxd-{id} 之后重来")
+        procs = {"sessiond": _spawn_sessiond(
+            api_port, f"http://127.0.0.1:{cdp}", id, tab_max=tab_max,
+            log_limit=log_limit, human_yield=human_yield)}
+        if not wait_http(f"http://127.0.0.1:{api_port}/healthz", 30):
+            _kill(procs)
+            raise unavailable(self.name, "sessiond 没起来",
+                              "手工跑一遍 python -m webmuxd.serve 看报什么")
+        print(f"webmuxd-{id} 本来就在跑,接回来了(没重建,页面还在)",
+              file=sys.stderr, flush=True)
+        if env_.get(tls_env or "WEBMUXD_TLS", "1") in ("0", "false", "no"):
+            scheme = "http"
+        return Handle(self.name, id, api_port, had or view_port,
+                      {"container_id": prior["id"], "image": prior["image"],
+                       "cdp_port": cdp, "reattached": True,
+                       "view_scheme": scheme,
+                       "view_login": env_.get("WEBMUXD_LOGIN") or dflt_login,
+                       "view_password": env_.get("WEBMUXD_PASSWORD", ""),
+                       "pids": {k: p.pid for k, p in procs.items()},
+                       "_procs": procs})
+
     # ------------------------------------------------------------------ 管
 
     def stop(self, handle: Handle) -> None:
@@ -363,7 +457,13 @@ class ContainerRuntime:
             return False
         r = subprocess.run([self.docker, "inspect", "-f", "{{.State.Running}}", cid],
                            capture_output=True, text=True)
-        return r.stdout.strip() == "true"
+        if r.stdout.strip() != "true":
+            return False
+        # **容器活着不等于这个 session 能用。** sessiond 掉了的话,报出去的
+        # api_url 是连不上的 —— 而 `ready` 承诺的正是"你现在就能用它"。
+        # 报 ready 会让 `new` 说"已经在跑了"然后什么都不做,人就卡在那儿。
+        return bool(handle.api_port) and wait_http(
+            f"http://127.0.0.1:{handle.api_port}/healthz", 2)
 
     def discover(self) -> list[Handle]:
         """**server 重启后把跑着的容器认回来** —— 它们本来就活着。

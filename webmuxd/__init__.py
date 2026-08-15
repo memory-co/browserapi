@@ -33,7 +33,7 @@ from webmuxd.errors import (  # noqa: F401
     SessionNotFound,
 )
 
-__version__ = "0.4.2"
+__version__ = "0.4.4"
 __all__ = ["__version__", "Webmuxd", "Session", "Tab", "ActResult",
            "Observation", "Element"] + [
     "WebmuxdError", "ActionError", "PlatformError", "UsageError",

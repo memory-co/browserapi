@@ -22,6 +22,7 @@ from webmuxd.cli.registry import Registry
 from webmuxd.client.session import Session
 from webmuxd.client.tab import Tab
 from webmuxd.errors import WebmuxdError
+from webmuxd.runtime.base import Handle
 
 # 退出码 → 错误码(cli/README §6)。4/5/6 可重试,7 该告警。
 EXIT = {
@@ -150,7 +151,9 @@ def cmd_new(args: argparse.Namespace) -> int:
             # **幂等** —— 同一个 id 再建一次就是接管,不报错(像 tmux new -A -s)
             print(f"{args.id}  →  已经在跑了")
             return 0
-        reg.forget(args.id)
+        # **死行留着,不提前删。** 下面 reg.put 成功了会覆盖它;而万一起不来,
+        # 留着的这行正是 `webmuxd kill -t <id>` 找得到东西去清的依据 ——
+        # 提前删掉的话,容器还在、登记表里却没它了,kill 只会说 session_not_found。
 
     handle = impl.start(args.id, api_port=args.api_port,
                         view_port=args.view_port or 0, cdp_port=args.cdp_port,
@@ -215,7 +218,18 @@ def cmd_kill(args: argparse.Namespace) -> int:
     reg = Registry(name=args.socket_name)
     row = reg.get(sid)
     if row is None:
-        raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
+        # **登记表丢了不代表东西没了。** `webmuxd-<id>` 这个名字只可能是我们
+        # 自己留下的,所以还能去认领它 —— 否则那个容器就没人管得了,
+        # 而 kill 只会说"没有这个 session",人还得自己去敲 docker。
+        from webmuxd.runtime.container import ContainerRuntime
+        impl = ContainerRuntime()
+        prior = impl._by_name(f"webmuxd-{sid}") if impl.available()[0] else None
+        if not prior:
+            raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
+        impl.stop(Handle("container", sid, 0, 0, {"container_id": prior["id"]}))
+        _out(args, {"id": sid, "removed": True}, f"{sid} 已停掉(登记表里没有它,"
+                                                 f"是按容器名认出来的)")
+        return 0
     handle = reg.handle(sid)
     impl = rt.get(row["runtime"])
     impl.stop(handle)
