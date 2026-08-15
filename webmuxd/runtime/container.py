@@ -77,6 +77,7 @@ class Profile:
     window_bind_env: str = ""
     auth_env: str = ""
     tls_env: str = ""
+    tz_env: str = ""
     cdp_port_env: str = "WEBMUXD_CDP_PORT"
     window_user: str = ""
     window_user_env: str = ""
@@ -112,6 +113,7 @@ class Profile:
             window_bind_env=lab.get("window.bind_env", ""),
             auth_env=lab.get("window.auth_env", ""),
             tls_env=lab.get("window.tls_env", ""),
+            tz_env=lab.get("tz_env", ""),
             cdp_port_env=lab.get("cdp.port_env") or "WEBMUXD_CDP_PORT",
             window_user=lab.get("window.user", ""),
             window_user_env=lab.get("window.user_env", ""),
@@ -150,7 +152,7 @@ class ContainerRuntime:
               volume: str | None = None, proxy: str | None = None,
               token: str | None = None, image: str | None = None,
               network: str = "host", bind: str = "127.0.0.1",
-              auth: bool = True, tls: bool = True,
+              auth: bool = True, tls: bool = True, tz: str | None = None,
               tab_max: int | None = None, log_limit: int | None = None,
               human_yield: int | None = None, **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -238,6 +240,10 @@ class ContainerRuntime:
                               "它就是 https。要 http 就换个镜像")
         if prof.tls_env:
             args += ["-e", f"{prof.tls_env}={1 if tls else 0}"]
+        # 时区。**两个底座都叫 TZ**,所以没什么可翻译的 —— 但仍然走标签,
+        # 免得下一个镜像换了名字时这里要改代码。
+        if tz and prof.tz_env:
+            args += ["-e", f"{prof.tz_env}={tz}"]
         for env_name, value in ((prof.password_env, vnc_pw),
                                 (prof.url_env, url),
                                 (prof.args_env, " ".join(app_args)),

@@ -156,7 +156,7 @@ def cmd_new(args: argparse.Namespace) -> int:
                         volume=args.volume, proxy=args.proxy,
                         endpoint=args.endpoint, image=args.image,
                         network=args.network, bind=args.bind,
-                        auth=not args.no_auth, tls=not args.no_tls,
+                        auth=not args.no_auth, tls=not args.no_tls, tz=args.tz,
                         token=os.environ.get("WEBMUXD_TOKEN"))
     reg.put(handle)
     _out(args, {"id": args.id, "api_port": handle.api_port,
@@ -528,6 +528,9 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--network", default="host", choices=["host", "bridge"],
                    help="host(默认)= 容器里的 localhost 就是你的;"
                         "bridge = 有网络隔离,但够不着你的 localhost")
+    n.add_argument("--tz", default=None,
+                   help="容器时区,例:--tz Asia/Shanghai。"
+                        "跑本地化站点、测和时间相关的逻辑时用得上")
     n.add_argument("--no-tls", action="store_true",
                    help="画面口用 http 而不是 https。不是每个镜像都支持"
                         "(KasmVNC 恒 TLS),不支持会直接报错")
