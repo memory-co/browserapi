@@ -49,7 +49,7 @@ class ProcessRuntime:
         return _which(CHROMIUM_NAMES)
 
     def start(self, id: str, *, api_port: int, vnc_port: int,
-              url: str = "about:blank", viewport: str = "1280x800",
+              url: str = "about:blank", viewport: str = "",
               proxy: str | None = None, data_dir: str | None = None,
               **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -59,6 +59,8 @@ class ProcessRuntime:
 
         chromium = self._chromium()
         vnc = _which(VNC_NAMES)
+        from webmuxd.runtime.container import DEFAULT_VIEWPORT
+        viewport = viewport or DEFAULT_VIEWPORT
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
         cdp_port = _free_port()

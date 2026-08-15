@@ -91,10 +91,23 @@ addr.sun_path[0] = '\0';                 // ← 抽象命名空间
 `WEBMUXD_RESOLUTION` 这个镜像**不声明**(标签里没有 `webmuxd.resolution_env`),
 所以 webmuxd 不会去设它 —— 桌面固定在底座默认的 **1024×768**。
 
-不是没接:环境变量确实到了容器里(`VNC_RESOLUTION=1280x800`),启动脚本也确实写着
-`vncserver … -geometry $VNC_RESOLUTION`,但 Xvnc 最终拿到的是 `-geometry 1024x768`。
-中间被什么盖掉了还没挖到 —— 排除过 `~/.vnc/config` 和默认 profile 里的 `.vnc/`;
-下一个可疑点是 `vncserver` 那个 perl 包装脚本里的 `$geometry = "1024x768"`。
+**不是没接。** 已经排除的:
+
+- 环境变量到得了容器(`VNC_RESOLUTION=1280x800`),用容器级 `-e` 直接设也一样不生效
+- 启动脚本里只有一条真实的 `vncserver` 调用,而且确实写着 `-geometry $VNC_RESOLUTION`
+- `~/.vnc/config` 和默认 profile 里的 `.vnc/` 都没有覆盖它
+- `vncserver` 那个 perl 脚本的选项解析是正常的
+  (`if ($opt{'-geometry'}) { $geometry = $opt{'-geometry'}; }`),
+  `1024x768` 是它在 `DefineFilePathsAndStuff` 里的**内置默认**
+
+顺带在[上游 Dockerfile](https://github.com/kasmtech/workspaces-core-images/blob/master/dockerfile-kasm-core)
+里看到一处怪事:同一个 `ENV` 块里 **`VNC_RESOLUTION` 被声明了两次**
+(`1280x1024` 和 `1280x720`,后者胜出)。这解释了容器里为什么看到 `1280x720`,
+但解释不了最终的 `1024x768`。
+
+**最合理的解释是那一行执行时 `$VNC_RESOLUTION` 是空的** —— 那样命令会变成
+`-geometry -websocketPort <口> …`,perl 那边当没给值、回落到内置默认。
+但为什么会是空的,我没能证实(脚本里没有任何地方给它赋过值)。
 
 **在挖清楚之前不声明这个能力** —— 声明了就等于让调用方以为设过了,
 而画面和截图尺寸对不上是最难查的那类问题。

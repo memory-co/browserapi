@@ -48,6 +48,11 @@ from webmuxd.runtime.base import Handle, require_ports, unavailable, wait_http
 
 #: kasm 官方镜像 —— 桌面那一半是它做的,我们不重复造,也不在它上面加层。
 IMAGE = os.environ.get("WEBMUXD_IMAGE", "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0")
+#: 默认分辨率。**它同时是桌面尺寸和浏览器窗口尺寸** —— 两个不一致的话,
+#: 窗口比桌面大就被裁、小就留白,而"人看到的画面和截图是同一个"是这东西的全部意义。
+#: 用环境变量兜底,是为了让默认值本身可配(不用每次调用都传)。
+DEFAULT_VIEWPORT = os.environ.get("WEBMUXD_VIEWPORT", "1280x800")
+
 #: 打在容器上的标签 —— server 重启后靠它把跑着的 session 认回来。
 LABEL = "webmuxd.session"
 
@@ -150,7 +155,7 @@ class ContainerRuntime:
     # ------------------------------------------------------------------ 起
 
     def start(self, id: str, *, api_port: int, vnc_port: int,
-              url: str = "about:blank", viewport: str = "1280x800",
+              url: str = "about:blank", viewport: str = "",
               volume: str | None = None, proxy: str | None = None,
               token: str | None = None, image: str | None = None,
               network: str = "host", bind: str = "127.0.0.1",
@@ -181,6 +186,7 @@ class ContainerRuntime:
                     "换个镜像,或者别关 —— 画面口一旦对外,没口令就是谁都能用")
             vnc_pw = ""
 
+        viewport = viewport or DEFAULT_VIEWPORT
         w, _, h = viewport.partition("x")
         app_args = ["--start-maximized", f"--window-size={w},{h or 800}"]
         if proxy:
