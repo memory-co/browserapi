@@ -1,5 +1,21 @@
 # 更新日志
 
+## 0.4.1
+
+**本机没有镜像时自己拉,不再叫你去 `docker pull`。**
+
+`docker run` 本来就会自动拉。是 0.2.0 加"读镜像标签"时先做了一步
+`docker inspect`(它只看本地),才把这条路挡成:
+
+```
+✗ runtime_unavailable: 本机没有镜像 …
+  先 docker pull,或者按 docker/README.md build 一个 wrapper
+```
+
+**那是自己制造的障碍,不是真的要求。** 现在 inspect 落空就先 `docker pull`
+再读一次;拉之前会说一声(底座 4 GB,静默几分钟比报错还难受),拉不到则
+把 registry 的原话带出来 —— 名字打错和网络不通是两回事,提示要分得开。
+
 ## 0.4.0
 
 **全是改名。一件事一个词,三层贯通。**

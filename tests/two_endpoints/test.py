@@ -366,6 +366,62 @@ def test_a_capability_the_image_lacks_is_an_error_not_a_pretence(monkeypatch):
         ContainerRuntime().start("work", api_port=7900, view_port=6901, auth=False)
 
 
+def test_a_missing_image_is_pulled_not_refused(monkeypatch):
+    """**本机没有就自己拉。**
+
+    `docker run` 本来就会自动拉;是我们为了读标签先 `inspect` 了一下,才把它
+    挡成"本机没有镜像,先 docker pull" —— 那是自己制造的障碍,不是真要求。
+    """
+    seen = []
+    state = {"local": False}
+
+    class R:
+        def __init__(self, rc=0, out="deadbeef"):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    def fake(args, **kw):
+        seen.append(args)
+        if "inspect" in args and "Config.Labels" in " ".join(args):
+            if not state["local"]:
+                return R(rc=1, out="")            # 本机还没有
+            return R(out=json.dumps(KASM_LABELS))
+        if args[1] == "pull":
+            state["local"] = True                 # 拉完就有了
+            return R()
+        return R()
+
+    monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
+    monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: "/usr/bin/docker")
+    monkeypatch.setattr("webmuxd.runtime.container.wait_http", lambda *a, **k: True)
+    monkeypatch.setattr("webmuxd.runtime.container._spawn_sessiond",
+                        lambda *a, **k: type("P", (), {"pid": 1, "terminate": lambda s: None})())
+
+    ContainerRuntime().start("work", api_port=7900, view_port=6901)
+    assert any(a[1] == "pull" for a in seen), "本机没有却不去拉"
+    assert any(a[1] == "run" and "-d" in a for a in seen), "拉完了却没起"
+
+
+def test_an_unpullable_image_says_why(monkeypatch):
+    """拉不到就说拉不到,并且**把 registry 的原话带上** —— 名字打错和网络不通
+    是两件事,提示里要分得开。"""
+    class R:
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    def fake(args, **kw):
+        if "inspect" in args and "Config.Labels" in " ".join(args):
+            return R(1)
+        if args[1] == "pull":
+            return R(1, err="Error response from daemon: manifest unknown")
+        return R(0, "deadbeef")
+
+    monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", fake)
+    monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: "/usr/bin/docker")
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ContainerRuntime().start("work", api_port=7900, view_port=6901)
+    assert "manifest unknown" in str(ei.value)
+
+
 def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):
     """kasm 少于 6 位会直接退出,报的错是 `kill: usage:`、和密码毫无关系。"""
     seen = []

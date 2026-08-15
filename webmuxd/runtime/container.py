@@ -95,9 +95,27 @@ class Profile:
     host_network: str = "single"
 
     @classmethod
-    def read(cls, docker: str, image: str) -> "Profile":
-        r = subprocess.run([docker, "inspect", "-f", "{{json .Config.Labels}}", image],
-                           capture_output=True, text=True)
+    def read(cls, docker: str, image: str, *, pull: bool = True) -> "Profile":
+        def inspect() -> subprocess.CompletedProcess:
+            return subprocess.run(
+                [docker, "inspect", "-f", "{{json .Config.Labels}}", image],
+                capture_output=True, text=True)
+
+        r = inspect()
+        if r.returncode != 0 and pull:
+            # **本机没有就自己拉。** `docker run` 本来就会自动拉,是我们为了读标签
+            # 先 inspect 了一下才把它挡住的 —— 那是自己制造的障碍,不是真的要求。
+            #
+            # 拉是分钟级的事(底座 4 GB),所以**说一声再拉**,别让人对着一个
+            # 不动的终端猜。
+            print(f"本机没有 {image},先拉一下(第一次会久)…", file=sys.stderr, flush=True)
+            got = subprocess.run([docker, "pull", image], capture_output=True, text=True)
+            if got.returncode != 0:
+                why = (got.stderr.strip().splitlines() or ["拉取失败"])[-1]
+                raise unavailable("container", f"拉不到镜像 {image}:{why[:160]}",
+                                  "确认名字对不对、这个网络到不到得了 registry;"
+                                  "国内可以用 docker.cnb.cool/agentuse/webmuxd/…")
+            r = inspect()
         if r.returncode != 0:
             raise unavailable("container", f"本机没有镜像 {image}",
                               "先 docker pull,或者按 docker/README.md build 一个 wrapper")
