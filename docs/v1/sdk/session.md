@@ -4,7 +4,7 @@
 从 [`Webmuxd`](manager.md) 那儿拿:
 
 ```python
-sess = web.session(id="work", port=7900, vnc_port=6901)     # 新建一个
+sess = web.session(id="work", port=7900, view_port=6901)     # 新建一个
 sess = web.session(id="work")     # 同一个 id → 同一个 session
 ```
 
@@ -14,7 +14,7 @@ sess = web.session(id="work")     # 同一个 id → 同一个 session
 ## 1. 一个 session 两个口
 
 ```python
-sess.vnc_url          # 画面(KasmVNC),拿去浏览器里看或塞进 iframe
+sess.view_url          # 画面(KasmVNC),拿去浏览器里看或塞进 iframe
 sess.api_url          # API 的 base
 sess.name  sess.runtime  sess.state       # starting | ready | dead | unreachable
 sess.port                                 # API 那个口
@@ -49,9 +49,9 @@ sess.kill()           # 停掉自己
 ## 3. 分享链接
 
 ```python
-sess.vnc_url                                    # 你自己看,完整权限
+sess.view_url                                    # 你自己看,完整权限
 r = sess.share()                                # 给别人,默认只读,1 小时
-r.vnc_url, r.api_url                           # 两个 URL,画面和 API
+r.view_url, r.api_url                           # 两个 URL,画面和 API
 sess.share(writable=True, ttl=3600)             # 可操作 —— 能碰你所有登录态
 ```
 
@@ -69,7 +69,7 @@ lib 不做"代码里方便所以更宽松"这种事。
 | `sess.reset()` | `POST /api/reset` |
 | `sess.kill()` | `DELETE /api/sessions/{name}` |
 | `sess.share(writable=, ttl=)` | `POST /api/live-token` `{read_only, ttl_s}` |
-| `sess.vnc_url` `sess.api_url` | `/s/{name}/vnc/` `/s/{name}/api/`,或直连两个端口 |
+| `sess.view_url` `sess.api_url` | `/s/{name}/vnc/` `/s/{name}/api/`,或直连两个端口 |
 | `sess.name` `sess.runtime` `sess.state` `sess.handle` | `GET /api/sessions/{name}` 的字段 |
 | `sess.open()` `sess.tabs` `sess.log()` | 见 [tab/](tab/) 和 [log/](log/) |
 

@@ -18,7 +18,7 @@ class RemoteRuntime:
     def available(self) -> tuple[bool, str]:
         return True, ""
 
-    def start(self, id: str, *, api_port: int = 0, vnc_port: int = 0,
+    def start(self, id: str, *, api_port: int = 0, view_port: int = 0,
               endpoint: str | None = None, **_opts: Any) -> Handle:
         if not endpoint:
             raise unavailable(self.name, "runtime=remote 得给 endpoint",
@@ -27,7 +27,7 @@ class RemoteRuntime:
             raise unavailable(self.name, f"{endpoint} 探不到",
                               "确认对面在跑,而且这台机器连得上")
         u = urlparse(endpoint)
-        return Handle(self.name, id, u.port or 7900, vnc_port,
+        return Handle(self.name, id, u.port or 7900, view_port,
                       {"endpoint": endpoint.rstrip("/"), "owned": False})
 
     def stop(self, handle: Handle) -> None:

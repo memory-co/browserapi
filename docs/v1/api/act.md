@@ -33,7 +33,7 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
     "title": "结算",
     "loading": false,
     "scroll": { "y": 1240, "max_y": 4820 },
-    "viewport": { "w": 1024, "h": 680 }
+    "window_size": { "w": 1024, "h": 680 }
   },
 
   "screenshot": {

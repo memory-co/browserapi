@@ -55,7 +55,7 @@ def test_container_unavailable_raises_with_a_useful_hint():
     assert not ok and "找不到" in why
 
     with pytest.raises(RuntimeUnavailable) as ei:
-        impl.start("x", api_port=_free(), vnc_port=_free())
+        impl.start("x", api_port=_free(), view_port=_free())
     assert "process" in ei.value.hint and "隔离" in ei.value.hint, \
         "提示里得说清换成 process 的代价"
     assert ei.value.details["runtime"] == "container"
@@ -91,34 +91,34 @@ def test_taken_port_is_reported_not_worked_around():
 # ------------------------------------------------- container 的命令怎么拼
 
 KASM_LABELS = {
-    'webmuxd.window.port': '6901',
-    'webmuxd.window.scheme': 'https',
-    'webmuxd.window.port_env': 'NO_VNC_PORT',
-    'webmuxd.window.user': 'kasm_user',
-    'webmuxd.window.password_env': 'VNC_PW',
+    'webmuxd.view.port': '6901',
+    'webmuxd.view.scheme': 'https',
+    'webmuxd.view.port_env': 'NO_VNC_PORT',
+    'webmuxd.view.login': 'kasm_user',
+    'webmuxd.view.password_env': 'VNC_PW',
     'webmuxd.cdp.port': '9222',
     'webmuxd.cdp.port_env': 'WEBMUXD_CDP_PORT',
     'webmuxd.chromium.args_env': 'APP_ARGS',
     'webmuxd.chromium.url_env': 'LAUNCH_URL',
-    'webmuxd.host_network': 'single',
-    'webmuxd.window.bind_env': 'WEBMUXD_BIND',
-    'webmuxd.window.auth_env': 'WEBMUXD_AUTH',
+    'webmuxd.host.network': 'single',
+    'webmuxd.view.bind_env': 'WEBMUXD_BIND',
+    'webmuxd.view.auth_env': 'WEBMUXD_AUTH',
 }
 
 JLESAGE_LABELS = {
-    'webmuxd.window.port': '5800',
-    'webmuxd.window.scheme': 'http',
-    'webmuxd.window.port_env': 'WEB_LISTENING_PORT',
-    'webmuxd.window.user_env': 'WEB_AUTHENTICATION_USERNAME',
-    'webmuxd.window.password_env': 'WEB_AUTHENTICATION_PASSWORD',
+    'webmuxd.view.port': '5800',
+    'webmuxd.view.scheme': 'http',
+    'webmuxd.view.port_env': 'WEB_LISTENING_PORT',
+    'webmuxd.view.login_env': 'WEB_AUTHENTICATION_USERNAME',
+    'webmuxd.view.password_env': 'WEB_AUTHENTICATION_PASSWORD',
     'webmuxd.cdp.port': '9222',
     'webmuxd.cdp.port_env': 'CHROMIUM_REMOTE_DEBUGGING_PORT',
     'webmuxd.chromium.args_env': 'CHROMIUM_CUSTOM_ARGS',
     'webmuxd.chromium.url_env': '',
-    'webmuxd.host_network': 'multi',
-    'webmuxd.window.bind_env': 'WEBMUXD_BIND',
-    'webmuxd.window.auth_env': 'WEBMUXD_AUTH',
-    'webmuxd.window.tls_env': 'WEBMUXD_TLS',
+    'webmuxd.host.network': 'multi',
+    'webmuxd.view.bind_env': 'WEBMUXD_BIND',
+    'webmuxd.view.auth_env': 'WEBMUXD_AUTH',
+    'webmuxd.view.tls_env': 'WEBMUXD_TLS',
 }
 
 
@@ -153,8 +153,8 @@ def test_container_command_carries_what_the_docs_say(monkeypatch):
     seen = []
     _fake_docker(monkeypatch, seen)
     h = ContainerRuntime(image="ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0").start(
-        "work", api_port=7900, vnc_port=6901,
-        viewport="1280x800", volume="webmuxd-work", token="t0ken1")
+        "work", api_port=7900, view_port=6901,
+        window_size="1280x800", volume="webmuxd-work", password="t0ken1")
 
     joined = " ".join(_run_cmd(seen))
     assert "--network host" in joined, "共享 netns 才有那个 localhost"
@@ -175,7 +175,7 @@ def test_the_env_names_come_from_the_image_not_from_us(monkeypatch):
     """
     seen = []
     _fake_docker(monkeypatch, seen, KASM_LABELS)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, token="t0ken1",
+    ContainerRuntime().start("work", api_port=7900, view_port=6901, password="t0ken1",
                              url="https://example.com")
     kasm = " ".join(_run_cmd(seen))
     assert "VNC_PW=t0ken1" in kasm and "LAUNCH_URL=https://example.com" in kasm
@@ -184,7 +184,7 @@ def test_the_env_names_come_from_the_image_not_from_us(monkeypatch):
 
     seen.clear()
     _fake_docker(monkeypatch, seen, JLESAGE_LABELS)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, token="t0ken1",
+    ContainerRuntime().start("work", api_port=7900, view_port=6901, password="t0ken1",
                              url="https://example.com")
     jl = " ".join(_run_cmd(seen))
     assert "WEB_AUTHENTICATION_PASSWORD=t0ken1" in jl
@@ -205,8 +205,8 @@ def test_the_window_scheme_and_multi_open_come_from_labels(monkeypatch):
                                      (JLESAGE_LABELS, "http", "multi")):
         seen = []
         _fake_docker(monkeypatch, seen, labels)
-        h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
-        assert h.detail["vnc_scheme"] == scheme
+        h = ContainerRuntime().start("work", api_port=7900, view_port=6901)
+        assert h.detail["view_scheme"] == scheme
         assert h.detail["host_network"] == host_net
 
 
@@ -216,7 +216,7 @@ def test_an_image_without_labels_is_a_hard_error(monkeypatch):
     seen = []
     _fake_docker(monkeypatch, seen, {})
     with pytest.raises(RuntimeUnavailable) as ei:
-        ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+        ContainerRuntime().start("work", api_port=7900, view_port=6901)
     assert "标签" in str(ei.value)
     assert not any(a[1] == "run" and "-d" in a for a in seen), "不知道怎么驱动还去 docker run"
 
@@ -225,7 +225,7 @@ def test_we_no_longer_exec_a_cdp_relay_into_the_container(monkeypatch):
     """CDP 是**镜像自己送出来的**(wrapper 那一层负责),runtime 不再 exec 中继。"""
     seen = []
     _fake_docker(monkeypatch, seen)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+    ContainerRuntime().start("work", api_port=7900, view_port=6901)
     for call in seen:
         line = " ".join(call)
         assert "pip install" not in line and "apt-get" not in line, \
@@ -238,23 +238,23 @@ def test_the_window_port_is_told_to_the_image_not_mapped(monkeypatch):
     """**host 网络下没有 `-p`。**
 
     所以画面口不是映射出来的,是**直接告诉镜像听在那儿**。镜像要是没说
-    这个变量叫什么(`webmuxd.window.port_env`),我们就没办法让它听在
+    这个变量叫什么(`webmuxd.view.port_env`),我们就没办法让它听在
     调用方要的口上 —— 那就直接报错,而不是让它听在默认口上装作成功。
     """
     seen = []
     _fake_docker(monkeypatch, seen)
-    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
+    h = ContainerRuntime().start("work", api_port=7900, view_port=6901)
     assert h.detail["cdp_port"] not in (0, None)
     # 默认只在本机 —— host 下没有 `-p`,但镜像自己能绑(见 bind_env 那条)
-    assert h.detail["vnc_bind"] == "127.0.0.1"
+    assert h.detail["view_bind"] == "127.0.0.1"
 
     seen.clear()
     no_port_env = dict(KASM_LABELS)
-    no_port_env.pop("webmuxd.window.port_env")
+    no_port_env.pop("webmuxd.view.port_env")
     _fake_docker(monkeypatch, seen, no_port_env)
     with pytest.raises(RuntimeUnavailable) as ei:
-        ContainerRuntime().start("work", api_port=7900, vnc_port=6901)
-    assert "window.port_env" in str(ei.value)
+        ContainerRuntime().start("work", api_port=7900, view_port=6901)
+    assert "view.port_env" in str(ei.value)
 
 
 def test_bridge_is_still_there_for_when_host_will_not_do(monkeypatch):
@@ -268,7 +268,7 @@ def test_bridge_is_still_there_for_when_host_will_not_do(monkeypatch):
     """
     seen = []
     _fake_docker(monkeypatch, seen)
-    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+    h = ContainerRuntime().start("work", api_port=7900, view_port=6901,
                                  network="bridge", bind="0.0.0.0")
 
     run = _run_cmd(seen)
@@ -280,14 +280,14 @@ def test_bridge_is_still_there_for_when_host_will_not_do(monkeypatch):
     assert cdp and all(p.startswith("127.0.0.1:") for p in cdp), \
         f"CDP 口放出去了:{published}"
     assert h.detail["network"] == "bridge"
-    assert h.detail["vnc_bind"] == "0.0.0.0"
+    assert h.detail["view_bind"] == "0.0.0.0"
 
     # bridge 下不需要镜像声明"画面口怎么改" —— `-p` 就够了
     seen.clear()
     no_port_env = dict(KASM_LABELS)
-    no_port_env.pop("webmuxd.window.port_env")
+    no_port_env.pop("webmuxd.view.port_env")
     _fake_docker(monkeypatch, seen, no_port_env)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, network="bridge")
+    ContainerRuntime().start("work", api_port=7900, view_port=6901, network="bridge")
 
 
 def test_bind_reaches_the_image_in_both_network_modes(monkeypatch):
@@ -299,13 +299,13 @@ def test_bind_reaches_the_image_in_both_network_modes(monkeypatch):
     """
     seen = []
     _fake_docker(monkeypatch, seen)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+    ContainerRuntime().start("work", api_port=7900, view_port=6901,
                              bind="127.0.0.1")
     assert "WEBMUXD_BIND=127.0.0.1" in " ".join(_run_cmd(seen))
 
     seen.clear()
     _fake_docker(monkeypatch, seen)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+    ContainerRuntime().start("work", api_port=7900, view_port=6901,
                              network="bridge", bind="127.0.0.1")
     joined = " ".join(_run_cmd(seen))
     assert "WEBMUXD_BIND=0.0.0.0" in joined, "bridge 下容器内必须绑 0.0.0.0"
@@ -315,18 +315,18 @@ def test_bind_reaches_the_image_in_both_network_modes(monkeypatch):
 def test_an_image_that_cannot_be_restricted_says_so(monkeypatch):
     """镜像没说"绑哪儿"怎么配,而调用方要求只在本机 —— **管不住就说管不住**,
     别让他以为限制住了。"""
-    no_bind = {k: v for k, v in KASM_LABELS.items() if k != "webmuxd.window.bind_env"}
+    no_bind = {k: v for k, v in KASM_LABELS.items() if k != "webmuxd.view.bind_env"}
     seen = []
     _fake_docker(monkeypatch, seen, no_bind)
     with pytest.raises(RuntimeUnavailable) as ei:
-        ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+        ContainerRuntime().start("work", api_port=7900, view_port=6901,
                                  bind="127.0.0.1")
     assert "bind_env" in str(ei.value)
 
     # 但显式承认它是对外的,就放行
     seen.clear()
     _fake_docker(monkeypatch, seen, no_bind)
-    ContainerRuntime().start("work", api_port=7900, vnc_port=6901, bind="0.0.0.0")
+    ContainerRuntime().start("work", api_port=7900, view_port=6901, bind="0.0.0.0")
 
 
 def test_auth_and_tls_are_switches_when_the_image_has_them(monkeypatch):
@@ -337,15 +337,15 @@ def test_auth_and_tls_are_switches_when_the_image_has_them(monkeypatch):
     """
     seen = []
     _fake_docker(monkeypatch, seen, JLESAGE_LABELS)
-    h = ContainerRuntime().start("work", api_port=7900, vnc_port=6901,
+    h = ContainerRuntime().start("work", api_port=7900, view_port=6901,
                                  bind="127.0.0.1", auth=False, tls=False)
     joined = " ".join(_run_cmd(seen))
     assert "WEBMUXD_AUTH=0" in joined and "WEBMUXD_TLS=0" in joined
     assert "WEBMUXD_BIND=127.0.0.1" in joined
     assert h.detail["auth"] is False
-    assert h.detail["vnc_password"] == "" and h.detail["vnc_user"] == ""
+    assert h.detail["view_password"] == "" and h.detail["view_login"] == ""
     # **scheme 得跟着算**,不然调用方会拼出一个连不上的 URL
-    assert h.detail["vnc_scheme"] == "http"
+    assert h.detail["view_scheme"] == "http"
 
 
 def test_a_capability_the_image_lacks_is_an_error_not_a_pretence(monkeypatch):
@@ -354,16 +354,16 @@ def test_a_capability_the_image_lacks_is_an_error_not_a_pretence(monkeypatch):
     seen = []
     _fake_docker(monkeypatch, seen, KASM_LABELS)     # 没有 tls_env
     with pytest.raises(RuntimeUnavailable) as ei:
-        ContainerRuntime().start("work", api_port=7900, vnc_port=6901, tls=False)
+        ContainerRuntime().start("work", api_port=7900, view_port=6901, tls=False)
     assert "TLS" in str(ei.value)
 
     # 关鉴权同理:镜像没这个能力就不能默默留着口令装作关了
     no_auth_env = {k: v for k, v in KASM_LABELS.items()
-                   if k != "webmuxd.window.auth_env"}
+                   if k != "webmuxd.view.auth_env"}
     seen.clear()
     _fake_docker(monkeypatch, seen, no_auth_env)
     with pytest.raises(RuntimeUnavailable):
-        ContainerRuntime().start("work", api_port=7900, vnc_port=6901, auth=False)
+        ContainerRuntime().start("work", api_port=7900, view_port=6901, auth=False)
 
 
 def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):
@@ -371,7 +371,7 @@ def test_a_too_short_password_is_caught_before_docker_run(monkeypatch):
     seen = []
     _fake_docker(monkeypatch, seen)
     with pytest.raises(RuntimeUnavailable) as ei:
-        ContainerRuntime().start("work", api_port=7900, vnc_port=6901, token="x")
+        ContainerRuntime().start("work", api_port=7900, view_port=6901, password="x")
     assert "6" in str(ei.value)
     assert not any(a[1] == "run" and "-d" in a for a in seen), "都知道要失败了还去 docker run"
 
@@ -392,7 +392,7 @@ def test_container_discover_parses_published_ports(monkeypatch):
     handles = ContainerRuntime().discover()
     assert len(handles) == 1
     h = handles[0]
-    assert (h.id, h.vnc_port) == ("work", 6901)
+    assert (h.id, h.view_port) == ("work", 6901)
     assert h.api_port == 0, "sessiond 不在容器里,认不回来"
     assert h.detail["adopted"] is True
 
@@ -407,7 +407,7 @@ def test_process_runtime_actually_brings_a_session_up():
 
     impl = ProcessRuntime()
     api, vnc = _free(), _free()
-    h = impl.start("t-proc", api_port=api, vnc_port=vnc)
+    h = impl.start("t-proc", api_port=api, view_port=vnc)
     try:
         assert impl.alive(h)
         assert h.kind == "process"
@@ -416,7 +416,7 @@ def test_process_runtime_actually_brings_a_session_up():
             assert any("没有画面" in n for n in h.detail["notes"])
 
         web = Webmuxd()
-        sess = web.session(id="t-proc", port=api, vnc_port=vnc, runtime="process")
+        sess = web.session(id="t-proc", api_port=api, view_port=vnc, runtime="process")
         tab = sess.open("about:blank")
         assert tab.js("1+1") == 2
         sess.detach()
@@ -434,7 +434,7 @@ def test_manager_starts_a_session_that_is_not_there_yet():
 
     web = Webmuxd()
     api, vnc = _free(), _free()
-    sess = web.session(id="t-auto", port=api, vnc_port=vnc, runtime="process")
+    sess = web.session(id="t-auto", api_port=api, view_port=vnc, runtime="process")
     try:
         assert sess.status()["ok"] is True
         again = web.session(id="t-auto")

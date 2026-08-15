@@ -69,7 +69,7 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
 ```jsonc
 { "sessions": [
   { "id": "work", "runtime": "container", "state": "ready",
-    "endpoint": "http://127.0.0.1:7900", "port": 7900, "vnc_port": 6901,
+    "endpoint": "http://127.0.0.1:7900", "port": 7900, "view_port": 6901,
     "proxy": "/s/work/",
     "tab_count": 3, "active_tab_url": "https://shop.example.com/cart",
     "created_at": "2026-08-08T14:20:11Z",
@@ -95,10 +95,10 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
 ```jsonc
 { "id": "work",                       // 必填,你自己定
   "port": 7900,                       // 必填,API 口
-  "vnc_port": 6901,                   // 必填,画面口
+  "view_port": 6901,                   // 必填,画面口
   "runtime": "container",             // container | process | remote,默认 container
   "url": "https://example.com",       // 启动打开的页面
-  "viewport": "1024x768",
+  "window_size": "1024x768",
   "proxy": "http://egress:3128",
   "volume": "webmuxd-work",           // container 专用
   "endpoint": "https://..." }         // remote 专用
@@ -108,11 +108,11 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
 ```jsonc
 { "id": "work", "runtime": "container", "state": "ready",
   "endpoint": "http://127.0.0.1:7900", "proxy": "/s/work/",
-  "vnc_url": "http://host:7800/s/work/vnc/",
+  "view_url": "http://host:7800/s/work/vnc/",
   "api_url": "http://host:7800/s/work/api/" }
 ```
 
-**`port` 和 `vnc_port` 必填,服务端不自动分配** —— 端口是部署决定的,
+**`port` 和 `view_port` 必填,服务端不自动分配** —— 端口是部署决定的,
 猜一个只会让调用方的配置和实际对不上。被占了返回 `409 port_in_use`。
 
 **runtime 不可用时报错,不降级**:
@@ -187,7 +187,7 @@ server 级事件,和 session 内部那条同步流([works/06 §5](../works/06-ta
 
 ```jsonc
 { "read_only": true, "ttl_s": 3600 }
-→ { "vnc_url": "http://host:7800/s/work/vnc/?t=...",
+→ { "view_url": "http://host:7800/s/work/vnc/?t=...",
     "api_url": "http://host:7800/s/work/api/",
     "expires_at": "..." }
 ```

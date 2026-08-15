@@ -167,7 +167,7 @@ def test_a_stale_record_says_to_rerun_install(record_file, monkeypatch):
     """**记录会撒谎** —— 按它去起,起不来就报错并让人重跑(install.md §4)。"""
     monkeypatch.setenv("WEBMUXD_CHROMIUM", "/nope/chromium")
     with pytest.raises(RuntimeUnavailable) as ei:
-        ProcessRuntime().start("x", api_port=1, vnc_port=2)
+        ProcessRuntime().start("x", api_port=1, view_port=2)
     assert "webmuxd install" in str(ei.value) or "webmuxd install" in ei.value.hint
 
 

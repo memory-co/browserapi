@@ -33,19 +33,19 @@ EXPOSE 6901 9222
 
 # 这些标签就是 works/08 §5 那张 profile 表,**做成机器可读的** ——
 # 接一个新镜像不用改 webmuxd 的代码,`docker inspect` 就知道它长什么样。
-LABEL webmuxd.window.port=6901 \
-      webmuxd.window.scheme=https \
-      webmuxd.window.user=kasm_user \
-      webmuxd.window.password_env=WEBMUXD_PASSWORD \
-      webmuxd.window.port_env=WEBMUXD_WINDOW_PORT \
-      webmuxd.window.bind_env=WEBMUXD_BIND \
-      webmuxd.window.auth_env=WEBMUXD_AUTH \
-      webmuxd.tz_env=TZ \
+LABEL webmuxd.view.port=6901 \
+      webmuxd.view.scheme=https \
+      webmuxd.view.login=kasm_user \
+      webmuxd.view.password_env=WEBMUXD_PASSWORD \
+      webmuxd.view.port_env=WEBMUXD_VIEW_PORT \
+      webmuxd.view.bind_env=WEBMUXD_BIND \
+      webmuxd.view.auth_env=WEBMUXD_AUTH \
+      webmuxd.tz.env=TZ \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \
       webmuxd.chromium.args_env=APP_ARGS \
       webmuxd.chromium.url_env=LAUNCH_URL \
-      webmuxd.host_network=single
+      webmuxd.host.network=single
 
 ENTRYPOINT ["/usr/local/bin/webmuxd-entrypoint"]
 CMD ["--wait"]

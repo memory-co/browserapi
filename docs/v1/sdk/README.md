@@ -33,7 +33,7 @@ from webmuxd import Webmuxd
 
 web  = Webmuxd()                                   # ① 管理实例:空壳,不起任何浏览器
 sess = web.session(id="work", port=7900,           # ② 一个 session = 一个 kasm 容器
-                   vnc_port=6901, runtime="container")
+                   view_port=6901, runtime="container")
 tab  = sess.open("https://shop.example.com")       # ③ 一个 tab = 一个页面句柄
 
 tab.click("登录", user="claudecode")
@@ -50,7 +50,7 @@ print(tab.url, tab.title)
 **每 `session()` 一个新 id 才起一个 kasm。**
 
 `session()` 是**幂等**的:同一个 `id` 永远给你同一个 session,连 Python 对象都是同一个。
-`port` / `vnc_port` / `runtime` 只在第一次(需要新建时)有意义,而且
+`port` / `view_port` / `runtime` 只在第一次(需要新建时)有意义,而且
 **端口必须你给,我们不自动分配**([manager.md §1](manager.md#1-session--拿一个-session))。
 
 ```python
@@ -126,7 +126,7 @@ tab.click("登录", user="claudecode")
 sess.open(url, user="human")
 
 web  = Webmuxd(user="claudecode")               # 设默认,底下所有 session 继承
-sess = web.session(id="w2", port=7901, vnc_port=6902,
+sess = web.session(id="w2", port=7901, view_port=6902,
                    user="cursor")              # 也能按 session 覆盖
 ```
 
@@ -199,7 +199,7 @@ except PlatformError:
 
 ```python
 web = Webmuxd()
-sessions = [web.session(id=f"w{i}", port=7900+i, vnc_port=6901+i)
+sessions = [web.session(id=f"w{i}", port=7900+i, view_port=6901+i)
             for i in range(4)]
 with ThreadPoolExecutor(4) as pool:
     pool.map(run_one, sessions)          # 一个线程一个 session
@@ -226,7 +226,7 @@ except BusyHuman as e:
 | lib | 导出成 |
 | --- | --- |
 | `Webmuxd()` / `Webmuxd(port=)` | socket / `<host:port>/api`,见 [manager.md](manager.md) |
-| `web.session(id=, port=, vnc_port=)` | `GET /api/sessions/{id}`,404 就 `POST` |
+| `web.session(id=, port=, view_port=)` | `GET /api/sessions/{id}`,404 就 `POST` |
 | `web.sessions()` `web.kill()` | `GET` `DELETE /api/sessions[/{id}]` |
 | `web.info()` `web.shutdown()` | `GET /api/server` `POST /api/server/shutdown` |
 | `sess.open(url)` | `POST /api/tabs {url}` |
@@ -236,7 +236,7 @@ except BusyHuman as e:
 | `tab.observe()` `tab.text()` `tab.screenshot()` | `GET /api/observe` `/api/text` `/api/screenshot` |
 | `sess.log()` `tab.log()` `sess.bundle()` | `GET /api/log[?tab=]` `/api/log/bundle`,见 [log/](log/) |
 | `sess.status()` `sess.viewport()` `sess.reset()` | `GET /api/status` `/api/viewport` `POST /api/reset` |
-| `sess.share()` `sess.vnc_url` `sess.api_url` | `POST /api/live-token` |
+| `sess.share()` `sess.view_url` `sess.api_url` | `POST /api/live-token` |
 | 内存表的维护 | 内部订 `WS /api/events`,**不暴露** |
 
 **没导出去的**:三个对象本身、内存里那份表、异常树、`with` 自动清理、按标题找 tab。

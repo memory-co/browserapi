@@ -3,7 +3,7 @@
 三个对象,一层套一层(docs/v1/sdk/README.md §1):
 
     web  = Webmuxd()                                   # 管理实例,空壳
-    sess = web.session(id="work", port=7900, vnc_port=6901)
+    sess = web.session(id="work", api_port=7900, view_port=8090)
     tab  = sess.open("https://example.com")
 """
 
@@ -33,7 +33,7 @@ from webmuxd.errors import (  # noqa: F401
     SessionNotFound,
 )
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 __all__ = ["__version__", "Webmuxd", "Session", "Tab", "ActResult",
            "Observation", "Element"] + [
     "WebmuxdError", "ActionError", "PlatformError", "UsageError",

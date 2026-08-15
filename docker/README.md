@@ -30,7 +30,7 @@ docker pull docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1
 不认名字:
 
 ```bash
-webmuxd new -s demo -p 7900 --vnc-port 8090 \
+webmuxd new --id demo --api-port 7900 --view-port 8090 \
   --image docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0
 ```
 
@@ -57,20 +57,20 @@ docker build -t ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1 docker/jlesa
 
 | | 是什么 | 默认 |
 | --- | --- | --- |
-| `WEBMUXD_WINDOW_PORT` | 窗听在哪个口 —— 人用浏览器开的那个 | 底座各自的(6901 / 5800) |
+| `WEBMUXD_VIEW_PORT` | 窗听在哪个口 —— 人用浏览器开的那个 | 底座各自的(6901 / 5800) |
 | `WEBMUXD_CDP_PORT` | CDP 听在哪个口 —— webmuxd 连的那个 | `9222` |
 | `WEBMUXD_PASSWORD` | 看画面要的口令(**至少 6 位**) | 不给就用底座自己的默认 |
-| `WEBMUXD_USER` | 登录名 | jlesage `webmuxd`;**kasm 写死 `kasm_user`,改不了** |
+| `WEBMUXD_LOGIN` | 登录名 | jlesage `webmuxd`;**kasm 写死 `kasm_user`,改不了** |
 | `WEBMUXD_BIND` | 窗绑哪个地址 —— `127.0.0.1` 只在本机,`0.0.0.0` 对外 | `0.0.0.0` |
 
 ```bash
 docker run -d --shm-size=1g --network host \
-  -e WEBMUXD_WINDOW_PORT=8090 -e WEBMUXD_CDP_PORT=9222 \
+  -e WEBMUXD_VIEW_PORT=8090 -e WEBMUXD_CDP_PORT=9222 \
   -e VNC_PW=至少六位 \
   ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0
 
 docker run -d --shm-size=1g --network host \
-  -e WEBMUXD_WINDOW_PORT=8091 -e WEBMUXD_CDP_PORT=9333 \
+  -e WEBMUXD_VIEW_PORT=8091 -e WEBMUXD_CDP_PORT=9333 \
   ghcr.io/memory-co/webmuxd/jlesage-chromium:v26.08.1
 ```
 
@@ -118,19 +118,19 @@ docker inspect -f '{{json .Config.Labels}}' ghcr.io/memory-co/webmuxd/kasmweb-ch
 
 | 标签 | 意思 |
 | --- | --- |
-| `webmuxd.window.port` / `.scheme` | 窗在哪个口、什么协议 |
-| `webmuxd.window.port_env` | 改窗口端口的变量名(两个都是 `WEBMUXD_WINDOW_PORT`) |
-| `webmuxd.window.bind_env` | 改窗口绑定地址的变量名(空 = 这个镜像绑不了,只能对外) |
-| `webmuxd.window.user` / `.user_env` | 登录名写死的还是变量定的 |
-| `webmuxd.window.password_env` | 口令从哪个变量来(两个都是 `WEBMUXD_PASSWORD`) |
+| `webmuxd.view.port` / `.scheme` | 窗在哪个口、什么协议 |
+| `webmuxd.view.port_env` | 改窗口端口的变量名(两个都是 `WEBMUXD_VIEW_PORT`) |
+| `webmuxd.view.bind_env` | 改窗口绑定地址的变量名(空 = 这个镜像绑不了,只能对外) |
+| `webmuxd.view.login` / `.user_env` | 登录名写死的还是变量定的 |
+| `webmuxd.view.password_env` | 口令从哪个变量来(两个都是 `WEBMUXD_PASSWORD`) |
 | `webmuxd.cdp.port` / `.port_env` | CDP 默认口、改它的变量名 |
 | `webmuxd.chromium.args_env` / `.url_env` | 往 Chromium 塞参数 / 给启动页的变量名(空 = 没有这个概念) |
-| `webmuxd.host_network` | `multi` = 能一机多开;`single` = host 下只能一个 |
+| `webmuxd.host.network` | `multi` = 能一机多开;`single` = host 下只能一个 |
 
 ## 加第三个镜像
 
 1. 新目录 `docker/<出处>-<应用>/`,Dockerfile、entrypoint、README 都放里面
-2. entrypoint 把 `WEBMUXD_WINDOW_PORT` / `WEBMUXD_CDP_PORT` / `WEBMUXD_PASSWORD`
+2. entrypoint 把 `WEBMUXD_VIEW_PORT` / `WEBMUXD_CDP_PORT` / `WEBMUXD_PASSWORD`
    **翻译成底座认的名字**(翻译时用 `if`,别写 `[ -n … ] && export …` ——
    配上 `set -e`,不给那个变量时它返回非零会**直接把容器杀掉**,日志里毫无线索)
 3. CDP:底座自带转发就打开它,没有就补一个(抄

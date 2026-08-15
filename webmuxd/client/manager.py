@@ -41,8 +41,8 @@ class Webmuxd:
 
     # ------------------------------------------------------------------
 
-    def session(self, id: str, *, port: int | None = None,
-                vnc_port: int | None = None, runtime: str = "container",
+    def session(self, id: str, *, api_port: int | None = None,
+                view_port: int | None = None, runtime: str = "container",
                 user: str | None = None, **kw: Any) -> Session:
         """拿一个 session。**幂等:同一个 id 永远给你同一个。**
 
@@ -51,23 +51,32 @@ class Webmuxd:
         **端口必须你给,不自动分配**:端口是部署决定的,我们猜一个只会让你的
         配置和实际对不上,而且一个 session 占两个口,自动分配还得替你猜第二个。
         """
+        # **旧名不静默吞。** 0.4.0 把三层的名字对齐了(CLI --x / lib x= /
+        # 镜像 WEBMUXD_X),旧名落进 `**kw` 会被无声丢掉,然后报一个指向别处的错
+        # ——"还不存在,得给 api_port"。宁可在这儿直说。
+        for old, new in (("port", "api_port"), ("vnc_port", "view_port"),
+                         ("viewport", "window_size"), ("token", "password")):
+            if old in kw:
+                raise BadRequest(f"`{old}=` 改名叫 `{new}=` 了(0.4.0)",
+                                 code="bad_request")
+
         with self._lock:
             have = self._live.get(id)
             if have is not None:
                 # 同一个 id **返回同一个 Python 对象** —— 每个 Session 背后有一条 WS
                 # 和一份内存表,给两个就是两条连接、两份可能不一致的表。
-                if port is not None and have.api_url.endswith(f":{port}") is False:
+                if api_port is not None and have.api_url.endswith(f":{api_port}") is False:
                     raise BadRequest(
-                        f"{id} 已经在 {have.api_url},和你给的 port={port} 对不上",
+                        f"{id} 已经在 {have.api_url},和你给的 api_port={api_port} 对不上",
                         code="bad_request")
                 return have
 
-            if port is None:
+            if api_port is None:
                 raise BadRequest(
-                    f"session {id!r} 还不存在,得给 port 和 vnc_port —— "
+                    f"session {id!r} 还不存在,得给 api_port 和 view_port —— "
                     "端口是部署决定的,我们不替你分配", code="bad_request")
 
-            api = f"http://{self.host}:{port}"
+            api = f"http://{self.host}:{api_port}"
             t = Transport(api, token=self.token)
             owned = False
             if not t.alive():
@@ -75,7 +84,7 @@ class Webmuxd:
                 # 起不来就抛 RuntimeUnavailable 带 hint,**不静默换一种**
                 # (works/05 §4)。
                 impl = rt.get(runtime)
-                handle = impl.start(id, api_port=port, vnc_port=vnc_port or 0,
+                handle = impl.start(id, api_port=api_port, view_port=view_port or 0,
                                     token=self.token, **kw)
                 self._handles[id] = (impl, handle)
                 api = handle.detail.get("endpoint") or api
@@ -86,13 +95,13 @@ class Webmuxd:
             # 报成 http 的话人点过去是连不上的
             handle = (self._handles.get(id) or (None, None))[1]
             vnc = ""
-            if vnc_port:
-                scheme = (handle.detail.get("vnc_scheme") if handle else None) or "http"
-                vnc = f"{scheme}://{self.host}:{vnc_port}"
-            sess = Session(id, api, vnc_url=vnc,
+            if view_port:
+                scheme = (handle.detail.get("view_scheme") if handle else None) or "http"
+                vnc = f"{scheme}://{self.host}:{view_port}"
+            sess = Session(id, api, view_url=vnc,
                            token=self.token, user=user or self.user,
                            owned=owned, manager=self,
-                           vnc_login=(handle.detail if handle else None))
+                           view_login=(handle.detail if handle else None))
             self._live[id] = sess
             return sess
 
@@ -104,8 +113,8 @@ class Webmuxd:
         if self._t is not None:
             try:
                 listing = self._t.get("/api/sessions")
-                return [self.session(s["id"], port=s.get("port"),
-                                     vnc_port=s.get("vnc_port"))
+                return [self.session(s["id"], port=s.get("api_port"),
+                                     view_port=s.get("view_port"))
                         for s in listing.get("sessions", [])]
             except Exception:
                 pass

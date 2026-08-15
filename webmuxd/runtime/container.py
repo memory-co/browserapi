@@ -56,7 +56,7 @@ IMAGE = os.environ.get("WEBMUXD_IMAGE", "ghcr.io/memory-co/webmuxd/kasmweb-chrom
 #: 跟着它,默认路径上窗口和桌面才对得齐。
 #:
 #: 用环境变量兜底,是为了让默认值本身可配(不用每次调用都传)。
-DEFAULT_VIEWPORT = os.environ.get("WEBMUXD_VIEWPORT", "1024x768")
+DEFAULT_WINDOW_SIZE = os.environ.get("WEBMUXD_VIEWPORT", "1024x768")
 
 #: 打在容器上的标签 —— server 重启后靠它把跑着的 session 认回来。
 LABEL = "webmuxd.session"
@@ -77,21 +77,21 @@ class Profile:
     给它打上标签就行(docker/README.md)。
     """
 
-    window_port: int
-    window_scheme: str
+    view_port: int
+    view_scheme: str
     password_env: str
     cdp_port: int
     args_env: str
     url_env: str
-    window_port_env: str = ""
-    window_bind_env: str = ""
+    view_port_env: str = ""
+    view_bind_env: str = ""
     auth_env: str = ""
     tls_env: str = ""
     tz_env: str = ""
-    resolution_env: str = ""
+    window_size_env: str = ""
     cdp_port_env: str = "WEBMUXD_CDP_PORT"
-    window_user: str = ""
-    window_user_env: str = ""
+    view_login: str = ""
+    view_login_env: str = ""
     host_network: str = "single"
 
     @classmethod
@@ -107,29 +107,29 @@ class Profile:
             got = {}
         lab = {k[len("webmuxd."):]: v for k, v in got.items() if k.startswith("webmuxd.")}
 
-        if not lab.get("window.port"):
+        if not lab.get("view.port"):
             # **没有标签就不猜。** 猜错的后果是容器起来了、画面在别的口上、
             # 而报错指向"连不上",查半天。
             raise unavailable(
                 "container", f"{image} 没有 webmuxd.* 标签,不知道怎么驱动它",
                 "用 webmuxd/kasmweb-chromium,或按 docker/README.md 给它加一层")
         return cls(
-            window_port=int(lab["window.port"]),
-            window_scheme=lab.get("window.scheme", "http"),
-            password_env=lab.get("window.password_env", ""),
+            view_port=int(lab["view.port"]),
+            view_scheme=lab.get("view.scheme", "http"),
+            password_env=lab.get("view.password_env", ""),
             cdp_port=int(lab.get("cdp.port", 9222)),
             args_env=lab.get("chromium.args_env", ""),
             url_env=lab.get("chromium.url_env", ""),
-            window_port_env=lab.get("window.port_env", ""),
-            window_bind_env=lab.get("window.bind_env", ""),
-            auth_env=lab.get("window.auth_env", ""),
-            tls_env=lab.get("window.tls_env", ""),
-            tz_env=lab.get("tz_env", ""),
-            resolution_env=lab.get("resolution_env", ""),
+            view_port_env=lab.get("view.port_env", ""),
+            view_bind_env=lab.get("view.bind_env", ""),
+            auth_env=lab.get("view.auth_env", ""),
+            tls_env=lab.get("view.tls_env", ""),
+            tz_env=lab.get("tz.env", ""),
+            window_size_env=lab.get("window_size.env", ""),
             cdp_port_env=lab.get("cdp.port_env") or "WEBMUXD_CDP_PORT",
-            window_user=lab.get("window.user", ""),
-            window_user_env=lab.get("window.user_env", ""),
-            host_network=lab.get("host_network", "single"),
+            view_login=lab.get("view.login", ""),
+            view_login_env=lab.get("view.login_env", ""),
+            host_network=lab.get("host.network", "single"),
         )
 
 
@@ -159,10 +159,12 @@ class ContainerRuntime:
 
     # ------------------------------------------------------------------ 起
 
-    def start(self, id: str, *, api_port: int, vnc_port: int,
-              url: str = "about:blank", viewport: str = "",
+    def start(self, id: str, *, api_port: int, view_port: int,
+              url: str = "about:blank", window_size: str = "",
               volume: str | None = None, proxy: str | None = None,
-              token: str | None = None, image: str | None = None,
+              password: str | None = None,
+              login: str | None = None, image: str | None = None,
+              cdp_port: int = 0,
               network: str = "host", bind: str = "127.0.0.1",
               auth: bool = True, tls: bool = True, tz: str | None = None,
               tab_max: int | None = None, log_limit: int | None = None,
@@ -173,31 +175,33 @@ class ContainerRuntime:
             raise unavailable(self.name, why,
                               "可以改用 runtime=process,但那样没有隔离"
                               "(页面跑在你自己机器上)")
-        require_ports(api_port, vnc_port)
+        require_ports(api_port, view_port)
         img = image or self.image
         prof = Profile.read(self.docker, img)
 
         if auth:
-            vnc_pw = token or secrets.token_urlsafe(9)
-            if len(vnc_pw) < PW_MIN:
+            password = password or secrets.token_urlsafe(9)
+            if len(password) < PW_MIN:
                 raise unavailable(self.name,
-                                  f"画面口令至少 {PW_MIN} 位,给的是 {len(vnc_pw)} 位",
+                                  f"画面口令至少 {PW_MIN} 位,给的是 {len(password)} 位",
                                   "kasm 会因为这个直接退出,而且报的错和密码没关系")
         else:
             # **关掉鉴权得镜像支持**,不能默默留着口令装作关了
             if not prof.auth_env:
                 raise unavailable(
-                    self.name, f"{img} 没说怎么关鉴权(webmuxd.window.auth_env)",
+                    self.name, f"{img} 没说怎么关鉴权(webmuxd.view.auth_env)",
                     "换个镜像,或者别关 —— 画面口一旦对外,没口令就是谁都能用")
-            vnc_pw = ""
+            password = ""
 
-        viewport = viewport or DEFAULT_VIEWPORT
-        w, _, h = viewport.partition("x")
+        window_size = window_size or DEFAULT_WINDOW_SIZE
+        w, _, h = window_size.partition("x")
         app_args = ["--start-maximized", f"--window-size={w},{h or 800}"]
         if proxy:
             app_args.append(f"--proxy-server={proxy}")
 
-        cdp_host_port = _free_port()
+        # **不给就自动挑** —— CDP 口只在本机用,没有理由让调用方操心;
+        # 但给了就照给的来(要过防火墙、要固定端口的场合)。
+        cdp_host_port = cdp_port or _free_port()
         args = [self.docker, "run", "-d",
                 "--name", f"webmuxd-{id}",
                 "--label", f"{LABEL}={id}",
@@ -212,21 +216,21 @@ class ContainerRuntime:
             # (标签 `webmuxd.host_network`,works/08 §6.2)。
             #
             # 没有 `-p`,所以画面口不是映射出来的,是**直接告诉镜像听在那儿**。
-            if not prof.window_port_env:
+            if not prof.view_port_env:
                 raise unavailable(
-                    self.name, f"{img} 没说画面口怎么改(webmuxd.window.port_env)",
+                    self.name, f"{img} 没说画面口怎么改(webmuxd.view.port_env)",
                     "host 网络下没有 -p 可以映射;换 network=\"bridge\" 就不需要它")
             args += ["--network", "host",
-                     "-e", f"{prof.window_port_env}={vnc_port}",
+                     "-e", f"{prof.view_port_env}={view_port}",
                      "-e", f"{prof.cdp_port_env}={cdp_host_port}"]
             # host 下容器的网络栈就是宿主机的,所以 `bind` 直接传给镜像。
-            if prof.window_bind_env:
-                args += ["-e", f"{prof.window_bind_env}={bind}"]
+            if prof.view_bind_env:
+                args += ["-e", f"{prof.view_bind_env}={bind}"]
             elif bind != "0.0.0.0":
                 # **管不住就说管不住**,别让调用方以为它只在本机
                 raise unavailable(
                     self.name, f"{img} 没说画面口绑哪个地址怎么配"
-                                f"(webmuxd.window.bind_env),没法限制成 {bind}",
+                                f"(webmuxd.view.bind_env),没法限制成 {bind}",
                     "换个镜像,或者显式 bind=\"0.0.0.0\" 承认它是对外的")
         else:
             # **要网络隔离、或者那个镜像 host 下开不了多个,就用它。**
@@ -238,9 +242,9 @@ class ContainerRuntime:
             # 能连上就等于绕过整层。
             # **容器内必须绑 0.0.0.0**,否则 `-p` 够不着它(DNAT 到的是 eth0);
             # 对外收不收得住由 `-p` 前面那个地址决定 —— 这一层才是 `bind` 的落点。
-            if prof.window_bind_env:
-                args += ["-e", f"{prof.window_bind_env}=0.0.0.0"]
-            args += ["-p", f"{bind}:{vnc_port}:{prof.window_port}",
+            if prof.view_bind_env:
+                args += ["-e", f"{prof.view_bind_env}=0.0.0.0"]
+            args += ["-p", f"{bind}:{view_port}:{prof.view_port}",
                      "-p", f"127.0.0.1:{cdp_host_port}:{prof.cdp_port}"]
         # 变量名全来自标签 —— 这里没有任何一个镜像的名字
         if prof.auth_env:
@@ -249,7 +253,7 @@ class ContainerRuntime:
             # KasmVNC 就是恒 TLS(实测:拿掉 -sslOnly 也一样)。**说不行就是不行**,
             # 不能让调用方按 http 去拼 URL。
             raise unavailable(self.name, f"{img} 的画面口关不掉 TLS"
-                                         f"(没有 webmuxd.window.tls_env)",
+                                         f"(没有 webmuxd.view.tls_env)",
                               "它就是 https。要 http 就换个镜像")
         if prof.tls_env:
             args += ["-e", f"{prof.tls_env}={1 if tls else 0}"]
@@ -257,15 +261,15 @@ class ContainerRuntime:
         # 免得下一个镜像换了名字时这里要改代码。
         if tz and prof.tz_env:
             args += ["-e", f"{prof.tz_env}={tz}"]
-        # **桌面分辨率跟着 viewport 一起定。** 早先只把它传给了 Chromium 的
+        # **桌面分辨率跟着 window_size 一起定。** 早先只把它传给了 Chromium 的
         # --window-size,桌面还是底座的默认(kasm 1024x768),于是窗口比桌面大、
         # 边上被裁 —— 而这东西的全部意义就是"人看到的和截图是同一个"。
-        if prof.resolution_env:
-            args += ["-e", f"{prof.resolution_env}={viewport}"]
-        for env_name, value in ((prof.password_env, vnc_pw),
+        if prof.window_size_env:
+            args += ["-e", f"{prof.window_size_env}={window_size}"]
+        for env_name, value in ((prof.password_env, password),
                                 (prof.url_env, url),
                                 (prof.args_env, " ".join(app_args)),
-                                (prof.window_user_env, "webmuxd")):
+                                (prof.view_login_env, login or "webmuxd")):
             if env_name:
                 args += ["-e", f"{env_name}={value}"]
         if volume:
@@ -297,18 +301,18 @@ class ContainerRuntime:
             subprocess.run([self.docker, "rm", "-f", cid], capture_output=True)
             raise
 
-        return Handle(self.name, id, api_port, vnc_port,
+        return Handle(self.name, id, api_port, view_port,
                       {"container_id": cid, "image": img,
                        "cdp_port": cdp_host_port,
                        # scheme 是**算出来的**:标签给的是默认,而 tls 开关能改它。
                        # 报错的 scheme 会让人拼出一个连不上的 URL。
-                       "vnc_scheme": prof.window_scheme if tls else "http",
+                       "view_scheme": prof.view_scheme if tls else "http",
                        "network": network,
                        # 两种模式下 `bind` 都真的生效了:host 是镜像自己绑,
                        # bridge 是 `-p` 那一层收着。如实报出来。
-                       "vnc_bind": bind,
-                       "vnc_user": (prof.window_user or "webmuxd") if auth else "",
-                       "vnc_password": vnc_pw,
+                       "view_bind": bind,
+                       "view_login": (prof.view_login or "webmuxd") if auth else "",
+                       "view_password": password,
                        "auth": auth,
                        "host_network": prof.host_network,
                        "pids": {k: p.pid for k, p in procs.items()},

@@ -50,7 +50,7 @@ class Registry:
         data = self._read()
         detail = {k: v for k, v in handle.detail.items() if not k.startswith("_")}
         data[handle.id] = {"id": handle.id, "runtime": handle.kind,
-                           "api_port": handle.api_port, "vnc_port": handle.vnc_port,
+                           "api_port": handle.api_port, "view_port": handle.view_port,
                            "detail": detail, **extra}
         self._write(data)
 
@@ -67,7 +67,7 @@ class Registry:
         if not row:
             return None
         return Handle(row["runtime"], row["id"], row["api_port"],
-                      row.get("vnc_port", 0), dict(row.get("detail") or {}))
+                      row.get("view_port", 0), dict(row.get("detail") or {}))
 
     # ---------------------------------------------------------------- 探活
 
@@ -77,7 +77,7 @@ class Registry:
         out = []
         for row in self._read().values():
             h = Handle(row["runtime"], row["id"], row["api_port"],
-                       row.get("vnc_port", 0), dict(row.get("detail") or {}))
+                       row.get("view_port", 0), dict(row.get("detail") or {}))
             try:
                 alive = rt.get(row["runtime"]).alive(h)
             except Exception:

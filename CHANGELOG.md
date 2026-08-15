@@ -1,5 +1,48 @@
 # 更新日志
 
+## 0.4.0
+
+**全是改名。一件事一个词,三层贯通。**
+
+之前同一个概念在三层各叫各的 —— 最糟的是"看画面的口令":CLI 上根本没有参数
+(只能设 `WEBMUXD_TOKEN`)、lib 叫 `token=`、镜像叫 `WEBMUXD_PASSWORD`。
+而"给人看的那个口"叫 `--vnc-port`,把**实现名**写进了契约:三个镜像里
+kasm 是 KasmVNC、jlesage 是 TigerVNC、Selkies 干脆不是 VNC。
+
+规则:**CLI `--连字符` / lib `下划线=` / 镜像 `WEBMUXD_大写`,同一个词。**
+
+| 概念 | CLI | lib | 镜像 env |
+| --- | --- | --- | --- |
+| 人看的口 | `--view-port` | `view_port=` | `WEBMUXD_VIEW_PORT` |
+| CDP 口 | `--cdp-port` | `cdp_port=` | `WEBMUXD_CDP_PORT` |
+| webmuxd 自己的口 | `--api-port` | `api_port=` | — |
+| 画面尺寸 | `--window-size` | `window_size=` | `WEBMUXD_WINDOW_SIZE` |
+| 口令 | `--password` | `password=` | `WEBMUXD_PASSWORD` |
+| 登录名 | `--login` | `login=` | `WEBMUXD_LOGIN` |
+| 鉴权 / TLS | `--auth` / `--tls`(可 `--no-`) | `auth=` / `tls=` | `WEBMUXD_AUTH` / `WEBMUXD_TLS` |
+| 绑定地址 | `--bind` | `bind=` | `WEBMUXD_BIND` |
+
+镜像标签同步成 `webmuxd.<域>.<字段>`:`view.*` / `cdp.*` / `chromium.*` /
+`host.network` / `tz.env` / `window_size.env`。
+
+### 还顺手补上的
+
+- **`--cdp-port` 现在可以指定**(以前只能自动挑)。不给仍然自动 —— 它只在本机用。
+- **`--password` / `--login` 之前在 CLI 上根本不存在**,只能靠环境变量。
+- `-p` 以前在 `new` 里是 `--port`、在别的子命令里是 `--print-only`,**同一个短选项两个意思**。现在长名是唯一正式写法。
+
+### 破坏性变更
+
+`--vnc-port` → `--view-port`,`-p/--port` → `--api-port`,`-v/--viewport` →
+`--window-size`(旧写法仍作别名保留一版);
+
+**lib 的旧名不再工作**,而且**不会静默吞掉** —— `port=` / `vnc_port=` /
+`viewport=` / `token=` 会直接报错并告诉你新名字。以前它们会落进 `**kw` 被丢掉,
+然后报一个指向别处的错。
+
+`Session.vnc_url` / `vnc_user` / `vnc_password` → `view_url` / `view_login` /
+`view_password`;`Handle.vnc_port` → `view_port`。
+
 ## 0.3.1
 
 修 0.3.0 里"观测带上分辨率"那个功能 —— **它是坏的发出去的**。

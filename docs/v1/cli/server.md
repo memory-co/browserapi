@@ -6,7 +6,7 @@
 ## 1. 命令
 
 ```bash
-webmuxd new -s ID -p PORT --vnc-port PORT [--runtime R] [-u URL] [-v WxH]
+webmuxd new --id ID --api-port PORT --view-port PORT [--runtime R] [-u URL] [-v WxH]
             [--volume VOL] [--proxy URL] [--endpoint URL] [-d]
 webmuxd ls
 webmuxd attach -t ID [-p]
@@ -24,10 +24,10 @@ webmuxd info
 ## 2. 会话
 
 ```console
-$ webmuxd new -s work -p 7900 --vnc-port 6901
+$ webmuxd new --id work --api-port 7900 --view-port 6901
 work  →  画面 http://localhost:6901   API http://localhost:7900
 
-$ webmuxd new -s work -p 7900 --vnc-port 6901     # 再来一次 = 幂等,不报错
+$ webmuxd new --id work --api-port 7900 --view-port 6901     # 再来一次 = 幂等,不报错
 work  →  已经在跑了
 
 $ webmuxd ls
@@ -48,7 +48,7 @@ http://localhost:7800/s/work/vnc/?t=...   (可操作,1 小时后过期)
 ⚠ 这个链接能操作你的浏览器,包括已登录的站点
 ```
 
-- **`-p` 和 `--vnc-port` 必填,不自动分配** —— 端口是部署决定的,
+- **`-p` 和 `--view-port` 必填,不自动分配** —— 端口是部署决定的,
   我们猜一个只会让你的 compose 配置和实际对不上。一个 session **两个口**,
   kasm 复用不了([works/05 §2](../works/05-server-session-runtime.md#2-对照表))
 - **`new` 是幂等的**:同一个 id 再建一次就是接管,不报错(像 `tmux new -A -s`)
@@ -68,8 +68,8 @@ http://localhost:7800/s/work/vnc/?t=...   (可操作,1 小时后过期)
 session 怎么被拉起来,创建时选一次,之后所有命令都一样:
 
 ```bash
-webmuxd new -s work -p 7900 --vnc-port 6901             # container(默认)
-webmuxd new -s dev -p 7901 --vnc-port 6902 --runtime process   # 不要 docker,没隔离
+webmuxd new --id work --api-port 7900 --view-port 6901             # container(默认)
+webmuxd new --id dev --api-port 7901 --view-port 6902 --runtime process   # 不要 docker,没隔离
 webmuxd new -s prod --runtime remote --endpoint https://browser.internal:7800
 ```
 
@@ -78,7 +78,7 @@ docker 不可用又没给 `--runtime` 时**报错,不静默降级**
 (对应 `503 runtime_unavailable`,退出码 1):
 
 ```console
-$ webmuxd new -s work -p 7900 --vnc-port 6901
+$ webmuxd new --id work --api-port 7900 --view-port 6901
 ✗ runtime_unavailable: docker 不可用
   可以改用 --runtime process,但那样没有隔离(页面跑在你自己机器上)
 ```
@@ -131,7 +131,7 @@ export WEBMUXD_TOKEN=...
 
 | CLI | API |
 | --- | --- |
-| `new -s ID -p PORT --vnc-port PORT [--runtime -u -v --volume --proxy --endpoint]` | `GET /api/sessions/{id}`,404 就 `POST /api/sessions` `{id, port, vnc_port, ...}` |
+| `new -s ID -p PORT --view-port PORT [--runtime -u -v --volume --proxy --endpoint]` | `GET /api/sessions/{id}`,404 就 `POST /api/sessions` `{id, port, view_port, ...}` |
 | `ls` | `GET /api/sessions` |
 | `has -t NAME` | `GET /api/sessions/{name}` → 退出码 3 |
 | `rename -t NAME NEW` | `POST /api/sessions/{name}/rename` |

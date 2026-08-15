@@ -3,13 +3,13 @@
 # 为什么两个镜像要用同一套名字,见 ../README.md。
 set -e
 
-export WEB_LISTENING_PORT="${WEBMUXD_WINDOW_PORT:-5800}"
+export WEB_LISTENING_PORT="${WEBMUXD_VIEW_PORT:-5800}"
 export CHROMIUM_REMOTE_DEBUGGING_PORT="${WEBMUXD_CDP_PORT:-9222}"
 
 # 桌面分辨率。底座分成宽高两个变量,这里把 WxH 拆开。
-if [ -n "${WEBMUXD_RESOLUTION:-}" ]; then
-    export DISPLAY_WIDTH="${WEBMUXD_RESOLUTION%x*}"
-    export DISPLAY_HEIGHT="${WEBMUXD_RESOLUTION#*x}"
+if [ -n "${WEBMUXD_WINDOW_SIZE:-}" ]; then
+    export DISPLAY_WIDTH="${WEBMUXD_WINDOW_SIZE%x*}"
+    export DISPLAY_HEIGHT="${WEBMUXD_WINDOW_SIZE#*x}"
 fi
 
 # 窗绑哪个地址。底座只给了个布尔(只听 loopback 与否),所以这里把地址翻译成
@@ -32,7 +32,7 @@ esac
 
 if [ -n "${WEBMUXD_PASSWORD:-}" ]; then
     export WEB_AUTHENTICATION=1
-    export WEB_AUTHENTICATION_USERNAME="${WEBMUXD_USER:-webmuxd}"
+    export WEB_AUTHENTICATION_USERNAME="${WEBMUXD_LOGIN:-webmuxd}"
     export WEB_AUTHENTICATION_PASSWORD="$WEBMUXD_PASSWORD"
     # 底座默认拒绝"要口令又不走 https"(凭据会明文传)。既然两个开关都是
     # 调用方显式选的,这里放行它自己的逃生阀,并让它自己打那段警告。

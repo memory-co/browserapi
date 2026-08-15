@@ -107,7 +107,7 @@ def page_url(live):
 @pytest.fixture
 def sess(live):
     web = Webmuxd(user="claudecode")
-    s = web.session(id="work", port=live[0], vnc_port=6901)
+    s = web.session(id="work", api_port=live[0], view_port=6901)
     yield s
     # sessiond 是模块级共享的,用完把 tab 清掉 —— 不然下一个用例
     # 按标题找 tab 会匹配到上一个用例留下的那个
@@ -133,7 +133,7 @@ def test_session_is_idempotent_and_returns_the_same_object(live):
     每个 Session 背后有一条 WS 和一份内存表,给两个就是两条连接
     (sdk/manager.md §1)。"""
     web = Webmuxd()
-    a = web.session(id="work", port=live[0], vnc_port=6901)
+    a = web.session(id="work", api_port=live[0], view_port=6901)
     b = web.session(id="work")
     assert a is b
     a.detach()
@@ -150,7 +150,7 @@ def test_a_new_id_without_ports_is_refused(live):
 def test_nothing_running_on_that_port_says_so(live):
     web = Webmuxd()
     with pytest.raises(RuntimeUnavailable) as ei:
-        web.session(id="没起来的", port=1, vnc_port=2)
+        web.session(id="没起来的", api_port=1, view_port=2)
     assert ei.value.hint
 
 

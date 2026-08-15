@@ -39,7 +39,7 @@ exec socat TCP-LISTEN:${CHROMIUM_REMOTE_DEBUGGING_PORT},fork \
 
 ## 这个镜像自己的变量
 
-统一的 `WEBMUXD_WINDOW_PORT` / `WEBMUXD_CDP_PORT` 见 [../README.md](../README.md)。
+统一的 `WEBMUXD_VIEW_PORT` / `WEBMUXD_CDP_PORT` 见 [../README.md](../README.md)。
 底座的变量原样可用,常用的:
 
 | | |
@@ -47,7 +47,7 @@ exec socat TCP-LISTEN:${CHROMIUM_REMOTE_DEBUGGING_PORT},fork \
 | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | 分辨率 |
 | `CHROMIUM_CUSTOM_ARGS` | 追加给 Chromium 的参数 |
 
-**画面口令用统一的 `WEBMUXD_PASSWORD`**,用户名用 `WEBMUXD_USER`(默认 `webmuxd`),
+**画面口令用统一的 `WEBMUXD_PASSWORD`**,用户名用 `WEBMUXD_LOGIN`(默认 `webmuxd`),
 绑定地址用 `WEBMUXD_BIND`。
 
 底座的 `WEB_LOCALHOST_ONLY` 是个**布尔**(只听 loopback 与否),所以 wrapper 把

@@ -13,20 +13,20 @@ ENV CHROMIUM_REMOTE_DEBUGGING=1 \
     SECURE_CONNECTION=1
 EXPOSE 5800 9222
 
-LABEL webmuxd.window.port=5800 \
-      webmuxd.window.scheme=https \
-      webmuxd.window.user_env=WEBMUXD_USER \
-      webmuxd.window.password_env=WEBMUXD_PASSWORD \
-      webmuxd.window.port_env=WEBMUXD_WINDOW_PORT \
-      webmuxd.window.bind_env=WEBMUXD_BIND \
-      webmuxd.window.auth_env=WEBMUXD_AUTH \
-      webmuxd.tz_env=TZ \
-      webmuxd.resolution_env=WEBMUXD_RESOLUTION \
-      webmuxd.window.tls_env=WEBMUXD_TLS \
+LABEL webmuxd.view.port=5800 \
+      webmuxd.view.scheme=https \
+      webmuxd.view.login_env=WEBMUXD_LOGIN \
+      webmuxd.view.password_env=WEBMUXD_PASSWORD \
+      webmuxd.view.port_env=WEBMUXD_VIEW_PORT \
+      webmuxd.view.bind_env=WEBMUXD_BIND \
+      webmuxd.view.auth_env=WEBMUXD_AUTH \
+      webmuxd.tz.env=TZ \
+      webmuxd.window_size.env=WEBMUXD_WINDOW_SIZE \
+      webmuxd.view.tls_env=WEBMUXD_TLS \
       webmuxd.cdp.port=9222 \
       webmuxd.cdp.port_env=WEBMUXD_CDP_PORT \
       webmuxd.chromium.args_env=CHROMIUM_CUSTOM_ARGS \
       webmuxd.chromium.url_env="" \
-      webmuxd.host_network=multi
+      webmuxd.host.network=multi
 
 ENTRYPOINT ["/usr/local/bin/webmuxd-entrypoint"]

@@ -48,8 +48,8 @@ class ProcessRuntime:
                               "跑 `webmuxd install` 重新探")
         return _which(CHROMIUM_NAMES)
 
-    def start(self, id: str, *, api_port: int, vnc_port: int,
-              url: str = "about:blank", viewport: str = "",
+    def start(self, id: str, *, api_port: int, view_port: int,
+              url: str = "about:blank", window_size: str = "",
               proxy: str | None = None, data_dir: str | None = None,
               **_opts: Any) -> Handle:
         ok, why = self.available()
@@ -59,8 +59,8 @@ class ProcessRuntime:
 
         chromium = self._chromium()
         vnc = _which(VNC_NAMES)
-        from webmuxd.runtime.container import DEFAULT_VIEWPORT
-        viewport = viewport or DEFAULT_VIEWPORT
+        from webmuxd.runtime.container import DEFAULT_WINDOW_SIZE
+        window_size = window_size or DEFAULT_WINDOW_SIZE
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
         cdp_port = _free_port()
@@ -71,22 +71,22 @@ class ProcessRuntime:
         if vnc and vnc.endswith(("Xvnc", "Xtigervnc")):
             display = _free_display()
             procs["vnc"] = subprocess.Popen(
-                [vnc, display, "-geometry", viewport, "-rfbport", str(vnc_port),
+                [vnc, display, "-geometry", window_size, "-rfbport", str(view_port),
                  "-SecurityTypes", "None", "-AlwaysShared"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
-            wait_port(vnc_port, 10)
+            wait_port(view_port, 10)
         else:
             # **说出来**:没有 VNC 就没有画面,只有 API。装作有画面比没画面更糟。
             notes.append("本机没有 Xvnc,这个 session 只有 API 没有画面 —— "
-                         "人看不了,`vnc_url` 是空的")
+                         "人看不了,`view_url` 是空的")
 
         args = [chromium, "--no-sandbox", "--disable-gpu",
                 f"--remote-debugging-port={cdp_port}",
                 "--remote-debugging-address=127.0.0.1",
                 f"--user-data-dir={os.path.join(work, 'profile')}",
                 "--disable-infobars", "--disable-session-crashed-bubble",
-                f"--window-size={viewport.replace('x', ',')}"]
+                f"--window-size={window_size.replace('x', ',')}"]
         if proxy:
             args.append(f"--proxy-server={proxy}")
         if display is None:
@@ -120,7 +120,7 @@ class ProcessRuntime:
             raise unavailable(self.name, "sessiond 没起来",
                               "手工跑一遍 python -m webmuxd.serve 看报什么")
 
-        return Handle(self.name, id, api_port, vnc_port if display else 0,
+        return Handle(self.name, id, api_port, view_port if display else 0,
                       {"display": display, "cdp_port": cdp_port, "work": work,
                        "pids": {k: p.pid for k, p in procs.items()},
                        "notes": notes, "_procs": procs})

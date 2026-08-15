@@ -69,7 +69,7 @@ pip install webmuxd
 from webmuxd import Webmuxd
 
 web  = Webmuxd()                            # 管理实例 —— 空壳,不起任何浏览器
-sess = web.session(id="work", port=7900, vnc_port=6901)   # 起一个 kasm
+sess = web.session(id="work", port=7900, view_port=6901)   # 起一个 kasm
 tab  = sess.open("https://shop.example.com", user="human")
 tab.click("登录", user="claudecode")       # 按可见文字找
 tab.type("手机号", "13800000000")          # 按标签找输入框
@@ -229,7 +229,7 @@ lib 的方法在前,因为那是定义的地方:
 要真并发?起多个 session。这也是 tmux 的答案:多开几个。
 
 ```python
-sessions = [web.session(id=f"w{i}", port=7900+i, vnc_port=6901+i)
+sessions = [web.session(id=f"w{i}", port=7900+i, view_port=6901+i)
             for i in range(4)]
 ```
 

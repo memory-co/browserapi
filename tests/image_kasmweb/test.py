@@ -23,10 +23,10 @@ def test_the_labels_say_what_this_image_is():
     from webmuxd.runtime.container import Profile
 
     p = Profile.read("docker", IMAGE)
-    assert (p.window_port, p.window_scheme) == (6901, "https")
+    assert (p.view_port, p.view_scheme) == (6901, "https")
     assert p.password_env == "WEBMUXD_PASSWORD"
     assert p.args_env == "APP_ARGS" and p.url_env == "LAUNCH_URL"
-    assert p.window_user == "kasm_user"
+    assert p.view_login == "kasm_user"
     # KasmVNC 的 .KasmVNCSock<pid> 是抽象 socket、归 netns 管,
     # 所以共享 netns 的第二个容器必然撞名(kasmtech/KasmVNC#363)
     assert p.host_network == "single"
@@ -38,9 +38,9 @@ def test_the_window_is_up_and_asks_for_a_password():
     import urllib.request
 
     with session_on(IMAGE, "t-kasm-win") as (handle, _sess):
-        assert handle.detail["vnc_scheme"] == "https"
+        assert handle.detail["view_scheme"] == "https"
         try:
-            urllib.request.urlopen(handle.vnc_url, timeout=10)
+            urllib.request.urlopen(handle.view_url, timeout=10)
             raise AssertionError("画面口居然不要口令")
         except urllib.error.HTTPError as e:
             assert e.code == 401, f"该要口令,实际 {e.code}"

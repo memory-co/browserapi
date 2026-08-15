@@ -34,14 +34,14 @@ def test_the_labels_say_a_different_thing_than_kasm():
     from webmuxd.runtime.container import Profile
 
     p = Profile.read("docker", IMAGE)
-    assert (p.window_port, p.window_scheme) == (5800, "https")
+    assert (p.view_port, p.view_scheme) == (5800, "https")
     assert p.password_env == "WEBMUXD_PASSWORD"
     assert p.args_env == "CHROMIUM_CUSTOM_ARGS"
     # **故意是空的**:这个底座只有 CHROMIUM_APP_URL,而它映射到 `--app=`
     # (无边框应用窗口),不是普通启动页。与其用错模式,不如不声明 ——
     # webmuxd 连上之后自己 open() 就是了。
     assert p.url_env == "", "别把启动页接到 --app= 上"
-    assert p.window_user == "" and p.window_user_env, "登录名是变量定的,不是写死的"
+    assert p.view_login == "" and p.view_login_env, "登录名是变量定的,不是写死的"
     assert p.host_network == "multi"
 
 

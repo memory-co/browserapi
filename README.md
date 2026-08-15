@@ -26,13 +26,13 @@ webmuxd 让这两件事落在**同一个浏览器**上:
 from webmuxd import Webmuxd
 
 web  = Webmuxd(user="claudecode")                            # 空壳,不起任何东西
-sess = web.session(id="work", port=7900, vnc_port=8090)      # 这行才起一个浏览器
+sess = web.session(id="work", port=7900, view_port=8090)      # 这行才起一个浏览器
 tab  = sess.open("https://example.com")
 
 tab.type("手机号", "13800000000")
 tab.click("提交订单")                                         # 按人看得见的字,不写选择器
 
-print(sess.vnc_url, sess.vnc_user, sess.vnc_password)        # 人从这儿进去看
+print(sess.view_url, sess.view_login, sess.view_password)        # 人从这儿进去看
 ```
 
 那个地址发给谁,谁的浏览器里就是**这个浏览器** —— 看得见,也能直接伸手接管。
@@ -57,7 +57,7 @@ webmuxd install          # 只做两件事:确认 docker 能用、镜像拉不�
 from webmuxd import Webmuxd
 
 web = Webmuxd()
-sess = web.session(id="work", port=7900, vnc_port=8090)   # 镜像用记录里的默认
+sess = web.session(id="work", port=7900, view_port=8090)   # 镜像用记录里的默认
 tab = sess.open("https://news.ycombinator.com")
 
 print(tab.observe().as_prompt())      # 元素表,直接喂多模态模型
@@ -70,7 +70,7 @@ tab.click("new")
 ### 用命令行
 
 ```bash
-webmuxd new      -s work -p 7900 --vnc-port 8090     # 镜像用记录里的默认
+webmuxd new --id work --api-port 7900 --view-port 8090     # 镜像用记录里的默认
 webmuxd new-tab  -t work -u https://example.com
 webmuxd click    -t work "Learn more"
 webmuxd observe  -t work                  # 喂给模型的元素表
@@ -131,7 +131,7 @@ docker pull docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0  # 国内
 
 它们是在 kasm / jlesage 原厂镜像上**加一层**:补上 CDP 端点(Chromium 把调试口
 绑死在容器内的 loopback,`docker -p` 够不着),并把端口变量名统一成
-`WEBMUXD_WINDOW_PORT` / `WEBMUXD_CDP_PORT`。
+`WEBMUXD_VIEW_PORT` / `WEBMUXD_CDP_PORT`。
 
 ### 镜像填在哪
 
@@ -139,12 +139,12 @@ docker pull docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0  # 国内
 要换成别的,两条路都接同一个参数:
 
 ```python
-sess = web.session(id="work", port=7900, vnc_port=8090,
+sess = web.session(id="work", port=7900, view_port=8090,
                    image="docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1")
 ```
 
 ```bash
-webmuxd new -s work -p 7900 --vnc-port 8090 \
+webmuxd new --id work --api-port 7900 --view-port 8090 \
   --image docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1
 ```
 

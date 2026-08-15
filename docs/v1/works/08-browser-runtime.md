@@ -58,9 +58,9 @@ tmux 是契约的一部分*)。判的不是"谁更重要" —— 两样都缺不
 **画面不在契约里。** webmuxd 对那个端口做的唯一一件事,是**把 URL 报出来**:
 
 ```python
-sess.vnc_url        # https://127.0.0.1:8090
-sess.vnc_user       # 谁能进去,是起的时候定的
-sess.vnc_password
+sess.view_url        # https://127.0.0.1:8090
+sess.view_login       # 谁能进去,是起的时候定的
+sess.view_password
 ```
 
 它不代理、不转发、不解析里面一个字节,也不知道那边是 WebSocket 还是 WebRTC。
@@ -201,7 +201,7 @@ webmuxd 连上之后自己 `open()` 就是了。**profile 里宁可缺一项,也
 
 ```
 chromium --remote-debugging-port=<free>   →  127.0.0.1:<free>   CDP
-Xvnc :N -rfbport <vnc_port>               →  127.0.0.1:<vnc>    画面
+Xvnc :N -rfbport <view_port>               →  127.0.0.1:<vnc>    画面
 ```
 
 秒起,**但没有隔离**(页面跑在你自己机器上),而且没有 Xvnc 就只有 API 没有画面 ——
@@ -223,7 +223,7 @@ bridge 下根本够不着(`host-gateway` 走的是 eth0,那儿没人听)。
 
 - **没有网络隔离。** 容器里那个 Chromium 和宿主共用网络栈。
 - **能不能一机多开取决于镜像** —— 支持的就支持,不支持就不支持,
-  标签 `webmuxd.host_network` 如实写着。硬前提是:**那个镜像不能用带名字的
+  标签 `webmuxd.host.network` 如实写着。硬前提是:**那个镜像不能用带名字的
   抽象 unix socket。**
 
 **这两条哪条你都不能接受,就用 `network="bridge"`** —— 它还在,只是不是默认。

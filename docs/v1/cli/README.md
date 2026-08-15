@@ -69,7 +69,7 @@ webmuxd 不猜,因为点错浏览器的代价比敲错终端大。
 | `--json` | 输出 API 的**原始响应**,不做格式化 —— 方便和 API 混着用 |
 | `-F FORMAT` | 自定义输出模板,占位符见 [tabs.md §2](tabs.md#2-列出) |
 | `--note "..."` | 写进操作日志,对应 API 的 `note`,见 [act.md §3](act.md#3-note-参数) |
-| `--user NAME` | 操作的署名,进日志。默认 `WEBMUXD_USER`,再没有就是 `cli` |
+| `--user NAME` | 操作的署名,进日志。默认 `WEBMUXD_LOGIN`,再没有就是 `cli` |
 | `-L NAME` / `-S PATH` | 换 socket,语义同 tmux,见 [server.md §4](server.md#4-socket) |
 | `-H URL` | 指向远端 server,见 [server.md §6](server.md#6-远端) |
 
@@ -100,8 +100,8 @@ tab    new-tab  tabs  select-tab  kill-tab  move-tab
 参数从 **lib** 传([sdk/manager.md §1](../sdk/manager.md#1-session--拿一个-session)):
 
 ```python
-web.session(id="work", port=7900, vnc_port=6901,
-            runtime="process", viewport="1024x768")
+web.session(id="work", port=7900, view_port=6901,
+            runtime="process", window_size="1024x768")
 ```
 
 CLI 只是把同一批参数摆成 flag。**这是 lib 是主体的直接后果** ——

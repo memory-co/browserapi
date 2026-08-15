@@ -56,7 +56,7 @@ def session_on(image: str, sid: str, url: str = "https://example.com"):
 
     impl = ContainerRuntime(image=image)
     api, win = free_port(), free_port()
-    handle = impl.start(sid, api_port=api, vnc_port=win, url=url, token="testpw123")
+    handle = impl.start(sid, api_port=api, view_port=win, url=url, password="testpw123")
     try:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:

@@ -70,7 +70,7 @@ addr.sun_path[0] = '\0';                 // ← 抽象命名空间
 
 ## 这个镜像自己的变量
 
-统一的 `WEBMUXD_WINDOW_PORT` / `WEBMUXD_CDP_PORT` 见 [../README.md](../README.md)。
+统一的 `WEBMUXD_VIEW_PORT` / `WEBMUXD_CDP_PORT` 见 [../README.md](../README.md)。
 除此之外底座的变量原样可用,常用的:
 
 | | |
@@ -88,7 +88,7 @@ addr.sun_path[0] = '\0';                 // ← 抽象命名空间
 
 ## 已知没做到:桌面分辨率改不了
 
-`WEBMUXD_RESOLUTION` 这个镜像**不声明**(标签里没有 `webmuxd.resolution_env`),
+`WEBMUXD_WINDOW_SIZE` 这个镜像**不声明**(标签里没有 `webmuxd.window_size.env`),
 所以 webmuxd 不会去设它 —— 桌面固定在底座默认的 **1024×768**。
 
 **不是没接。** 已经排除的:

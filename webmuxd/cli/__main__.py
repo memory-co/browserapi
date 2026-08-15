@@ -91,8 +91,8 @@ def _session(args: argparse.Namespace) -> Session:
     row = reg.get(sid)
     if row is None:
         raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-    return _manager(args).session(id=sid, port=row["api_port"],
-                                  vnc_port=row.get("vnc_port") or None)
+    return _manager(args).session(id=sid, api_port=row["api_port"],
+                                  view_port=row.get("view_port") or None)
 
 
 def _tab(args: argparse.Namespace) -> Tab:
@@ -139,8 +139,8 @@ def cmd_new(args: argparse.Namespace) -> int:
     # 参数从 lib 传(sdk/manager.md),CLI 只是把它们摆成 flag。
     runtime = args.runtime or rt.default()
     url = args.url or os.environ.get("WEBMUXD_START_URL") or "about:blank"
-    from webmuxd.runtime.container import DEFAULT_VIEWPORT
-    viewport = args.viewport or DEFAULT_VIEWPORT
+    from webmuxd.runtime.container import DEFAULT_WINDOW_SIZE
+    window_size = args.window_size or DEFAULT_WINDOW_SIZE
 
     reg = Registry(name=args.socket_name)
     impl = rt.get(runtime)
@@ -152,33 +152,35 @@ def cmd_new(args: argparse.Namespace) -> int:
             return 0
         reg.forget(args.id)
 
-    handle = impl.start(args.id, api_port=args.port, vnc_port=args.vnc_port or 0,
-                        url=url, viewport=viewport,
+    handle = impl.start(args.id, api_port=args.api_port,
+                        view_port=args.view_port or 0, cdp_port=args.cdp_port,
+                        url=url, window_size=window_size,
                         volume=args.volume, proxy=args.proxy,
                         endpoint=args.endpoint, image=args.image,
                         network=args.network, bind=args.bind,
-                        auth=not args.no_auth, tls=not args.no_tls, tz=args.tz,
-                        token=os.environ.get("WEBMUXD_TOKEN"))
+                        auth=args.auth, tls=args.tls, tz=args.tz,
+                        login=args.login,
+                        password=args.password or os.environ.get("WEBMUXD_PASSWORD"))
     reg.put(handle)
+    d = handle.detail
     _out(args, {"id": args.id, "api_port": handle.api_port,
-                "vnc_port": handle.vnc_port,
-                "vnc_url": handle.vnc_url, "api_url": handle.api_url,
-                "vnc_user": handle.detail.get("vnc_user", ""),
-                "vnc_password": handle.detail.get("vnc_password", "")},
-         f"{args.id}  →  画面 {handle.vnc_url or '(无)'}   API {handle.api_url}")
-    if not args.json and handle.detail.get("vnc_bind") not in (None, "127.0.0.1"):
-        print(f"       ⚠ 画面口绑在 {handle.detail['vnc_bind']} —— "
+                "view_port": handle.view_port, "cdp_port": d.get("cdp_port"),
+                "view_url": handle.view_url, "api_url": handle.api_url,
+                "login": d.get("view_login", ""),
+                "password": d.get("view_password", "")},
+         f"{args.id}  →  画面 {handle.view_url or '(无)'}   API {handle.api_url}")
+    if not args.json and d.get("view_bind") not in (None, "127.0.0.1"):
+        print(f"       ⚠ 画面口绑在 {d['view_bind']} —— "
               f"**这台机器网络能到的人,拿到密码就能用这个浏览器**", file=sys.stderr)
-    if not args.json and handle.detail.get("auth") is False:
+    if not args.json and d.get("auth") is False:
         print("       ⚠ 画面口没有口令 —— 谁能连上这个地址,谁就能操作这个浏览器",
               file=sys.stderr)
-    if not args.json and handle.detail.get("vnc_password"):
+    if not args.json and d.get("view_password"):
         # 密码是起的时候现生成的,**这是唯一会说出来的一次**
         # 证书那句只对 https 的镜像成立 —— 镜像的 scheme 是它自己标签说的
         tail = ("   (自签名证书,浏览器会拦一下)"
-                if handle.detail.get("vnc_scheme") == "https" else "")
-        print(f"       登录 {handle.detail.get('vnc_user')} / "
-              f"{handle.detail['vnc_password']}{tail}")
+                if d.get("view_scheme") == "https" else "")
+        print(f"       登录 {d.get('view_login')} / {d['view_password']}{tail}")
     for note in handle.detail.get("notes") or []:
         print(f"  ⚠ {note}", file=sys.stderr)
     return 0
@@ -193,7 +195,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
         print("(没有 session)")
         return 0
     for r in rows:
-        ports = f"{r.get('vnc_port') or '-'}/{r['api_port']}"
+        ports = f"{r.get('view_port') or '-'}/{r['api_port']}"
         tail = "" if r["state"] == "ready" else \
             f"  dead — webmuxd kill -t {r['id']} 清掉"
         print(f"{r['id']:<10} {r['runtime']:<10} {ports:<12} {r['state']}{tail}")
@@ -257,10 +259,10 @@ def cmd_attach(args: argparse.Namespace) -> int:
     row = Registry(name=args.socket_name).get(sid)
     if not row:
         raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-    if not row.get("vnc_port"):
+    if not row.get("view_port"):
         raise WebmuxdError(f"{sid} 没有画面(起它的时候没有 VNC)",
                            code="bad_request")
-    url = f"http://127.0.0.1:{row['vnc_port']}"
+    url = f"http://127.0.0.1:{row['view_port']}"
     print(url)
     if not args.print_only:
         import webbrowser
@@ -516,13 +518,23 @@ def _parser() -> argparse.ArgumentParser:
         return s
 
     n = add("new", cmd_new, target=False, help="起一个 session")
-    n.add_argument("-s", "--id", required=True)
-    n.add_argument("-p", "--port", type=int, required=True, help="API 口,必填")
-    n.add_argument("--vnc-port", type=int, default=0, help="画面口")
+    n.add_argument("--id", "-s", required=True)
+    # **一件事一个名字,三层通用**:CLI 用 --x,lib 用 x=,镜像用 WEBMUXD_X。
+    # 旧名留作别名,下一版删。
+    n.add_argument("--api-port", "-p", "--port", type=int, required=True,
+                   dest="api_port", help="代码连的口(webmuxd 自己的 HTTP 面)")
+    n.add_argument("--view-port", "--vnc-port", type=int, default=0,
+                   dest="view_port", help="**人**用浏览器打开的那个口")
+    n.add_argument("--cdp-port", type=int, default=0, dest="cdp_port",
+                   help="CDP 口。不给就自动挑一个空闲的 —— 它只在本机用")
+    n.add_argument("--password", default=None, help="看画面要的口令。不给就现生成")
+    n.add_argument("--login", default=None,
+                   help="看画面的登录名。有些镜像写死了改不了(kasm 是 kasm_user)")
     n.add_argument("--runtime", default=None,
                    choices=["container", "process", "remote"])
-    n.add_argument("-u", "--url", default=None)
-    n.add_argument("-v", "--viewport", default=None)
+    n.add_argument("--url", "-u", default=None)
+    n.add_argument("--window-size", "-v", "--viewport", default=None,
+                   dest="window_size", help="画面尺寸,例 1280x800")
     n.add_argument("--volume", default=None)
     n.add_argument("--proxy", default=None)
     n.add_argument("--endpoint", default=None)
@@ -532,12 +544,12 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--tz", default=None,
                    help="容器时区,例:--tz Asia/Shanghai。"
                         "跑本地化站点、测和时间相关的逻辑时用得上")
-    n.add_argument("--no-tls", action="store_true",
-                   help="画面口用 http 而不是 https。不是每个镜像都支持"
-                        "(KasmVNC 恒 TLS),不支持会直接报错")
-    n.add_argument("--no-auth", action="store_true",
-                   help="画面口不要口令。**只在 --bind 127.0.0.1 时才该用**,"
-                        "否则等于把一个能操作的浏览器直接放出去")
+    n.add_argument("--tls", action=argparse.BooleanOptionalAction, default=True,
+                   help="画面口走 https(默认)。--no-tls 换成 http —— 不是每个"
+                        "镜像都支持(KasmVNC 恒 TLS),不支持会直接报错")
+    n.add_argument("--auth", action=argparse.BooleanOptionalAction, default=True,
+                   help="画面口要口令(默认)。--no-auth **只在 --bind 127.0.0.1 "
+                        "时才该用**,否则等于把一个能操作的浏览器直接放出去")
     n.add_argument("--bind", default="127.0.0.1",
                    help="画面口绑哪个地址。默认只绑本机;"
                         "填 0.0.0.0 就是对外开放,拿到密码的人就能用")

@@ -31,7 +31,7 @@ class Handle:
     kind: str
     id: str
     api_port: int
-    vnc_port: int
+    view_port: int
     detail: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -39,14 +39,14 @@ class Handle:
         return f"http://127.0.0.1:{self.api_port}"
 
     @property
-    def vnc_url(self) -> str:
+    def view_url(self) -> str:
         """没有画面时是空的 —— 装作有画面比没画面更糟。
 
         KasmVNC 走的是自签名 https,所以 scheme 由 runtime 说了算。
         """
-        if not self.vnc_port:
+        if not self.view_port:
             return ""
-        return f"{self.detail.get('vnc_scheme', 'http')}://127.0.0.1:{self.vnc_port}"
+        return f"{self.detail.get('view_scheme', 'http')}://127.0.0.1:{self.view_port}"
 
 
 class Runtime(Protocol):
@@ -55,7 +55,7 @@ class Runtime(Protocol):
     def available(self) -> tuple[bool, str]:
         """能不能用,以及不能用时那句**有用的**提示。"""
 
-    def start(self, id: str, *, api_port: int, vnc_port: int,
+    def start(self, id: str, *, api_port: int, view_port: int,
               **opts: Any) -> Handle: ...
 
     def stop(self, handle: Handle) -> None: ...

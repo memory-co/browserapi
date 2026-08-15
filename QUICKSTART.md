@@ -25,7 +25,7 @@ $ webmuxd install
 ## 起一个
 
 ```console
-$ webmuxd new -s demo -p 7900 --vnc-port 6901 --runtime container
+$ webmuxd new --id demo --api-port 7900 --view-port 6901 --runtime container
 demo  →  画面 https://127.0.0.1:6901   API http://127.0.0.1:7900
        登录 kasm_user / SryefzYQ6lF4   (自签名证书,浏览器会拦一下)
 ```
@@ -61,9 +61,9 @@ CLI 只是薄薄一层,**库才是主体**:
 from webmuxd import Webmuxd
 
 web  = Webmuxd(user="me")                                      # 空壳管理实例
-sess = web.session(id="demo", port=7900, vnc_port=6901,        # 一个浏览器
+sess = web.session(id="demo", port=7900, view_port=6901,        # 一个浏览器
                    runtime="container")
-print(sess.vnc_url, sess.vnc_user, sess.vnc_password)          # 人从这儿进去看
+print(sess.view_url, sess.view_login, sess.view_password)          # 人从这儿进去看
 
 tab = sess.open("https://example.com")                         # 一个页面
 tab.click("Learn more")                                        # 按人看得见的字操作

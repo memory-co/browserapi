@@ -41,14 +41,14 @@
 ## 60 秒上手
 
 ```bash
-webmuxd new -s work -p 7900 --vnc-port 6901        # 跑的是 kasmweb/chromium 原厂镜像
+webmuxd new --id work --api-port 7900 --view-port 6901        # 跑的是 kasmweb/chromium 原厂镜像
 open http://localhost:6901        # 画面:看到 Chromium,可以直接用鼠标点
 ```
 
 ```python
 from webmuxd import Webmuxd
 web  = Webmuxd()
-sess = web.session(id="work", port=7900, vnc_port=6901)
+sess = web.session(id="work", port=7900, view_port=6901)
 tab  = sess.open("https://example.com")
 tab.click("登录")                  # 语义定位,不用写 CSS 选择器
 tab.type("手机号", "13800000000")
