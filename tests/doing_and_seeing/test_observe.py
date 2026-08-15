@@ -127,3 +127,47 @@ async def test_to_json_shape_matches_the_spec(cdp, page):
     assert d["screenshot"]["format"] == "webp"
     assert d["screenshot"]["plain_url"].endswith("annotate=false")
     assert d["elements"][0]["role"] == "button"
+
+
+async def test_observation_reads_the_shape_the_api_actually_sends():
+    """**回归测试。** 分辨率这个功能第一次是坏的发出去的(0.3.0):
+
+    `_page_info` 拿到扁平的 `w/h/screenW/screenH` 之后会**重排成嵌套结构**,
+    而我两头都按扁平写 —— 服务端把 `screen*` 丢了,客户端又按扁平去读。
+    单元测试当时是绿的,因为它测的是我自己写的形状,不是 API 真正发出来的那个。
+
+    所以这条**照抄真实响应的形状**。
+    """
+    from webmuxd.client.observation import Observation
+
+    real = {                       # 从 GET /api/observe 实际抓的
+        "observation_id": "obs_x", "tab": "t_1", "elements": [],
+        "page": {"url": "https://example.com/", "title": "Example Domain",
+                 "loading": False,
+                 "scroll": {"y": 0, "max_y": 0},
+                 "viewport": {"w": 1015, "h": 676},
+                 "screen": {"w": 1024, "h": 768}},
+    }
+    o = Observation(None, real)
+    assert o.viewport == (1015, 676)
+    assert o.screen == (1024, 768)
+    # 两者不同才显示 —— 相同的时候那一行是噪音
+    assert o.as_prompt().splitlines()[0] == "视口 1015x676(桌面 1024x768)"
+
+
+async def test_page_info_keeps_the_screen_size_through_the_reshape():
+    """服务端那半:重排的时候**别把 screen 丢了**。"""
+    import json as _json
+
+    from webmuxd.core import observe as mod
+
+    class FakeCDP:
+        async def send(self, method, params=None, session_id=None):
+            return {"result": {"value": _json.dumps({
+                "url": "u", "title": "t", "loading": False,
+                "scrollY": 0, "maxY": 0, "w": 1015, "h": 676,
+                "screenW": 1024, "screenH": 768})}}
+
+    page = await mod._page_info(FakeCDP(), "sid")
+    assert page["viewport"] == {"w": 1015, "h": 676}
+    assert page["screen"] == {"w": 1024, "h": 768}

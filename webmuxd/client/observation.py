@@ -86,8 +86,8 @@ class Observation:
     @property
     def viewport(self) -> tuple[int, int]:
         """页面视口 —— **元素坐标就活在这个尺寸里**。"""
-        p = self._d.get("page") or {}
-        return int(p.get("w") or 0), int(p.get("h") or 0)
+        v = (self._d.get("page") or {}).get("viewport") or {}
+        return int(v.get("w") or 0), int(v.get("h") or 0)
 
     @property
     def screen(self) -> tuple[int, int]:
@@ -98,8 +98,8 @@ class Observation:
         会重排,上一次观测拿到的坐标就作废了。所以这个值要如实带出来,
         让调用方能发现"地动了",而不是纳闷为什么点偏了。
         """
-        p = self._d.get("page") or {}
-        return int(p.get("screenW") or 0), int(p.get("screenH") or 0)
+        v = (self._d.get("page") or {}).get("screen") or {}
+        return int(v.get("w") or 0), int(v.get("h") or 0)
 
     def as_prompt(self) -> str:
         """紧凑排版,**纯客户端,不请求网络**。直接进 prompt。"""

@@ -90,7 +90,7 @@ web.session(id="prod", runtime="remote", endpoint="https://browser.internal:7800
 
 ```python
 sess = web.session(id="work", port=7900, vnc_port=6901,
-                   url="https://example.com", viewport="1280x800",
+                   url="https://example.com", viewport="1024x768",
                    volume="webmuxd-work", proxy="http://egress:3128")
 ```
 

@@ -98,7 +98,7 @@ session 自己的两个端口仍然直连得到,但走 server 只用开一个口
   "vnc_port": 6901,                   // 必填,画面口
   "runtime": "container",             // container | process | remote,默认 container
   "url": "https://example.com",       // 启动打开的页面
-  "viewport": "1280x800",
+  "viewport": "1024x768",
   "proxy": "http://egress:3128",
   "volume": "webmuxd-work",           // container 专用
   "endpoint": "https://..." }         // remote 专用

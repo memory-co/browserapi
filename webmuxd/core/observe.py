@@ -131,7 +131,11 @@ async def _page_info(cdp: CDP, sid: str) -> dict[str, Any]:
         return {}
     return {"url": d["url"], "title": d["title"], "loading": d["loading"],
             "scroll": {"y": d["scrollY"], "max_y": d["maxY"]},
-            "viewport": {"w": d["w"], "h": d["h"]}}
+            "viewport": {"w": d["w"], "h": d["h"]},
+            # 桌面分辨率。**观看者一连上来就可能改掉它**(Xvnc 开着
+            # `-AcceptSetDesktopSize`),一变响应式站点就重排、上一次的坐标作废。
+            # 带出来,调用方才能发现"地动了"。
+            "screen": {"w": d.get("screenW"), "h": d.get("screenH")}}
 
 
 _BLIND_JS = """(() => {

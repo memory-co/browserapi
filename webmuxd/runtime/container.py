@@ -50,8 +50,13 @@ from webmuxd.runtime.base import Handle, require_ports, unavailable, wait_http
 IMAGE = os.environ.get("WEBMUXD_IMAGE", "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0")
 #: 默认分辨率。**它同时是桌面尺寸和浏览器窗口尺寸** —— 两个不一致的话,
 #: 窗口比桌面大就被裁、小就留白,而"人看到的画面和截图是同一个"是这东西的全部意义。
+#:
+#: 取 1024x768 是因为**默认镜像(kasm)的桌面就固定在这个尺寸**
+#: (它的 `VNC_RESOLUTION` 改不动,见 docker/kasmweb-chromium/README)。
+#: 跟着它,默认路径上窗口和桌面才对得齐。
+#:
 #: 用环境变量兜底,是为了让默认值本身可配(不用每次调用都传)。
-DEFAULT_VIEWPORT = os.environ.get("WEBMUXD_VIEWPORT", "1280x800")
+DEFAULT_VIEWPORT = os.environ.get("WEBMUXD_VIEWPORT", "1024x768")
 
 #: 打在容器上的标签 —— server 重启后靠它把跑着的 session 认回来。
 LABEL = "webmuxd.session"

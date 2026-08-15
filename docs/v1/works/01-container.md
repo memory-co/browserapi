@@ -56,7 +56,7 @@ docker run -d --name webmuxd-work \
   -p 127.0.0.1:7900:7900 \                     # webmuxd API —— 给代码
   -e VNC_PW=<token> \
   -e LAUNCH_URL=https://example.com \
-  -e APP_ARGS="--remote-debugging-port=9222 --start-maximized --window-size=1280,800" \
+  -e APP_ARGS="--remote-debugging-port=9222 --start-maximized --window-size=1024,768" \
   -v webmuxd-work:/data \                      # 想保住登录态就挂卷
   kasmweb/chromium:1.18.0
 ```

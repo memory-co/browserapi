@@ -139,7 +139,8 @@ def cmd_new(args: argparse.Namespace) -> int:
     # 参数从 lib 传(sdk/manager.md),CLI 只是把它们摆成 flag。
     runtime = args.runtime or rt.default()
     url = args.url or os.environ.get("WEBMUXD_START_URL") or "about:blank"
-    viewport = args.viewport or os.environ.get("WEBMUXD_VIEWPORT") or "1280x800"
+    from webmuxd.runtime.container import DEFAULT_VIEWPORT
+    viewport = args.viewport or DEFAULT_VIEWPORT
 
     reg = Registry(name=args.socket_name)
     impl = rt.get(runtime)
