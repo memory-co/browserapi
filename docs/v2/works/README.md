@@ -39,7 +39,7 @@ v1:    ────────────────┘        └───�
 | [04-one-port.md](04-one-port.md) | 一个口:session 形状、token、只读分享 |
 | [05-active-tab.md](05-active-tab.md) | tab 外挂模式一字不改;`active` 从两份真相合成一份 |
 | [06-no-desktop.md](06-no-desktop.md) | 没有桌面之后:六类原生 UI 用 CDP 收回来 —— **v2 唯一的真实工作量** |
-| [07-runtime.md](07-runtime.md) | runtime 变薄:**`webmuxd install` 下浏览器**(照着 playwright)、`process` 成默认、一机多开 |
+| [07-runtime.md](07-runtime.md) | 浏览器从哪来:**容器不要了**、`webmuxd install` 下一个(照着 playwright)、本机起一个进程 |
 | [08-migration.md](08-migration.md) | v1 → v2:什么变了、什么一个字没动 |
 
 ## 明确不做
@@ -59,6 +59,9 @@ v2 自己新增四条,都是"自己产画面"这个决定的直接推论:
 - ❌ **不做音频。** kasm 的镜像有,我们没有。这是 v2 相对 v1 的**净损失**,不装作没有。
 - ❌ **不做桌面。** 窗口管理器、右键菜单、文件管理器 —— headless 里根本没有这些东西,
   也不打算模拟。要桌面的场景,v1 那条路仍然可用。
+- ❌ **不碰容器。** 不起容器、不认容器、不探 docker,`image=` / `network=` 一起删掉。
+  tmuxd 不会 `docker run` 一个 tmux。要隔离就**把 webmuxd 放进容器里**,
+  那是你的部署决定,不是我们的参数([07 §2](07-runtime.md#2-容器不要了))。
 - ❌ **不保留 VNC 作为开关。** 不做 `view="vnc" | "screencast"`。两套画面路径意味着
   两套输入路径、两套权限模型、两套 runtime 契约,而它们没有一处能共用。
   结论只能有一个([01 §5](01-frame-source.md#5-为什么不留一个开关))。

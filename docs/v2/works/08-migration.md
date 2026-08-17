@@ -25,10 +25,10 @@ print(sess.view_url)          # 带 token,和 API 同一个口
 | `view_url` | 保留,含义变了 | 现在指向我们自己的页面 |
 | `sess.viewport()` 里的 `crop_top` | **删** | 帧里没有浏览器 UI 可裁([01 §2](01-frame-source.md#2-一整篇设计随之作废)) |
 | `share(writable=, ttl=)` | **签名不变**,但只读第一次是真的 | [04 §3](04-one-port.md#3-读和写是两个-token) |
-| `image` | **降级** —— 只有 `runtime="container"` 时才用得上,而那个镜像是你自己三行 build 的 | [07 §4.5](07-runtime.md#45-那容器还要不要) |
+| `image=` / `--image` | **删** —— 连同 `runtime="container"`、`network=`、镜像的 `webmuxd.*` 标签机制、`discover()` 一起 | [07 §2](07-runtime.md#2-容器不要了) |
 | `browser=` | **新** —— 指定用哪个浏览器二进制。不传就用 `install` 下的那个 | [07 §4.4](07-runtime.md#44-install-的形状内容换掉规矩全留) |
-| 默认 `runtime` | `container` → **`process`**。容器只剩隔离一个理由 | [07 §5](07-runtime.md#5-process-成了默认) |
-| `runtime="remote"` | 只要 `cdp=`,不要画面口 | [07 §6](07-runtime.md#6-remote-第一次真正好用) |
+| `runtime=` | 三分法塌成两种:**本机起一个**(默认)或 `remote` | [07 §1](07-runtime.md#1-契约只剩一条) |
+| `runtime="remote"` | 只要 `cdp=`,不要画面口。**隔离要的话在这儿** | [07 §6](07-runtime.md#6-remote--隔离要的话在这儿) |
 
 ### CLI
 
@@ -92,6 +92,7 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 你的情况 | 用 |
 | --- | --- |
 | 要**完整桌面**(文件管理器、系统对话框、非浏览器程序、音频) | **v1** |
+| 要**开箱即用的隔离** | **v1** —— v2 不碰容器([07 §2](07-runtime.md#2-容器不要了))。v2 里隔离要你自己给:把 webmuxd 放进容器,或者用 `remote` 连一个别处的浏览器 |
 | **带宽是硬约束**(按流量计费、窄带链路) | **v1** —— 区域重传更省字节。但注意换来的是**更省,不是更流畅** |
 | 其余一切 | **v2** |
 
@@ -115,7 +116,7 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 3 | ack 背压 + RTT 自适应 | 慢客户端不拖累别人(照抄 demo 的那一项自测) |
 | 4 | 内置页面的 tab 条 / 地址栏,接 `/api/tabs` | 切 tab、导航,和 API 侧同一份状态 |
 | 5 | 六类原生 UI 的前三条(对话框 / 下载 / 文件选择) | **可宣布可用的门槛**([06 §5](06-no-desktop.md#5-排期不是全都要一次做完)) |
-| 6 | `webmuxd install` + `process` / `container` / `remote` 三个 runtime | 不装 docker 也能跑、一机多开、云 CDP 自带画面 |
+| 6 | `webmuxd install` + 本机起进程 + `remote` | **不用 docker**、一机多开、云 CDP 自带画面 |
 | 7 | 只读 / 可写 token | `share()` 那个承诺兑现 |
 
 1–3 步的参考实现就是 `~/browserbox/demo/`,那 700 行已经跑通并有 17 项自测 ——

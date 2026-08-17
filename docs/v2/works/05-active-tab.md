@@ -134,7 +134,7 @@ per-观看者的状态,tab 条要按观看者渲染,`tab.activated` 事件要带
 
 所以:**一个 session 一份画面,所有观看者看同一个 tab**,和 v1 的 VNC 一样,
 和 tmux 多个 client attach 同一个 session 一样。要各看各的,就开两个 session
-—— 那本来就是两件不同的工作([07 §3](07-runtime.md#3-一机多开天然成立))。
+—— 那本来就是两件不同的工作([07 §5](07-runtime.md#5-起浏览器就是起一个进程))。
 
 ## 6. ↔ 别处
 

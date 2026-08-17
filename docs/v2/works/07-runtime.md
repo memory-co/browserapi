@@ -1,8 +1,7 @@
-# 07 · runtime 变薄
+# 07 · 浏览器从哪来
 
-**一句话**:契约从两个端点减成**一个 CDP 端点**。浏览器不再靠镜像带进来,
-`webmuxd install` 照着 playwright 的样子下一个钉死版本的 —— 于是 `process` 成了默认,
-容器只剩隔离一个理由,`remote` 第一次自带画面。
+**一句话**:runtime 这个词收缩到只剩一件事 —— 浏览器从哪来。
+**本机起一个进程,或者你给一个 CDP 端点。容器不在里面。**
 
 ## 1. 契约只剩一条
 
@@ -11,85 +10,95 @@ v1:  一个画面端口 <host>:<port>  +  一个 CDP 端点 http://<host>:<port>
 v2:  一个 CDP 端点 http://<host>:<port>
 ```
 
-**产出这一样的东西,就是一个 runtime。** 画面不再是 runtime 的义务 ——
-它是 webmuxd 用这个端点自己产的([01](01-frame-source.md))。
+**产出这一样的东西就够了。** 画面不再是外面的义务 —— 它是 webmuxd 用这个端点自己产的([01](01-frame-source.md))。
 
 v1 [works/08 §1](../../v1/works/08-browser-runtime.md#1-分界线runtime-之上没有一行-if)
-那条"runtime 之上没有一行 `if runtime ==`"继续成立,而且**更容易成立了**:
-少一个端点就少一类差异,`process` 和 `container` 在画面这一半上第一次**完全一样**。
+那条"runtime 之上没有一行 `if runtime ==`"继续成立,而且**几乎不用再论证了** ——
+线以下只剩两种情况,而且它们的区别只是"这个 CDP 端点是我起的还是你给的"。
 
 ```
-        ┌── process     跑 install 下来的那个 chrome --headless=new   ← 默认
-        │
-runtime ┼── container   同一个二进制,装在容器里 —— 只为隔离
-        │
+        ┌── 本机起一个   install 下来的 chrome --headless=new
+runtime ┤
         └── remote      别人已经把 CDP 端点给你了
-                                    │
-        ─────────────────────────────┼──────  ← 边界:一个 CDP 端点
-                                    │
-                            webmuxd 自己产画面
+                              │
+        ───────────────────────┼──────  ← 边界:一个 CDP 端点
+                              │
+                      webmuxd 自己产画面
 ```
 
-## 2. CDP 搬运问题被 host 网络消掉了
+## 2. 容器不要了
 
-v1 [works/08 §3](../../v1/works/08-browser-runtime.md#3-难的是-cdp-那一半)花了很大篇幅
-论证"Chromium 拒绝把调试口交出去"(`--remote-debugging-address` 根本没被读,
-地址硬编码 `127.0.0.1`),结论是要两种搬法叠着用:
+v1 的容器背着三个理由。v2 里逐个清账:
 
-- **A** 容器里垫一跳 `0.0.0.0:<外> → 127.0.0.1:<内>` —— 这一跳在**镜像**里
-  (kasm 用 `cdp-relay.py`,jlesage 打开自带的 socat)
-- **B** `--network host` 共享 netns
-
-**A 在 v2 里不用了。** 本轮实测(2026-08-17):
-
-```
-docker run -d --network host --entrypoint sh <镜像> -c \
-  '/usr/bin/chromium --headless=new --no-sandbox --remote-debugging-port=9345 …'
-
-宿主机:curl http://127.0.0.1:9345/json/version
-        → {"Browser":"Chrome/151.0.7922.108", …}      ✓ 零转发
-```
-
-共享 netns 之后容器里的 `127.0.0.1` **就是**宿主机的 `127.0.0.1`,Chromium 绑哪儿
-我们就从哪儿连。v1 里之所以还要 A,是因为 kasm 那个底座在 host 网络下起不来
-(启动脚本死等 `eth*` 网卡),不得不同时支持 bridge。**自己那三行 Dockerfile 没有这个包袱**(§4.5)。
-
-于是 `docker/` 下那两个 wrapper 的**全部理由**(补 CDP 转发、统一端口变量名、
-绕开底座的启动脚本假设)一起消失。
-
-## 3. 一机多开天然成立
-
-v1 最疼的一条限制:**kasmweb 一台机器只能跑一个**。原因在
-[works/08 §6.2](../../v1/works/08-browser-runtime.md#62---network-host--默认的跑法):
-KasmVNC 用 `.KasmVNCSock<pid>` 作为**抽象命名空间**的 socket 名,而抽象 socket
-归 netns 管;共享 netns 的两个容器启动流程完全一样 → PID 一样 → 第二个死在
-`failed to bind socket`。
-
-v2 里没有 KasmVNC,也没有 X。本轮实测:
-
-```
-三个 headless chromium 容器,全部 --network host,各自 --user-data-dir 和 CDP 端口
-  9341 → Chrome/151.0.7922.108  ✓
-  9342 → Chrome/151.0.7922.108  ✓
-  9343 → Chrome/151.0.7922.108  ✓
-```
-
-**零冲突。** Chromium 的单实例锁是 `user-data-dir` 里的**文件系统** socket,
-不是抽象 socket —— profile 目录不同就互不相干。
-
-所以"要多个 session 就多起几个浏览器"是 v2 的正常用法,不是权宜之计:
-
-| | |
+| v1 为什么要容器 | v2 |
 | --- | --- |
-| 一个 session | 一个浏览器实例、一个 profile、一个 CDP 端点、一个对外端口 |
-| 要两个 | 起两个,没有共享的东西,也没有互相踩的地方 |
+| 里面有现成的浏览器 **+ 桌面 + VNC(画面)** | 画面自己产,桌面根本不要([01](01-frame-source.md)) |
+| 用户不用自己装 chromium | **`webmuxd install` 下一个**(§3) |
+| 隔离 | **剩这一条 —— 而它不是 webmuxd 的活** |
 
-这和 tmux 的差别仍在(tmux 一个 socket 复用所有 session),
-原因也仍然是 [v1/works/05 §2](../../v1/works/05-server-session-runtime.md#2-对照表) 那条:
-**浏览器不是终端,一个浏览器进程就是一个隔离单位**(cookie、登录态、缓存都在 profile 里)。
-但代价从"一台机器只能一个"降到了"一个 session 一个进程",这是量级的差别。
+### 判据还是那一句
 
-## 4. 浏览器从哪来:`webmuxd install` 下一个
+v1 的[「明确不做」](../../v1/works/README.md#明确不做)结尾写着:
+
+> 判断新功能该不该加,问一句:**tmux 会做这个吗?** 不会就别加。
+
+tmuxd 不会 `docker run` 一个 tmux。**姿态要反过来**:
+
+```
+v1:  webmuxd  ──docker run──>  容器(浏览器在里面)
+v2:  你 ──docker run──> 容器(webmuxd 和浏览器都在里面) ── 我们一个字都不用写
+```
+
+要隔离就**把 webmuxd 整个放进容器里跑**,一行 `docker run` 是你的部署决定,
+不是我们的参数。v1 那份「明确不做」里本来就有一条
+"控制面 / 会话编排 / 容器池 —— **你要多个就 `docker run` 多次**",
+v2 只是把它推到底:**连一次都不 run**。
+
+### 跟着一起消失的
+
+| 消失的东西 | 它本来是干嘛的 |
+| --- | --- |
+| `runtime="container"` | 三分法塌成两种 |
+| `image=` / `--image` | 指定用哪个镜像 |
+| 镜像的 `webmuxd.*` 标签那套机制 | 描述**别人的**镜像长什么样 —— 现在没有别人的镜像了 |
+| `network="host" / "bridge"` | 选 netns —— 没有容器就没有第二个 netns |
+| `~/.webmuxd.json` 里的 `docker` 键 | 探 docker 在不在 |
+| `docker/` 下的两个 wrapper 镜像 | 补 CDP 转发、翻译端口变量名(随 v1 存档) |
+| `discover()`(按 label 认回容器) | 容器活得比 server 久,能认回来 —— 现在没有容器可认 |
+
+**代码上是删掉 `runtime/container.py`** —— 563 行,`runtime/` 里最大的一个文件。
+
+### 老实说清楚:隔离是真的没了
+
+`process` 之外没有别的本地跑法,所以**页面就跑在你自己机器上**,
+没有网络隔离,也没有文件系统隔离。这一条和[没有音频](01-frame-source.md#4-代价老实写)
+一样,是 v2 相对 v1 的**净损失**,不因为"你可以自己套容器"就说得轻一点。
+
+要隔离有两条路,都在 webmuxd 之外:**把 webmuxd 装进容器**,或者
+**让浏览器待在别处、只给我们 CDP**(§5)。
+
+## 3. 顺带删掉了 v1 最难的那一半
+
+v1 [works/08 §3](../../v1/works/08-browser-runtime.md#3-难的是-cdp-那一半)是整个 v1
+论证最重的一节:**Chromium 拒绝把调试口交出去**。`--remote-debugging-address`
+根本没被读(地址硬编码 `127.0.0.1`,上游还准备删掉这个 flag),而 `docker -p`
+是 DNAT 到容器的 eth0,**"DNAT 到另一个 namespace 的 loopback"这条规则写不出来**。
+于是要两种搬法叠着用:镜像里垫一跳转发(`cdp-relay.py` / socat)+ 共享 netns。
+
+**这个问题的前提是「webmuxd 和 Chromium 在不同的 network namespace 里」。**
+没有容器,前提就没了 —— Chromium 绑在 `127.0.0.1`,而我们**就在那个 `127.0.0.1` 上**。
+
+所以整条论证链一起作废:那一跳转发、`--network host`、
+KasmVNC 抽象 socket 撞名([works/08 §6.2](../../v1/works/08-browser-runtime.md#62---network-host--默认的跑法))、
+kasm 启动脚本死等 `eth*` 网卡 —— **一条都不用再读了**。
+
+> 上一轮那两个实测(host netns 下宿主机直连容器里的 CDP、三个 headless chromium
+> 容器共享 netns 零冲突)**现在用不上了,但存档有用**:它们证明了即使你自己
+> 把 webmuxd 和浏览器塞进容器,CDP 这一段也不会碍事。
+
+**这是本轮最大的一笔删除。v1 最难的那一半不是被解决了,是被删掉了。**
+
+## 4. `webmuxd install` 下一个浏览器
 
 v1 [works/08 §7](../../v1/works/08-browser-runtime.md#7-边界之外webmuxd-不碰什么) 写着:
 
@@ -99,15 +108,15 @@ v1 [works/08 §7](../../v1/works/08-browser-runtime.md#7-边界之外webmuxd-不
 wrapper 就是我们发的),而 v2 一度看起来只能进一步松:既然只要 headless chromium,
 那就发一个几百 MB 的瘦镜像 —— 可那还是在发镜像。
 
-**但还有第三条路,而且 playwright 已经把它走通了:浏览器不是镜像的内容,是一个下载物。**
+**第三条路 playwright 已经走通了:浏览器不是镜像的内容,是一个下载物。**
 
 ```bash
 webmuxd install         # 探依赖 → 下一个钉死版本的浏览器 → 记进 ~/.webmuxd.json
 ```
 
-于是"不发镜像"这条规矩**原样保留** —— 我们既不发镜像,也不要求你本机装 chromium,
-更不碰系统的包管理器。浏览器落在一个我们自己的缓存目录里,和 playwright 的
-`~/.cache/ms-playwright/` 是同一个姿态。
+于是"不发镜像"这条规矩**原样保留**,而且比 v1 更彻底 —— 既不发镜像,也不 `docker run`
+别人的镜像,更不要求你本机装 chromium 或碰系统的包管理器。浏览器落在我们自己的
+缓存目录里,和 playwright 的 `~/.cache/ms-playwright/` 是同一个姿态。
 
 ### 4.1 钉死版本,这是重点
 
@@ -126,7 +135,8 @@ playwright 的 install 最有价值的一点不是"帮你下载",是**每个 rel
 | 用户看到的 | `webmuxd install` 下的永远是这一版,机器之间完全一致 |
 
 v1 的 `--image <tag>` 起的也是这个作用(「tag 跟着底座走,不用 `latest`」),
-v2 只是把粒度从镜像 tag 换成了浏览器版本号。
+v2 只是把粒度从镜像 tag 换成了浏览器版本号 —— **而且少一层**:
+镜像 tag 背后的 Chromium 是几版,得去问镜像作者。
 
 ### 4.2 下什么、从哪下
 
@@ -143,9 +153,8 @@ https://cdn.npmmirror.com/binaries/chrome-for-testing/<版本>/linux64/chrome-li
                                                                             206 ✓  ← 国内
 ```
 
-**国内那条必须是一等公民**,不是补丁 —— 这个项目本来就同时发 ghcr 和 CNB
-([docker/README](../../../docker/README.md))。用 `WEBMUXD_BROWSER_MIRROR` 换下载源,
-像 npm 换 registry 一样。
+**国内那条必须是一等公民**,不是补丁 —— 这个项目本来就同时发 ghcr 和 CNB。
+用 `WEBMUXD_BROWSER_MIRROR` 换下载源,像 npm 换 registry 一样。
 
 两个附带的决定:
 
@@ -177,7 +186,9 @@ v1 README 的原话是有分寸的:
 
 ### 4.3 系统依赖和字体,照抄 playwright 的姿态
 
-裸服务器上下下来也跑不起来,缺一堆 `.so`;能跑起来的也会撞上
+**这一节的分量变重了** —— 以前镜像替用户扛掉的那些依赖,现在落到了裸机上。
+
+裸服务器上下下来跑不起来,缺一堆 `.so`;能跑起来的也会撞上
 **中文全是豆腐块**(demo 实测,任何跑 RBI 的机器都会撞上)。
 
 playwright 的做法是分成 `install` 和 `install-deps`,后者要 root、只支持
@@ -193,7 +204,8 @@ install 规矩本来就一致:
 ### 4.4 install 的形状:内容换掉,规矩全留
 
 v1 的 install「只回答两个问题:docker 能用吗、这个网络环境拉得到那个镜像吗」。
-v2 换成:**系统依赖齐吗、这个网络环境下得到那个浏览器吗**。
+**两个问题都换了**:系统依赖齐吗、这个网络环境下得到那个浏览器吗。
+docker 那一问**整个消失** —— webmuxd 不再关心机器上有没有 docker。
 
 [v1/cli/install.md](../../v1/cli/install.md) 的每一条规矩原样继承:
 
@@ -205,7 +217,7 @@ v2 换成:**系统依赖齐吗、这个网络环境下得到那个浏览器吗**
 | **它不是配置文件**,记的是机器的事实 | `default_browser` 是"这台机器上有哪个",**你想用哪个**永远是 `session(browser=…)` 说了算 |
 | **没装过也能用**,`Webmuxd()` 不要求先跑 CLI | 没记录就现探;探到系统里有合适的 chromium 也能直接用 |
 
-记录长这样:
+记录长这样 —— **比 v1 短**:
 
 ```jsonc
 {
@@ -215,65 +227,45 @@ v2 换成:**系统依赖齐吗、这个网络环境下得到那个浏览器吗**
     "path": "~/.cache/webmuxd/chrome-152.0.7977.42/chrome",
     "version": "152.0.7977.42",
     "source": "chrome-for-testing"
-  },
-  "docker": "/usr/bin/docker"          // 键在 = 探到了,container runtime 可用
+  }
 }
 ```
 
-`docker` 那个键留着,因为 `container` runtime 还在(§4.5)——
-但它**不再是能不能用 webmuxd 的前提**。
+## 5. 起浏览器就是起一个进程
 
-### 4.5 那容器还要不要
-
-要,但它的理由只剩**一个**:**隔离**。
-
-v1 的容器背着三个理由:现成的浏览器 + 桌面/VNC(画面)、隔离、不用用户装 chromium。
-v2 里第一个和第三个都被 install 接走了,剩下隔离 —— 那是容器本来就该干的事。
-
-而且它现在**不需要我们发镜像**:
-
-```dockerfile
-FROM python:3.12-slim
-RUN pip install webmuxd && webmuxd install --with-deps
+```bash
+<install 下来的 chrome> --headless=new --remote-debugging-port=<free> --user-data-dir=<profile>
 ```
 
-三行,用户自己 build,没有底座适配层,没有 `webmuxd.*` 标签那套认镜像的机制
-(那套机制存在是因为要描述**别人的**镜像长什么样,现在镜像是你自己那三行)。
-
-## 5. `process` 成了默认
+一个进程,秒起。它是 server 的子进程,`kill-server` 跟着死
+([v1/works/05 §3.2](../../v1/works/05-server-session-runtime.md))。
 
 v1 的 `process` runtime 有两个尴尬([works/08 §6.1](../../v1/works/08-browser-runtime.md#61-process--本机三个进程)):
 **要本机装 chromium**,以及
 
 > 没有 Xvnc 就只有 API 没有画面 —— **这件事要说出来**,装作有画面比没画面更糟。
 
-v2 把两个都消掉了:画面来自 CDP(和容器里的完全一样),浏览器来自 `install`(不要求你装)。
+两个都消掉了:画面来自 CDP,浏览器来自 `install`。于是它从"开发和 CI 凑合用的那个"
+变成了**唯一的本地跑法** —— 不是"默认",是没有别的。
 
-```bash
-<install 下来的 chrome> --headless=new --remote-debugging-port=<free> --user-data-dir=<profile>
-```
+### 一个 session 一个浏览器
 
-一个进程,秒起。**所以默认从 `container` 换成 `process`**:
+| | |
+| --- | --- |
+| 一个 session | 一个浏览器进程、一个 profile、一个 CDP 端点、一个对外端口 |
+| 要两个 | 起两个。profile 目录不同就互不相干,没有共享的东西 |
 
-| | v1 默认 `container` 的理由 | v2 |
-| --- | --- | --- |
-| 用户不用装浏览器 | 镜像里带着 | **`install` 下一个**,不用容器也成立 |
-| 有画面 | VNC 在镜像里 | **CDP 自己产**,不用容器也成立 |
-| 隔离 | 容器给的 | **只剩这一条** |
+Chromium 的单实例锁是 `user-data-dir` 里的**文件系统** socket,给不同的 profile
+目录就行 —— v1 那条"kasmweb 一台机器只能跑一个"的限制**不存在了**,而且不需要
+任何论证,因为造成它的 KasmVNC 已经不在链路上。
 
-要隔离的人显式 `runtime="container"`,和 v1 里要多开的人显式
-`network="bridge"` 是同一种做法 —— **默认不等于唯一**,只是"多数时候你要的是哪个"。
+这和 tmux 的差别仍在(tmux 一个 socket 复用所有 session),原因也仍然是
+[v1/works/05 §2](../../v1/works/05-server-session-runtime.md#2-对照表) 那条:
+**浏览器不是终端,一个浏览器进程就是一个隔离单位**(cookie、登录态、缓存都在 profile 里)。
 
-剩下的差别还是老差别,写在明处:`process` **没有网络和文件系统隔离**,
-页面跑在你自己机器上。这一条不能因为默认了就说得轻一点。
+## 6. `remote` —— 隔离要的话在这儿
 
-## 6. `remote` 第一次真正好用
-
-v1 的 `remote` 要求对面**同时**给出画面口和 CDP 端点。而云浏览器服务基本只给 CDP
-(browserless、Browserbase、各家的 `wss://…?token=…`),画面那半要么没有、
-要么是他们自己的产品界面。
-
-v2 只要一个 CDP 端点 —— **于是画面由我们产**:
+不起任何东西,只把一个 CDP 端点记下来:
 
 ```python
 sess = web.session(id="cloud", port=7900,
@@ -281,10 +273,24 @@ sess = web.session(id="cloud", port=7900,
 print(sess.view_url)      # http://127.0.0.1:7900/  ← 我们产的画面,连的是他们的浏览器
 ```
 
-**给一个只有 CDP 的云浏览器配上人能看能上手的画面**,这是 v2 白捡的一个能力,
-v1 做不到。`stop` 的语义不变:只删本地记录,不动对面。
+v1 的 `remote` 要求对面**同时**给出画面口和 CDP。而云浏览器服务基本只给 CDP
+(browserless、Browserbase、各家的 `wss://…?token=…`),画面那半要么没有、
+要么是他们自己的产品界面。**v2 只要一个 CDP 端点,画面由我们产** ——
+给一个只有 CDP 的云浏览器配上人能看能上手的画面,这是 v1 做不到的。
 
-需要留意的是这条链路的 RTT 明显更长(帧和输入都要跨公网两次),
+它同时是 §2 那条"隔离没了"的出口。对 webmuxd 来说这些**是同一件事**,
+因为它只看见一个 CDP 端点:
+
+- 云浏览器服务
+- 同事机器上开着的那个 Chrome
+- **你自己 `docker run` 起来的一个 chromium** ← 隔离在这儿,由你决定
+
+所以隔离并没有从世界上消失,它换了位置:**从 webmuxd 的一个参数,
+变成部署的一个选择。** 这正是我们想要的边界。
+
+`stop` 的语义不变:只删本地记录,不动对面。
+
+需要留意这条链路的 RTT 明显更长(帧和输入都要跨公网两次),
 所以 [02 §3](02-frame-protocol.md#3-rtt-自适应画质) 那套自适应降质在 `remote` 上
 才真正开始工作 —— 本机跑的时候它几乎不会触发。
 
@@ -297,12 +303,16 @@ v1 [§7](../../v1/works/08-browser-runtime.md#7-边界之外webmuxd-不碰什么
 | --- | --- |
 | 不代理画面 | **失效** —— 画面就是我们的,谈不上代理([01](01-frame-source.md)) |
 | 不解析画面协议 | **失效** —— 我们定义它 |
-| 不管镜像里的桌面 | **仍然成立**,而且更彻底:没有桌面([06](06-no-desktop.md)) |
-| 不替 Chromium 做进程守护 | **仍然成立**。它崩了我们报 `chrome_gone`,拉起来是 runtime 的事 |
-| 不发镜像 | **原样成立** —— 浏览器改成 `webmuxd install` 下一个,连镜像都不用发(§4) |
+| 不管镜像里的桌面 | **成立**,而且更彻底:没有镜像也没有桌面 |
+| 不替 Chromium 做进程守护 | **成立**。它崩了我们报 `chrome_gone` |
+| 不发镜像 | **成立**,而且更彻底:也不 `docker run` 别人的镜像(§2) |
 
 只有画面那两条失效了,而它们失效的理由是同一个:**那半边现在归我们**。
-其余三条一条没动。
+其余三条不但没动,**都比 v1 更严格**。
+
+v2 自己再加一条:
+
+- **不碰容器编排。** 不起容器、不认容器、不探 docker。要隔离,你把我们放进去(§2)。
 
 ## 8. ↔ 别处
 
@@ -310,5 +320,5 @@ v1 [§7](../../v1/works/08-browser-runtime.md#7-边界之外webmuxd-不碰什么
 | --- | --- |
 | 为什么画面归我们 | [01](01-frame-source.md) |
 | 一个端口 | [04](04-one-port.md) |
-| v1 的 runtime 契约 | [v1/works/08](../../v1/works/08-browser-runtime.md) |
-| 镜像标签机制 | [docker/README](../../../docker/README.md) |
+| v1 的 runtime 契约(三分法、容器、netns) | [v1/works/08](../../v1/works/08-browser-runtime.md) —— **存档,不再适用** |
+| server / session 三层 | [v1/works/05](../../v1/works/05-server-session-runtime.md) —— 原样有效 |

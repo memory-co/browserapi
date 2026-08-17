@@ -118,6 +118,6 @@ v1 的[「端口必须你给」](../../../README.md)不变,理由也不变:
 | | |
 | --- | --- |
 | 帧和输入在这条 WS 上的格式 | [02](02-frame-protocol.md) · [03](03-input.md) |
-| 一个 session 一个浏览器,所以一个端口 | [07 §3](07-runtime.md#3-一机多开天然成立) |
+| 一个 session 一个浏览器,所以一个端口 | [07 §5](07-runtime.md#5-起浏览器就是起一个进程) |
 | v1 的 session 形状 | [v1/sdk/session.md](../../v1/sdk/session.md) |
 | 哪些字段被删了 | [08 §1](08-migration.md#1-变了的东西) |

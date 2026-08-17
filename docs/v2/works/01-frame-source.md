@@ -139,7 +139,7 @@ IME 提交后只发最终文本 —— 远端 Chromium 收到的就是一个带 
 | 权限 | 一个 VNC 密码,给了就是全权 | 读 / 写两个 token |
 | 帧里有什么 | 整个桌面,要 `crop_top` 裁 | 只有页面内容 |
 | runtime 契约 | 两个端点 | 一个 CDP 端点 |
-| 浏览器从哪来 | 4.4 GB 的桌面镜像 | `webmuxd install` 下一个([07 §4](07-runtime.md#4-浏览器从哪来webmuxd-install-下一个)) |
+| 浏览器从哪来 | 4.4 GB 的桌面镜像 | `webmuxd install` 下一个([07 §4](07-runtime.md#4-webmuxd-install-下一个浏览器)) |
 | 原生对话框 | 桌面里能看见 | 必须 CDP 拦截 |
 | `session()` 参数 | `api_port` + `view_port` + `view_password` | `port` + token |
 
@@ -162,11 +162,13 @@ v1 的文档、镜像、实测记录都还在,`docs/v1/` 一个字没删。
 | 切 tab 的首帧延迟 | **14 – 39 ms**([05 §3](05-active-tab.md#3-切-tab-是把-screencast-搬过去)) |
 | 静止页面开着 screencast 静置 3 秒 | **1 帧,13 KB** —— 没人动就几乎不发 |
 | 简单动画页面 | 20.3 fps,均帧 7 KB,1.08 Mbps(真实网页要看 §4 那组 youtube 数字) |
-| `--network host` 下宿主机直连容器里的 CDP | **通**,`curl 127.0.0.1:9345/json/version` 有返回,**零转发** |
-| 三个 headless chromium 容器共享 host netns 同时跑 | **零冲突**,三个 CDP 口都活着([07 §3](07-runtime.md#3-一机多开天然成立)) |
+| ~~`--network host` 下宿主机直连容器里的 CDP~~ | 通,零转发 —— **但用不上了**,见下 |
+| ~~三个 headless chromium 容器共享 host netns 同时跑~~ | 零冲突 —— **同样用不上了** |
 
-最后两条把 v1 [works/08 §3.1](../../v1/works/08-browser-runtime.md#31-所以-runtime-的真正工作是把-cdp-搬到一个能连的地方)
-那个"CDP 搬运问题"直接消掉了:镜像里那一跳转发(`cdp-relay.py` / socat)**不用再垫**。
+划掉的那两条是本轮量的,量完之后[容器整个不要了](07-runtime.md#2-容器不要了),
+于是它们要回答的那个问题(**怎么把 CDP 从容器里捞出来**,v1 论证最重的一节)
+**不是被解决了,是被删掉了** —— webmuxd 和 Chromium 现在同处一个 network namespace,
+`127.0.0.1` 就是 `127.0.0.1`。数据存档:它证明了即使你自己把两者塞进容器,这一段也不会碍事。
 
 ## 7. ↔ 别处
 
