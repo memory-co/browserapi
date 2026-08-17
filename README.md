@@ -25,14 +25,14 @@ webmuxd 让这两件事落在**同一个浏览器**上:
 ```python
 from webmuxd import Webmuxd
 
-web  = Webmuxd(user="claudecode")                            # 空壳,不起任何东西
-sess = web.session(id="work", api_port=7900, view_port=8090)      # 这行才起一个浏览器
+web  = Webmuxd(user="claudecode")            # 空壳,不起任何东西
+sess = web.session(id="work", port=7900)     # 这行才起一个浏览器
 tab  = sess.open("https://example.com")
 
 tab.type("手机号", "13800000000")
-tab.click("提交订单")                                         # 按人看得见的字,不写选择器
+tab.click("提交订单")                         # 按人看得见的字,不写选择器
 
-print(sess.view_url, sess.view_login, sess.view_password)        # 人从这儿进去看
+print(sess.view_url)                         # 人从这儿进去看,浏览器打开就是
 ```
 
 那个地址发给谁,谁的浏览器里就是**这个浏览器** —— 看得见,也能直接伸手接管。
@@ -41,15 +41,15 @@ print(sess.view_url, sess.view_login, sess.view_password)        # 人从这儿�
 
 ## 快速开始
 
-要 `docker`,别的都不用 —— Chromium 在镜像里。
+只要 Python。**不要 docker,也不用你自己装浏览器。**
 
 ```bash
 pip install webmuxd
-webmuxd install          # 只做两件事:确认 docker 能用、镜像拉不拉得到
+webmuxd install          # 下一个钉死版本的浏览器,顺带探一遍依赖
 ```
 
-`install` 把探到的镜像记进 `~/.webmuxd.json` 的 `default_container`,
-**所以下面的例子都不用写镜像**。要用别的镜像就显式指定 —— 见[镜像](#镜像)。
+`install` 把浏览器放进 `~/.cache/webmuxd/`,路径记进 `~/.webmuxd.json`。
+**它是幂等的** —— 再跑一次就是重新探一遍,所以"检查"和"安装"是同一个命令。
 
 ### 当库用
 
@@ -57,7 +57,7 @@ webmuxd install          # 只做两件事:确认 docker 能用、镜像拉不�
 from webmuxd import Webmuxd
 
 web = Webmuxd()
-sess = web.session(id="work", api_port=7900, view_port=8090)   # 镜像用记录里的默认
+sess = web.session(id="work", port=7900)
 tab = sess.open("https://news.ycombinator.com")
 
 print(tab.observe().as_prompt())      # 元素表,直接喂多模态模型
@@ -70,7 +70,7 @@ tab.click("new")
 ### 用命令行
 
 ```bash
-webmuxd new --id work --api-port 7900 --view-port 8090     # 镜像用记录里的默认
+webmuxd new      --id work --port 7900
 webmuxd new-tab  -t work -u https://example.com
 webmuxd click    -t work "Learn more"
 webmuxd observe  -t work                  # 喂给模型的元素表
@@ -78,13 +78,16 @@ webmuxd log      -t work                  # 它都干了什么
 webmuxd kill     -t work
 ```
 
-**跑起来之后,用浏览器打开 `webmuxd new` 打印的那个画面地址** —— 然后在另一边敲
+**跑起来之后,用浏览器打开 `webmuxd new` 打印的那个地址** —— 然后在另一边敲
 `webmuxd click`,页面会在你眼前跳过去。整条链路通没通,这一眼就看出来了。
 
 完整走一遍见 [QUICKSTART.md](QUICKSTART.md)。
 
 ## 它和别的东西不一样在哪
 
+- **画面是自己产的。** 不是 VNC,不是桌面 —— CDP 的 `Page.startScreencast` 出帧,
+  人的鼠标键盘被归一化后翻译成 `Input.*` 打回去。所以画面里**只有页面内容**,
+  tab 条和地址栏由你自己画([docs/v2/works/01](docs/v2/works/01-frame-source.md))。
 - **按人看得见的字操作。** `click("提交订单")`,不写选择器。分档匹配(精确 → 子串 →
   忽略大小写),**有歧义就给候选,绝不替你挑一个** —— 挑错了你永远不会知道。
 - **"看见"= 元素表 + 标注截图。** `observe()` 一次给全,直接喂多模态模型;
@@ -97,74 +100,68 @@ webmuxd kill     -t work
   快捷方法(`click` / `type`)则照抛。
 - **关掉网页,浏览器照常在跑。** 门面短命,屋子长命。
 
-## 两个端点,别的都不算
+## 一个口,别的都不算
 
 ```
-一个画面端口   ← 给人:浏览器打开就能看,能上手
-一个 CDP 端点  ← 给代码:webmuxd 订阅它
+http://host:7900/           ← 人:浏览器打开就能看,能上手
+http://host:7900/api/…      ← 代码:同一个口
+ws://host:7900/api/view     ← 帧下行 + 输入上行
 ```
 
-产出这两样的东西就是一个 runtime,**是不是容器不在契约里**:
+画面和 API 在同一个端口上。给别人看不用把整个浏览器交出去 ——
+**分享链接默认只读**,而且只读是**服务端丢弃输入**,不是前端把按钮变灰:
+
+```python
+sess.share()                        # 默认只读,1 小时
+sess.share(writable=True)           # 可操作 —— 能碰你所有登录态
+```
+
+## 浏览器从哪来
+
+对"浏览器从哪来"只有一个要求:**一个 CDP 端点**。
 
 | | 起什么 | 用在哪 |
 | --- | --- | --- |
-| `container`(默认) | 一个现成的浏览器镜像 | 生产。有隔离,画面是完整桌面 |
-| `process` | 本机 chromium + Xvnc | 开发、CI。秒起,但没有隔离 |
-| `remote` | 什么都不起,两个端点你给 | 云浏览器、别人机器上那个 |
+| `process`(默认) | `install` 下来的那个浏览器,一个进程 | 绝大多数时候 |
+| `remote` | 什么都不起,CDP 端点你给 | 云浏览器、别人机器上那个、**你自己起在容器里的那个** |
 
 这条线以上的代码**没有任何一处 `if runtime ==`** —— 为什么能做到,见
-[works/08](docs/v1/works/08-browser-runtime.md)。
+[works/07](docs/v2/works/07-runtime.md)。
 
-## 镜像
-
-两个现成的,`webmuxd install` 会把默认那个准备好:
-
-| | 挑它的理由 | 代价 |
-| --- | --- | --- |
-| `kasmweb-chromium`(默认) | **画面最好** | `--network host` 下一台机器只能跑一个 |
-| `jlesage-chromium` | **能一机多开** | 画面差一点 |
+**版本是钉死的**:每个 release 钉一个 Chrome for Testing 版本,升级前先跑
+`tests/chrome_facts/`(「我们对 CDP 的假设逐条量过」)。换下载源:
 
 ```bash
-docker pull ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0         # 海外
-docker pull docker.cnb.cool/agentuse/webmuxd/kasmweb-chromium:1.18.0  # 国内
+WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing webmuxd install
 ```
 
-它们是在 kasm / jlesage 原厂镜像上**加一层**:补上 CDP 端点(Chromium 把调试口
-绑死在容器内的 loopback,`docker -p` 够不着),并把端口变量名统一成
-`WEBMUXD_VIEW_PORT` / `WEBMUXD_CDP_PORT`。
+## 老实说,它没有什么
 
-### 镜像填在哪
+不藏着,免得你以为跑通了就都有了:
 
-**默认那个不用填** —— `webmuxd install` 已经把它记进 `~/.webmuxd.json` 了。
-要换成别的,两条路都接同一个参数:
+- **没有隔离。** 页面跑在你自己机器上。要隔离就**把 webmuxd 放进容器里**,
+  或者用 `remote` 连一个别处的浏览器 —— 那是部署决定,不是我们的参数。
+- **没有声音。** 画面是帧流,音频不在这条通道上。视频能放,但是静音的。
+- **带宽不省。** 每帧都是完整 JPEG,滚动时能到 10 Mbps。静止时是 0。
+  (但**流畅度反而更好** —— 全屏运动正是 VNC 区域重传的负收益区,
+  [01 §4.1](docs/v2/works/01-frame-source.md#41-但更费带宽--更不流畅)。)
+- **没有桌面。** 文件管理器、系统对话框、非浏览器程序都没有。浏览器自己那些
+  原生 UI(对话框、下载、文件选择、权限、Basic 认证)是**用 CDP 一条条收回来的**,
+  见 [works/06](docs/v2/works/06-no-desktop.md)。
 
-```python
-sess = web.session(id="work", api_port=7900, view_port=8090,
-                   image="docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1")
-```
-
-```bash
-webmuxd new --id work --api-port 7900 --view-port 8090 \
-  --image docker.cnb.cool/agentuse/webmuxd/jlesage-chromium:v26.08.1
-```
-
-**换镜像不用改 webmuxd 的代码** —— 它读镜像的 `webmuxd.*` 标签认它,不认名字。
-所以你自己 build 的镜像只要打上标签,`--image` 指过去就能用;
-没有标签就直接报错,不猜。怎么加一个新镜像,见 [docker/](docker/README.md)。
+这几条哪条你都不能接受,**[v1](docs/v1/) 那条路还在** —— 它用 kasm / jlesage 的
+VNC 镜像,有完整桌面和音频,代价是要 docker、一台机器一个、画面里得裁掉 tab 条。
 
 ## 依赖
 
 | | | |
 | --- | --- | --- |
-| **Docker** | 任意近版 | `container` runtime 要它 |
 | **Python** | ≥ 3.10 | |
-| **系统** | Linux | 容器共享 network namespace,这是 Linux 的东西 |
+| **系统** | Linux / macOS | Chrome for Testing 没有 linux-arm64 构建,那种机器上用系统的浏览器 |
 
-`process` runtime 另外要本机有 `chromium`(以及 `Xvnc` —— 没有就只有 API 没有画面,
-**这件事它会明说**,而不是给你一个连不上的地址)。
-
-镜像里是 **Chromium 不是 Chrome**:Chrome 是专有软件、再分发受限。代价是不带
-H.264 / AAC,少数只有这两种编码的视频放不了。
+裸服务器上还要 headless chrome 的那些共享库和**中文字体**(没有字体的话
+中文全是豆腐块,和代码无关)。`webmuxd install` 会探一遍并把缺的说出来,
+`webmuxd install --with-deps` 能替你装(要 root,只支持 Debian/Ubuntu)。
 
 ## 开发
 
@@ -175,31 +172,26 @@ docker run --rm -v "$PWD":/src webmuxd-dev pytest -q
 
 测试跑的是**真的 Chromium**,不 mock —— 这个项目的全部价值就在它和浏览器的交界处,
 换成假的等于什么都没测。用例[按场景组织](tests/README.md),不按代码模块:
-`pointing_at_things/` 是"按字找东西",`chrome_facts/` 是"我们对 CDP 的假设逐条量过"
-(换 Chromium 大版本先跑它)。
-
-两个镜像各有一个场景,真的 `docker run`,要在宿主机上跑:
-
-```bash
-pytest tests/image_kasmweb tests/image_jlesage
-```
+`pointing_at_things/` 是"按字找东西",`pixels_on_a_wire/` 是"画面是我们自己产的",
+`chrome_facts/` 是"我们对 CDP 的假设逐条量过"(换 Chromium 大版本先跑它)。
 
 ## 文档
 
 | | |
 | --- | --- |
 | [QUICKSTART.md](QUICKSTART.md) | 完整跑一遍 |
-| [`docs/v1/sdk`](docs/v1/sdk/) | Python 包 —— **主体**,行为定义在这儿 |
-| [`docs/v1/api`](docs/v1/api/) | HTTP + WS 的线上格式 —— sdk 的导出面 |
-| [`docs/v1/cli`](docs/v1/cli/) | `webmuxd` 命令,照着 tmux 设计 |
-| [`docs/v1/works`](docs/v1/works/) | **为什么这么做** —— 设计稿和实测记录 |
-| [docker/](docker/README.md) | 镜像怎么用、怎么加一个新的 |
+| [`docs/v2/works`](docs/v2/works/) | **为什么这么做** —— 设计稿和实测记录 |
+| [`docs/v1`](docs/v1/) | v1 的规格(sdk / api / cli)。**定位、观测、日志、tab 表这几块 v2 一个字没动**,所以那三个目录仍然有效;画面和 runtime 那两块以 v2 为准 |
+| [v1 → v2 变了什么](docs/v2/works/08-migration.md) | 一张表 |
 
 ## 许可
 
 Apache-2.0,见 [LICENSE](LICENSE)。
 
-webmuxd 把 [Chromium](https://www.chromium.org/)(BSD)当外部程序驱动,
-画面那一半用 [kasmweb](https://hub.docker.com/r/kasmweb/chromium) 和
-[jlesage](https://hub.docker.com/r/jlesage/chromium) 的镜像 ——
-**不改动、不重新发行它们的源码**,只在上面加一薄层。
+webmuxd 把 [Chromium](https://www.chromium.org/) 当外部程序驱动,**不改动、
+不重新发行它** —— `webmuxd install` 是让你自己从 Google 的
+[Chrome for Testing](https://developer.chrome.com/blog/chrome-for-testing) 下,
+和 playwright / puppeteer 同一个姿态。
+
+v1 的画面那一半用过 [kasmweb](https://hub.docker.com/r/kasmweb/chromium) 和
+[jlesage](https://hub.docker.com/r/jlesage/chromium) 的镜像,同样是只在上面加一薄层。

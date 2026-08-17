@@ -1,5 +1,10 @@
 # 镜像 · 怎么用
 
+> **这一页是 v1 的。** v2 不用镜像 —— 浏览器改成 `webmuxd install` 下一个,
+> 容器整条去掉了([docs/v2/works/07 §2](../docs/v2/works/07-runtime.md))。
+> 下面这两个 wrapper 镜像随 v1 存档,仍然能用,但 v2 的代码不认它们。
+> `docker/dev/` 那个开发镜像不受影响,测试还在用。
+
 webmuxd 需要两个端点:**一扇窗**给人、**一个 CDP** 给代码
 ([works/08](../docs/v1/works/08-browser-runtime.md))。现成的浏览器镜像都做好了第一个,
 第二个几乎都没有。这里的两个镜像就是把第二个补上。

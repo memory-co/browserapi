@@ -5,35 +5,44 @@ pip install webmuxd
 webmuxd install
 ```
 
-`install` 只回答两个问题:**docker 能用吗、这个网络环境拉得到镜像吗**。
-它不 build 也不预拉(`docker manifest inspect` 一秒问一下,不下 4 GB)。
+`install` 只回答两个问题:**这个网络环境下得到那个浏览器吗、系统依赖齐吗**。
+浏览器落在 `~/.cache/webmuxd/`,路径记进 `~/.webmuxd.json`。
 
 ```console
 $ webmuxd install
 探测环境…
-  python      3.11.2                             ✓
-  docker      29.7.2                             ✓
-  镜像          kasmweb/chromium:1.18.0            ✓
+  python      3.11.2                                 ✓
+  浏览器        chrome 152.0.7977.42                   ✓
+  共享库        齐                                      ✓
+  中文字体      有                                      ✓
 
 记录写到 /home/you/.webmuxd.json
 ```
 
-拉不到就**不写 `default_container`**,让你自己指:`webmuxd new --image <你的镜像>`。
+**版本是钉死的** —— 每个 release 钉一个,机器之间完全一致
+([works/07 §4.1](docs/v2/works/07-runtime.md))。下不到就**不写那个键**,
+并且把国内那个源告诉你:
 
-第一次 `webmuxd new` 会真的去拉那 4 GB,慢一次,之后秒起。
+```bash
+WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing webmuxd install
+```
+
+装依赖(要 root,只支持 Debian/Ubuntu):`webmuxd install --with-deps`。
+别的发行版它只打印缺什么,**不静默**。
 
 ## 起一个
 
 ```console
-$ webmuxd new --id demo --api-port 7900 --view-port 6901 --runtime container
-demo  →  画面 https://127.0.0.1:6901   API http://127.0.0.1:7900
-       登录 kasm_user / SryefzYQ6lF4   (自签名证书,浏览器会拦一下)
+$ webmuxd new --id demo --port 7900
+       ⚠ 页面跑在这台机器上,**没有隔离** —— 要隔离见 docs/v2/works/07 §2
+demo  →  http://127.0.0.1:7900/   (API 在同一个口:http://127.0.0.1:7900/api)
 ```
 
-**浏览器打开那个 https 地址,用打印出来的账号密码登进去** —— 你会看到一个
-完整的 Chromium 桌面,鼠标键盘直接能用。密码是这次启动现生成的,只说这一次。
+**浏览器打开那个地址** —— 你会看到远端页面,鼠标键盘直接能用,中文输入也能用
+(组字在你本地完成,提交时才发过去)。上面那条 tab 条和地址栏是**我们画的 HTML**,
+不是浏览器自己的 —— 画面里只有页面内容。
 
-同时,代码从另一个口驱动**同一个浏览器**:
+同时,代码从**同一个口**驱动**同一个浏览器**:
 
 ```console
 $ webmuxd new-tab -t demo -u https://example.com
@@ -44,7 +53,7 @@ $ webmuxd click -t demo "Learn more"
   → https://www.iana.org/help/example-domains   出现『We provide a web service on t…』
 ```
 
-第二条命令跑的时候盯着 VNC 那个窗口看 —— **页面会在你眼前跳过去。**
+第二条命令跑的时候盯着那个网页看 —— **页面会在你眼前跳过去。**
 这就是这东西的全部意义:人和代码看的是同一个画面,不是两份。
 
 ```console
@@ -60,18 +69,17 @@ CLI 只是薄薄一层,**库才是主体**:
 ```python
 from webmuxd import Webmuxd
 
-web  = Webmuxd(user="me")                                      # 空壳管理实例
-sess = web.session(id="demo", api_port=7900, view_port=6901,        # 一个浏览器
-                   runtime="container")
-print(sess.view_url, sess.view_login, sess.view_password)          # 人从这儿进去看
+web  = Webmuxd(user="me")                       # 空壳管理实例
+sess = web.session(id="demo", port=7900)        # 一个浏览器,一个口
+print(sess.view_url)                            # 人从这儿进去看
 
-tab = sess.open("https://example.com")                         # 一个页面
-tab.click("Learn more")                                        # 按人看得见的字操作
+tab = sess.open("https://example.com")          # 一个页面
+tab.click("Learn more")                         # 按人看得见的字操作
 print(tab.observe().as_prompt())
 ```
 
 `session(id=...)` 是幂等的 —— 同一个 id 再调一次拿到同一个 session,不会起第二个。
-端口必须自己传,不会替你分配([sdk/session.md](docs/v1/sdk/session.md))。
+端口必须自己传,不会替你分配。
 
 定位不到或者有歧义的时候,它**给候选而不是替你挑一个**:
 
@@ -82,47 +90,66 @@ r.failed      # {'error': 'not_found', 'message': '「订单」 匹配到 2 个,
 r.candidates  # [{'name': '提交订单', …}, {'name': '取消订单', …}]
 ```
 
-## 不想开容器
-
-`runtime="process"` 直接在本机拉起 chromium,秒起,**但没有隔离**
-(页面跑在你自己机器上),而且**没有 Xvnc 就没有画面**。
-`examples/quickstart.py` 走的是这条,自带一个页面服务器,不联网:
+`examples/quickstart.py` 把上面这些串成一段,自带一个页面服务器,不联网:
 
 ```bash
-docker build -t webmuxd-dev docker/dev/
-docker run --rm -v "$PWD":/src webmuxd-dev python /src/examples/quickstart.py
+python examples/quickstart.py
 ```
 
-## 容器里没有我们的代码
+## 给别人看
 
-跑的就是**原厂 `kasmweb/chromium`**,一层派生都没有:
+```python
+sess.share()                        # 默认只读,1 小时
+sess.share(writable=True)           # 可操作 —— 能碰你所有登录态
+```
+
+**只读是服务端丢弃输入**,不是前端把按钮变灰 —— 拿到只读链接的人自己写个 WS
+客户端直接发也没用([works/04 §3](docs/v2/works/04-one-port.md))。
+
+## 页面卡住的时候
+
+headless 里浏览器自己那些原生 UI **一个像素都不会出现在画面上**,
+所以它们是被 CDP 拦下来交给你的:
 
 ```console
-$ docker exec webmuxd-demo python3 -c "import webmuxd"
-ModuleNotFoundError: No module named 'webmuxd'
+$ curl localhost:7900/api/pending
+{"dialogs": [{"id":"dlg_1","tab":"t_2","subtype":"confirm","text":"确定要删除吗?"}], …}
+
+$ curl -X POST localhost:7900/api/tabs/t_2/dialog -d '{"accept":true}'
 ```
 
-sessiond 跑在你这边。容器里唯一多出来的东西是一个二十行的 TCP 中继,
-用镜像自带的 python3 起的 —— 因为 Chromium 把调试口绑死在容器内的
-`127.0.0.1`,`docker -p` 够不着([works/01 §4](docs/v1/works/01-container.md#4-sessiond))。
+内置的那个页面会直接把这张卡画出来,点一下就行。**没人回答就超时走取消,
+并且写进日志** —— 页面为什么停住、后来为什么又动了,`webmuxd log` 里查得到。
 
-```
-        6901  KasmVNC ──→ 人
-        7900  webmuxd ──→ 代码
-        随机   CDP 中继 ──→ 只给 sessiond 用
+下载、文件选择、权限、Basic 认证同理,见 [works/06](docs/v2/works/06-no-desktop.md)。
+
+## 要隔离
+
+webmuxd **不碰容器** —— tmuxd 不会 `docker run` 一个 tmux。姿态是反过来的:
+**你把 webmuxd 放进容器里**。
+
+```dockerfile
+FROM python:3.12-slim
+RUN pip install webmuxd && webmuxd install --with-deps
 ```
 
-三个口**都只绑 `127.0.0.1`**。CDP 那个尤其:它比 API 更底层、没有动作日志,
-能连上它就等于绕过整层 —— 要放到公网上是上层的决定,不是我们的默认。
+或者让浏览器待在别处,只把 CDP 端点给我们:
+
+```python
+sess = web.session(id="cloud", port=7900,
+                   runtime="remote", cdp="wss://chrome.example.com?token=…")
+print(sess.view_url)   # 画面还是我们产的,连的是他们的浏览器
+```
 
 ## 现在还缺什么
 
-不藏着,免得你以为跑通了就都有了:
+不藏着:
 
-- `:7800` 那个管理进程(`/api/sessions`、按 id 反代)
-- 上传下载、favicon、一次性观看链接:文档里有,代码里还没有
-- CLI 的 `share` `rename` `move-tab` `start-server`
-- 人在 VNC 里动手时的让路(`human_yield`)只有骨架,没验过
+- 管理面那个口(`/api/sessions`、按 id 反代)
+- favicon、`webmuxd share` / `rename` / `move-tab` / `start-server`
+- 右键菜单、拖放上传、打印 —— 有替代路径,排在后面
+- 剪贴板反向(远端复制 → 本地)只做了粘贴那一半
+- RTT 自适应降质写好了但**本机验不到** —— 阈值是 725ms,得人为加延迟才触发
 
 ## 跑测试
 
