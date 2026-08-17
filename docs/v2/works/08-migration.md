@@ -133,5 +133,5 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 真实网页(非 data: 页)的帧率与码率 | [01 §4](01-frame-source.md#4-代价老实写) 引的是 demo 在 youtube 上的数字 | 带宽预期要重写 |
 | **screencast vs kasm 的流畅度对比数字**(fps 曲线 / 端到端延迟 / 码率 / CPU,同机同链路同视频) | [01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅) 目前只有主观对比 | 结论方向已经实测过,缺的是**能对外讲的数字** |
 | 六类原生 UI 的 CDP 拦截逐条验证 | [06 §2](06-no-desktop.md#2-六类逐条) | 排期要重排 |
-| **Chrome for Testing 的条款**允不允许 webmuxd 这种用法 | [07 §4.2](07-runtime.md#42-下什么从哪下) | 退回纯 BSD 的 Chromium 构建,"视频能放"那条收回 |
+| **Chrome for Testing 的条款**允不允许 webmuxd 这种用法 | [07 §4.2](07-runtime.md#42-下什么从哪下) | 退回纯 BSD 的 Chromium 构建。**不损失功能**,只是版本索引要自己解决 |
 | `install` 在裸机上到底缺哪些 `.so`(Debian / Ubuntu / Alpine 各一遍) | [07 §4.3](07-runtime.md#43-系统依赖和字体照抄-playwright-的姿态) | `install-deps` 的清单要重写 |

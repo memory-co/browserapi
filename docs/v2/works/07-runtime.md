@@ -153,19 +153,27 @@ https://cdn.npmmirror.com/binaries/chrome-for-testing/<版本>/linux64/chrome-li
 实现的独立二进制,行为和真实浏览器有差 —— 而 webmuxd 的承诺是"程序驱动的和人看见的
 是同一个浏览器"。用完整二进制跑 `--headless=new`,体积代价认了。
 
-**② 这一下顺手把 v1 的一个已知缺陷消掉了。** v1 的 README 写着:
+**② 但 codec 不是选它的理由。** 这里本来写着"Chrome for Testing 带 H.264/AAC,
+视频能放了",**那是把一个边角问题放大成了选型依据,删掉。**
+
+v1 README 的原话是有分寸的:
 
 > 镜像里是 **Chromium 不是 Chrome**:Chrome 是专有软件、再分发受限。
-> 代价是不带 H.264 / AAC,少数只有这两种编码的视频放不了。
+> 代价是不带 H.264 / AAC,**少数**只有这两种编码的视频放不了。
 
-Chrome for Testing 带 H.264/AAC,**视频能放了**。而"再分发受限"那条也不再适用 ——
-我们不分发它,是 `webmuxd install` 让用户自己从 Google 下,和 playwright / puppeteer
-同一个姿态。
+「少数」这个词是准的。主流站点给 Chromium 发的是 VP9/AV1,根本不走 H.264 ——
+**demo 用系统的 chromium 在 YouTube 上实测能放,而且比 kasm 更流畅**
+([01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅))。这条路上没有 codec 障碍。
 
-> **必须确认**:Chrome for Testing 的条款把它定位成测试/自动化用的构建。
-> webmuxd 的用法(程序驱动 + 人接管同一个浏览器)算不算落在里面,**要读一遍条款再定**。
-> 如果不算,退路是纯 BSD 的 Chromium 构建,代价就是把上面那条缺陷收回来。
-> **在确认之前不要把"视频能放"写进 README。**
+所以选 Chrome for Testing 的理由**只有一条,就是 §4.1 的钉死版本**:
+官方托管、有稳定的版本索引、不会自己升级。codec 那条按 v1 原样保留 ——
+少数站点放不了,如实写着,不当卖点也不当缺陷。
+
+> **仍然要确认**:CfT 的条款把它定位成测试/自动化用的构建,webmuxd 的用法
+> 算不算落在里面,要读一遍条款再定。
+> 但**赌注比原先小**:codec 不再是理由之后,退到纯 BSD 的 Chromium 构建
+> 不损失任何功能,只是版本索引要自己解决(snapshots 按 commit position 编号,
+> 老构建会被清理)。
 
 ### 4.3 系统依赖和字体,照抄 playwright 的姿态
 
