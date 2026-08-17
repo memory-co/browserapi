@@ -1,15 +1,20 @@
-"""环境记录 —— `~/.webmuxd.json`(docs/v1/cli/install.md)。
+"""环境记录 —— `~/.webmuxd.json`(docs/v2/works/07-runtime.md §4.4)。
 
 **这不是配置文件,是机器的事实。** `webmuxd install` 探一遍写下来,
-之后所有命令读它,不再每次去 `docker info`。
+之后所有命令读它。
 
-    {"version": 1, "at": "…",
-     "docker": "/usr/bin/docker", "docker_version": "29.7.2",
-     "default_container": "kasmweb/chromium:1.18.0"}
+    {"version": 2, "at": "…",
+     "default_browser": {"path": "~/.cache/webmuxd/chrome-152…/chrome",
+                         "version": "152.0.7977.42",
+                         "source": "chrome-for-testing"}}
 
-**键在 = 探到了,键不在 = 没探到。** 没有 `default_container` 就是
-"这个网络环境拉不到那个镜像",于是留空让人自己填 —— 而不是记一个
-拉不下来的名字骗后面的自己。
+**键在 = 探到了,键不在 = 没探到。** 没有 `default_browser` 就是
+"这个网络环境下不到那个浏览器",于是留空让人自己填 —— 而不是记一个
+不存在的路径骗后面的自己。
+
+v1 记的是 docker 和镜像;**v2 不再关心机器上有没有 docker**(works/07 §2),
+那两个键连同 `default_container` 一起没了。格式版本因此从 1 跳到 2 ——
+老记录读不动就当没有,重新探。
 
 三条规矩:
 
@@ -30,11 +35,11 @@ from pathlib import Path
 from typing import Any
 
 #: 记录格式的版本。**格式变了老记录就当没有** —— 重新探,而不是猜字段。
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 #: 记录里认得的键。多出来的原样留着(是别人写的,不该被我们吃掉),
 #: 但我们只读这几个。
-KEYS = ("docker", "docker_version", "default_container")
+KEYS = ("default_browser",)
 
 
 def path() -> Path:

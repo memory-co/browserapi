@@ -1,7 +1,10 @@
-"""`webmuxd install` 和环境记录 —— 对着 docs/v1/cli/install.md 校。
+"""`webmuxd install` 和环境记录 —— 对着 docs/v2/works/07-runtime.md §4.4 校。
 
-install 只回答两个问题:**docker 能用吗、这个网络环境拉得到那个镜像吗**。
-它不 build、不预拉。
+v1 的 install 问两个问题(docker 能用吗、拉得到镜像吗)。**v2 换了另外两个**:
+这个网络环境下得到那个浏览器吗、系统依赖齐吗。docker 那一问整个消失。
+
+**记录的规矩一条没改**,所以这个文件里大半的用例是原样留下来的 ——
+它们测的是"记录怎么用",而不是"记录里装的是什么"。
 """
 
 import io
@@ -9,11 +12,10 @@ import json
 
 import pytest
 
-from webmuxd import env, runtime as rt
+from webmuxd import browser, env
 from webmuxd.cli.install import install
 from webmuxd.errors import RuntimeUnavailable
-from webmuxd.runtime.container import ContainerRuntime
-from webmuxd.runtime.process import ProcessRuntime
+from webmuxd.runtime.process import ProcessRuntime, resolve_browser
 
 
 @pytest.fixture
@@ -24,152 +26,130 @@ def record_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def fake_probe(monkeypatch):
-    """把 install 里所有 shell 出去的动作换成可控的假货。"""
-    state = {"which": "/usr/bin/docker", "version": "29.7.2", "reachable": True}
+def fake_download(tmp_path, monkeypatch):
+    """把真的下载换掉。**下载本身不在这测** —— 那要网络,而且它是 urllib 的事。"""
+    exe = tmp_path / "chrome-fake" / "chrome"
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    state = {"path": str(exe), "fail": False, "calls": 0}
 
-    monkeypatch.setattr("webmuxd.cli.install.shutil.which",
-                        lambda n: state["which"])
-    monkeypatch.setattr("webmuxd.cli.install._run",
-                        lambda args: state["version"])
-    monkeypatch.setattr("webmuxd.cli.install._reachable",
-                        lambda d, i: state["reachable"])
+    def fake_install(version=browser.PINNED, **kw):
+        state["calls"] += 1
+        if state["fail"]:
+            raise RuntimeError("到不了下载源")
+        return state["path"]
+
+    monkeypatch.setattr("webmuxd.browser.install", fake_install)
+    monkeypatch.setattr("webmuxd.browser.find", lambda v=browser.PINNED: None)
+    monkeypatch.setattr("webmuxd.browser.find_system", lambda: None)
+    monkeypatch.setattr("webmuxd.browser.missing_libs", lambda p: [])
+    monkeypatch.setattr("webmuxd.browser.has_cjk_font", lambda: True)
     return state
 
 
 # ------------------------------------------------------------------ 记录
 
-def test_no_record_is_not_an_error(record_file):
-    """**没装过也能用** —— install 省的是重复开销,不是"必须先装"
-    (install.md §5)。"""
-    assert env.load() is None
-    assert set(rt.detect()) == {"container", "process", "remote"}
-    assert rt.default() in ("container", "process", "remote")
-
-
-def test_a_record_from_the_future_is_ignored(record_file):
-    """格式变了老记录读不动 —— **当没有记录重新探**,而不是猜字段。"""
-    record_file.write_text(json.dumps({"version": 999, "docker": "/x"}))
-    assert env.load() is None
-    assert env.get("docker") is None
-
-
-def test_garbage_is_ignored_not_crashed_on(record_file):
-    record_file.write_text("{ 半个文件")
+def test_没有记录不是错误(record_file):
+    """**没装过也能用** —— install 省的是重复开销,不是"必须先装"。"""
     assert env.load() is None
 
 
-def test_save_then_load_round_trips(record_file):
-    env.save({"docker": "/usr/bin/docker",
-              "default_container": "kasmweb/chromium:1.18.0"})
+def test_未来版本的记录当没有(record_file):
+    record_file.write_text(json.dumps({"version": 999, "default_browser": {}}))
+    assert env.load() is None, "格式变了就重新探,而不是猜字段"
+
+
+def test_垃圾文件当没有而不是崩掉(record_file):
+    record_file.write_text("{ 这不是 json")
+    assert env.load() is None
+
+
+def test_写完读得回来(record_file):
+    env.save({"default_browser": {"path": "/x/chrome", "version": "1.2.3.4"}})
     rec = env.load()
-    assert rec["docker"] == "/usr/bin/docker"
-    assert rec["at"].endswith("Z"), "得记下这是什么时候探的"
-    assert rec["version"] == env.FORMAT_VERSION
+    assert rec["default_browser"]["path"] == "/x/chrome"
+    assert rec["version"] == env.FORMAT_VERSION and "at" in rec
 
 
-def test_a_key_with_no_value_is_left_out_not_written_empty(record_file):
-    """**键在 = 探到了,键不在 = 没探到。** 留个空值等于留个说不清的状态。"""
-    env.save({"docker": "/usr/bin/docker", "default_container": None})
-    assert "default_container" not in env.load()
-    assert env.get("default_container") is None
+def test_值是_None_的键直接不写(record_file):
+    env.save({"default_browser": None})
+    assert "default_browser" not in env.load()
 
 
-# ------------------------------------------------------------------ 探测
+# ---------------------------------------------------------------- install
 
-def test_install_records_docker_and_the_image(record_file, fake_probe):
+def test_install_记下浏览器(record_file, fake_download):
+    out = io.StringIO()
+    rec = install(out=out, force=True)
+    assert rec["default_browser"]["path"] == fake_download["path"]
+    assert rec["default_browser"]["version"] == browser.PINNED
+    assert env.load()["default_browser"]["source"] == "chrome-for-testing"
+    assert "docker" not in env.load(), "v2 不再关心机器上有没有 docker"
+
+
+def test_install_是幂等的(record_file, fake_download, monkeypatch):
+    """"检查"和"安装"是同一个命令 —— 已经在了就跳过,不重下。"""
+    monkeypatch.setattr("webmuxd.browser.find",
+                        lambda v=browser.PINNED: fake_download["path"])
+    out = io.StringIO()
+    install(out=out)
+    install(out=out)
+    assert fake_download["calls"] == 0, "已经下过还去下 —— 那不叫幂等"
+
+
+def test_下不到就不写那个键_并且给出退路(record_file, fake_download):
+    """**不记一个下不到的路径。** 键不在,就是"你得自己填"。"""
+    fake_download["fail"] = True
     out = io.StringIO()
     rec = install(out=out)
-
-    assert rec["docker"] == "/usr/bin/docker"
-    assert rec["docker_version"] == "29.7.2"
-    assert rec["default_container"] == "ghcr.io/memory-co/webmuxd/kasmweb-chromium:1.18.0"
-    assert env.load()["default_container"] == rec["default_container"]
-    assert "记录写到" in out.getvalue()
+    assert "default_browser" not in rec
+    assert "default_browser" not in (env.load() or {})
+    text = out.getvalue()
+    assert browser.CN_MIRROR in text, "到不了源时该把国内那个源说出来"
 
 
-def test_install_is_idempotent(record_file, fake_probe):
-    """再跑一次就是重新探一遍 —— 所以"检查"和"安装"是同一个命令。"""
-    a = install(out=io.StringIO())
-    b = install(out=io.StringIO())
-    assert a["default_container"] == b["default_container"]
-
-
-def test_install_never_builds_and_never_pulls(record_file, monkeypatch):
-    """**探测不该顺手做一件 4 GB 的事。** 只问拉不拉得到。"""
-    calls = []
-
-    class R:
-        returncode, stdout, stderr = 0, "ok", ""
-
-    def fake(args, **kw):
-        calls.append(args)
-        return R()
-
-    monkeypatch.setattr("webmuxd.cli.install.shutil.which", lambda _n: "/usr/bin/docker")
-    monkeypatch.setattr("webmuxd.cli.install.subprocess.run", fake)
-    install(out=io.StringIO())
-
-    verbs = {a[1] for a in calls if len(a) > 1}
-    assert "pull" not in verbs, "install 去拉镜像了"
-    assert "build" not in verbs, "install 去 build 镜像了"
-
-
-def test_an_unreachable_image_leaves_the_key_out(record_file, fake_probe):
-    """**不记一个拉不下来的名字。** 键不在,就是"你得自己填"(install.md §2)。"""
-    fake_probe["reachable"] = False
+def test_缺中文字体是一条警告不是沉默(record_file, fake_download, monkeypatch):
+    """**裸服务器渲染中文全是豆腐块** —— 撞上的人一定会以为是 bug。"""
+    monkeypatch.setattr("webmuxd.browser.has_cjk_font", lambda: False)
     out = io.StringIO()
-    rec = install(out=out)
-
-    assert "default_container" not in rec
-    assert env.get("default_container") is None
-    assert "--image" in out.getvalue(), "得告诉人怎么自己指一个"
+    install(out=out, force=True)
+    assert "fonts-noto-cjk" in out.getvalue()
 
 
-def test_missing_docker_does_not_crash_the_command(record_file, monkeypatch):
-    """探不到不让整条命令失败 —— 记下来就是了(install.md §2)。"""
-    monkeypatch.setattr("webmuxd.cli.install.shutil.which", lambda _n: None)
-    rec = install(out=io.StringIO())
-    assert not rec.get("docker_version")
-    assert "default_container" not in rec, "docker 都没有,还记镜像"
-    assert rt.default() != "container", "没 docker 还把它当默认"
+def test_缺共享库要明说而不是等它起不来(record_file, fake_download, monkeypatch):
+    monkeypatch.setattr("webmuxd.browser.missing_libs",
+                        lambda p: ["libnss3.so", "libgbm.so.1"])
+    out = io.StringIO()
+    install(out=out, force=True)
+    assert "libnss3.so" in out.getvalue() and "apt-get" in out.getvalue()
 
 
-# ------------------------------------------------- 记录被用起来了没有
+# ------------------------------------------------------------ 记录怎么被用
 
-def test_detect_reads_the_record_instead_of_probing(record_file, monkeypatch):
-    """**信记录,不重探** —— 每次都探等于 install 白做(install.md §4)。"""
-    env.save({"docker": "/usr/bin/docker",
-              "default_container": "kasmweb/chromium:1.18.0"})
-
-    def boom(*a, **k):
-        raise AssertionError("有记录还去 shell 出去探了")
-
-    monkeypatch.setattr("webmuxd.runtime.container.subprocess.run", boom)
-    assert rt.detect()["container"] is True
-    assert rt.default() == "container"
+def test_记录里的浏览器会被用上(record_file, tmp_path):
+    exe = tmp_path / "recorded-chrome"
+    exe.write_text("#!/bin/sh\n")
+    env.save({"default_browser": {"path": str(exe), "version": "1.2.3.4"}})
+    assert resolve_browser() == str(exe)
 
 
-def test_container_runtime_takes_docker_and_image_from_the_record(record_file):
-    env.save({"docker": "/opt/docker", "default_container": "me/custom:9"})
-    impl = ContainerRuntime()
-    assert impl.docker == "/opt/docker" and impl.image == "me/custom:9"
-    assert impl.available()[0] is True
+def test_传进来的赢过记录(record_file, tmp_path):
+    """**它不是配置文件。** 记的是机器的事实,你想用哪个永远是参数说了算。"""
+    a, b = tmp_path / "a", tmp_path / "b"
+    for p in (a, b):
+        p.write_text("#!/bin/sh\n")
+    env.save({"default_browser": {"path": str(a), "version": "1"}})
+    assert resolve_browser(str(b)) == str(b)
 
 
-def test_what_the_caller_says_beats_the_record(record_file):
-    """记录是机器的事实,**不是你的选择** —— 传进来的赢。"""
-    env.save({"docker": "/opt/docker", "default_container": "me/custom:9"})
-    assert ContainerRuntime(image="other/img:2").image == "other/img:2"
-
-
-def test_a_stale_record_says_to_rerun_install(record_file, monkeypatch):
-    """**记录会撒谎** —— 按它去起,起不来就报错并让人重跑(install.md §4)。"""
-    monkeypatch.setenv("WEBMUXD_CHROMIUM", "/nope/chromium")
+def test_记录过期了要说去重跑_install(record_file, monkeypatch):
+    """**记录会撒谎** —— 你删了缓存目录它不知道。"""
+    monkeypatch.setenv("WEBMUXD_BROWSER", "/已经不在了/chrome")
     with pytest.raises(RuntimeUnavailable) as ei:
-        ProcessRuntime().start("x", api_port=1, view_port=2)
-    assert "webmuxd install" in str(ei.value) or "webmuxd install" in ei.value.hint
+        ProcessRuntime().start("x", port=1)
+    assert "install" in ei.value.hint
 
 
-def test_stale_hint_names_the_command():
+def test_那句提示里点名了命令():
     assert "webmuxd install" in env.stale_hint("chromium 在 /x")

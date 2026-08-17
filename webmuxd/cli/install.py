@@ -1,16 +1,20 @@
-"""`webmuxd install` —— 探一遍,写下来,别再问(docs/v1/cli/install.md)。
+"""`webmuxd install` —— 探一遍,下一个,写下来,别再问。
 
-**它只回答两个问题:**
+docs/v2/works/07-runtime.md §4.4。v1 问的两个问题(docker 能用吗、拉得到镜像吗)
+**换成了另外两个**:
 
-1. docker 能用吗
-2. 这个网络环境拉得到那个镜像吗
+1. **这个网络环境下得到那个浏览器吗**
+2. **系统依赖齐吗**
 
-就这两条。**它不 build 任何东西,也不预先 `docker pull`** ——
-镜像是 kasm 原厂的,`docker run` 自己会拉;这里只是提前告诉你拉不拉得到,
-免得你在起 session 的时候才发现。
+docker 那一问整个消失 —— v2 不再关心机器上有没有它(§2)。
 
-**幂等**:再跑一次就是重新探一遍,所以"检查"和"安装"是同一个命令,
-不需要单独的 `doctor`。
+规矩全部从 [v1/cli/install.md](../../docs/v1/cli/install.md) 继承,一条没改:
+**幂等**("检查"和"安装"是同一个命令,不需要 `doctor`)、
+**探不到就不写那个键**、**不静默重探**、**它不是配置文件**、
+**没装过也能用**。
+
+`--with-deps` 照抄 playwright 的姿态:**能装就装,装不了就明说缺什么、
+给出那行命令,绝不静默**(§4.3)。
 """
 
 from __future__ import annotations
@@ -21,66 +25,111 @@ import subprocess
 import sys
 from typing import Any
 
-from webmuxd import env
-from webmuxd.runtime.container import IMAGE
+from webmuxd import browser, env
 
 OK, WARN = "✓", "⚠"
 
+#: Debian/Ubuntu 上 headless chrome 常缺的那些。别的发行版只打印,不装。
+APT_DEPS = (
+    "libnss3", "libnspr4", "libatk1.0-0", "libatk-bridge2.0-0", "libcups2",
+    "libdrm2", "libxkbcommon0", "libxcomposite1", "libxdamage1", "libxfixes3",
+    "libxrandr2", "libgbm1", "libpango-1.0-0", "libcairo2", "libasound2",
+    "fonts-noto-cjk",
+)
 
-def install(*, image: str = IMAGE, out=sys.stdout, **_compat: Any) -> dict[str, Any]:
+
+def install(*, version: str = browser.PINNED, mirror: str | None = None,
+            force: bool = False, with_deps: bool = False,
+            out=sys.stdout, **_compat: Any) -> dict[str, Any]:
     say = lambda *a: print(*a, file=out)      # noqa: E731
     say("探测环境…")
+    say(f"  {'python':<11} {platform.python_version():<38} {OK}")
 
-    say(f"  {'python':<11} {platform.python_version():<34} {OK}")
+    record: dict[str, Any] = {}
 
-    docker = shutil.which("docker")
-    version = _run([docker, "version", "--format", "{{.Server.Version}}"]) if docker else None
-    if not version:
-        why = "找不到 docker 命令" if not docker else \
-              "docker daemon 没起来,或者当前用户没权限"
-        say(f"  {'docker':<11} {why:<34} {WARN}")
-        record = {"docker": docker}
+    if with_deps:
+        _install_deps(say)
+
+    # ---------------------------------------------------------------- 浏览器
+    have = browser.find(version)
+    if have and not force:
+        say(f"  {'浏览器':<10} {('chrome ' + version + ' 已经下过'):<38} {OK}")
+        path = have
     else:
-        say(f"  {'docker':<11} {version:<34} {OK}")
-        record = {"docker": docker, "docker_version": version}
+        try:
+            say(f"  {'浏览器':<10} {('下 chrome ' + version + ' …'):<38}")
+            path = browser.install(version, mirror=mirror, force=force,
+                                   on_progress=_progress(out))
+            say(f"\r  {'浏览器':<10} {('chrome ' + version):<38} {OK}")
+        except Exception as e:
+            # **不记一个下不到的路径。** 键不在,就是"你得自己填"。
+            say(f"\r  {'浏览器':<10} {('下不到:' + str(e)[:30]):<38} {WARN}")
+            sysone = browser.find_system()
+            if sysone:
+                say(f"     系统里有一个:{sysone}")
+                say(f"     用它:webmuxd new --browser {sysone}")
+                say(f"     换源再试:WEBMUXD_BROWSER_MIRROR={browser.CN_MIRROR}")
+            else:
+                say(f"     换个源再试:WEBMUXD_BROWSER_MIRROR={browser.CN_MIRROR}")
+            path = None
 
-    # **只问拉不拉得到,不真拉。** `docker manifest inspect` 一秒出结果,
-    # 而 `docker pull` 是 4 GB —— 探测不该顺手做一件那么重的事。
-    if version:
-        if _reachable(docker, image):
-            say(f"  {'镜像':<11} {image:<34} {OK}")
-            record["default_container"] = image
+    # ---------------------------------------------------------------- 依赖
+    if path:
+        missing = browser.missing_libs(path)
+        if missing:
+            say(f"  {'共享库':<10} {('缺 ' + ', '.join(missing[:3])):<38} {WARN}")
+            say(f"     装上:sudo apt-get install -y {' '.join(APT_DEPS)}")
+            say("     或者 `webmuxd install --with-deps`(要 root)")
         else:
-            say(f"  {'镜像':<11} {(image + ' 拉不到'):<34} {WARN}")
-            # **不记一个拉不下来的名字。** 键不在,就是"你得自己填"。
-            say(f"     这个网络环境到不了 registry。"
-                f"自己指一个:webmuxd new --image <你的镜像>")
+            say(f"  {'共享库':<10} {'齐':<38} {OK}")
+
+        if browser.has_cjk_font():
+            say(f"  {'中文字体':<9} {'有':<38} {OK}")
+        else:
+            # **裸服务器渲染中文全是豆腐块** —— 和代码无关,但撞上的人一定会以为是 bug
+            say(f"  {'中文字体':<9} {browser.FONT_HINT[1]:<38} {WARN}")
+            say(f"     装上:sudo {browser.FONT_HINT[0]}")
+
+        record["default_browser"] = {
+            "path": path, "version": version, "source": "chrome-for-testing",
+        }
 
     p = env.save(record)
     say("")
     say(f"记录写到 {p}")
-    if not record.get("default_container"):
-        say(f"{WARN} 没有 default_container —— container runtime 得每次指定 --image")
+    if not record.get("default_browser"):
+        say(f"{WARN} 没有 default_browser —— 起 session 时得 --browser 指一个")
     return record
 
 
 # ---------------------------------------------------------------------------
 
-def _reachable(docker: str, image: str) -> bool:
-    """本机已经有,或者 registry 上问得到。"""
-    if _run([docker, "image", "inspect", "-f", "{{.Id}}", image]):
-        return True
-    try:
-        r = subprocess.run([docker, "manifest", "inspect", image],
-                           capture_output=True, text=True, timeout=60)
-    except Exception:
-        return False
-    return r.returncode == 0
+def _progress(out):
+    def cb(done: int, total: int) -> None:
+        if not total or not out.isatty():
+            return
+        pct = done * 100 // total
+        print(f"\r  {'浏览器':<10} {f'下 chrome … {pct}%':<38}", end="", file=out)
+    return cb
 
 
-def _run(args: list[str]) -> str | None:
+def _install_deps(say) -> None:
+    """**能装就装,装不了只打印。** playwright 就是这个姿态,理由见 §4.3。"""
+    apt = shutil.which("apt-get")
+    if not apt:
+        say(f"  {'依赖':<11} {'非 Debian/Ubuntu,自己装':<38} {WARN}")
+        say(f"     大致是这些:{' '.join(APT_DEPS)}")
+        return
+    cmd = ["apt-get", "install", "-y", "-q", *APT_DEPS]
+    if shutil.which("sudo"):
+        cmd = ["sudo", "-n", *cmd]
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=30)
-    except Exception:
-        return None
-    return r.stdout.strip() if r.returncode == 0 else None
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except Exception as e:
+        r = None
+        say(f"  {'依赖':<11} {str(e)[:38]:<38} {WARN}")
+    if r is not None and r.returncode == 0:
+        say(f"  {'依赖':<11} {'装好了':<38} {OK}")
+    elif r is not None:
+        say(f"  {'依赖':<11} {'装不了(要 root)':<38} {WARN}")
+        say(f"     自己跑:sudo apt-get install -y {' '.join(APT_DEPS)}")

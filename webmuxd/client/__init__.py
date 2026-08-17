@@ -1,7 +1,7 @@
 """Python lib —— 主体在这儿(docs/v1/sdk/)。
 
     web  = Webmuxd()
-    sess = web.session(id="work", api_port=7900, view_port=8090)
+    sess = web.session(id="work", port=7900)
     tab  = sess.open("https://shop.example.com")
     tab.click("登录")
 """

@@ -1,15 +1,27 @@
-"""`remote` runtime —— 接一个已经在别处跑着的。
+"""`remote` —— 别人已经把 CDP 端点给你了(docs/v2/works/07-runtime.md §6)。
 
-**我们不起它,也不停它。** `DELETE` 只删本地记录,对面仍在运行
-(api/server.md §3)。
+**我们不起那个浏览器,也不停它。** 起的只有本地这个 sessiond ——
+而画面由我们产,所以:
+
+    给一个只有 CDP 的云浏览器配上人能看能上手的画面
+
+这是 v1 做不到的:v1 的 `remote` 要求对面**同时**给出画面口和 CDP,
+而云浏览器服务基本只给 CDP。
+
+它同时是"v2 没有开箱隔离"的出口。对 webmuxd 来说这些**是同一件事**,
+因为它只看见一个 CDP 端点:云浏览器服务、同事机器上那个 Chrome、
+**你自己 `docker run` 起来的一个 chromium** —— 隔离在最后那条上,由你决定。
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Any
-from urllib.parse import urlparse
 
-from webmuxd.runtime.base import Handle, unavailable, wait_http
+from webmuxd.runtime.base import (
+    Handle, require_ports, spawn_sessiond, unavailable, wait_http,
+)
 
 
 class RemoteRuntime:
@@ -18,22 +30,48 @@ class RemoteRuntime:
     def available(self) -> tuple[bool, str]:
         return True, ""
 
-    def start(self, id: str, *, api_port: int = 0, view_port: int = 0,
-              endpoint: str | None = None, **_opts: Any) -> Handle:
-        if not endpoint:
-            raise unavailable(self.name, "runtime=remote 得给 endpoint",
-                              "endpoint 指向对面那个 session 的 API")
-        if not wait_http(endpoint.rstrip("/") + "/healthz", 10):
-            raise unavailable(self.name, f"{endpoint} 探不到",
+    def start(self, id: str, *, port: int, cdp: str | None = None,
+              data_dir: str | None = None, token: str | None = None,
+              **_opts: Any) -> Handle:
+        if not cdp:
+            raise unavailable(self.name, "runtime=remote 得给 cdp=",
+                              "cdp 指向对面那个浏览器的 CDP 端点,"
+                              "http://host:port 或 ws://…")
+        require_ports(port)
+        # `http://` 的先探一下,**探不到就直说** —— 起完 sessiond 再发现
+        # 连不上,报的错会指向我们自己而不是那个端点。
+        # `ws://` 没有可探的 HTTP 面,交给 sessiond 去连。
+        if cdp.startswith("http") and not wait_http(cdp.rstrip("/") + "/json/version", 10):
+            raise unavailable(self.name, f"{cdp} 探不到",
                               "确认对面在跑,而且这台机器连得上")
-        u = urlparse(endpoint)
-        return Handle(self.name, id, u.port or 7900, view_port,
-                      {"endpoint": endpoint.rstrip("/"), "owned": False})
+
+        work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
+        os.makedirs(work, exist_ok=True)
+        proc = spawn_sessiond(cdp, port=port, data=os.path.join(work, "data"),
+                              token=token)
+        if not wait_http(f"http://127.0.0.1:{port}/healthz", 30):
+            proc.terminate()
+            raise unavailable(self.name, "sessiond 没起来",
+                              f"手工跑一遍看报什么:python -m webmuxd.serve --cdp {cdp}")
+        return Handle(self.name, id, port,
+                      {"cdp": cdp, "work": work, "owned_browser": False,
+                       "pids": {"sessiond": proc.pid}, "_procs": {"sessiond": proc}})
 
     def stop(self, handle: Handle) -> None:
-        """**只删本地记录,不动对面。**"""
-        return None
+        """停本地的 sessiond,**对面一个字节都不动**。"""
+        import contextlib
+        import signal
+        procs = handle.detail.get("_procs") or {}
+        p = procs.get("sessiond")
+        if p is not None:
+            with contextlib.suppress(Exception):
+                p.terminate()
+                p.wait(timeout=5)
+            return
+        pid = (handle.detail.get("pids") or {}).get("sessiond")
+        if pid:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)
 
     def alive(self, handle: Handle) -> bool:
-        ep = handle.detail.get("endpoint")
-        return bool(ep and wait_http(ep + "/healthz", 3))
+        return wait_http(f"http://127.0.0.1:{handle.port}/healthz", 3)

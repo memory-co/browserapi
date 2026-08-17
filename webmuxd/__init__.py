@@ -3,7 +3,7 @@
 三个对象,一层套一层(docs/v1/sdk/README.md §1):
 
     web  = Webmuxd()                                   # 管理实例,空壳
-    sess = web.session(id="work", api_port=7900, view_port=8090)
+    sess = web.session(id="work", port=7900)
     tab  = sess.open("https://example.com")
 """
 

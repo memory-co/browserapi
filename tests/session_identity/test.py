@@ -16,6 +16,13 @@ from webmuxd.errors import BadRequest, NotFound, RuntimeUnavailable, TabGone
 from webmuxd.serve.app import build
 from webmuxd.serve.session import Session as CoreSession
 
+
+def _free_port() -> int:
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
 # 用**真的 HTTP 页面**,不是 data: URL —— `targetInfo.title` 对 data: URL
 # 给的是 URL 本身,真页面上才等于 document.title。用 data: 测 title 会失真。
 HTML = """<!doctype html><meta charset=utf-8><title>结算</title>
@@ -107,7 +114,7 @@ def page_url(live):
 @pytest.fixture
 def sess(live):
     web = Webmuxd(user="claudecode")
-    s = web.session(id="work", api_port=live[0], view_port=6901)
+    s = web.session(id="work", port=live[0])
     yield s
     # sessiond 是模块级共享的,用完把 tab 清掉 —— 不然下一个用例
     # 按标题找 tab 会匹配到上一个用例留下的那个
@@ -133,7 +140,7 @@ def test_session_is_idempotent_and_returns_the_same_object(live):
     每个 Session 背后有一条 WS 和一份内存表,给两个就是两条连接
     (sdk/manager.md §1)。"""
     web = Webmuxd()
-    a = web.session(id="work", api_port=live[0], view_port=6901)
+    a = web.session(id="work", port=live[0])
     b = web.session(id="work")
     assert a is b
     a.detach()
@@ -147,10 +154,19 @@ def test_a_new_id_without_ports_is_refused(live):
     assert "port" in str(ei.value)
 
 
-def test_nothing_running_on_that_port_says_so(live):
+def test_那个口上什么都没有就去起_起不来要说清是哪一种(live):
+    """两种失败指向**不同的下一步**,所以不能糊成一句。"""
+    from webmuxd.errors import PortInUse
     web = Webmuxd()
+
+    # 1024 以下要 root —— 报"被占了"会让人去查一个不存在的进程
+    with pytest.raises(PortInUse) as pi:
+        web.session(id="没起来的", port=1)
+    assert pi.value.details["reason"] == "privileged"
+
+    # runtime 自己起不来 —— 这条要给 hint
     with pytest.raises(RuntimeUnavailable) as ei:
-        web.session(id="没起来的", api_port=1, view_port=2)
+        web.session(id="没端点的", port=_free_port(), runtime="remote")
     assert ei.value.hint
 
 

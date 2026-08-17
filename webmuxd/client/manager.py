@@ -41,42 +41,47 @@ class Webmuxd:
 
     # ------------------------------------------------------------------
 
-    def session(self, id: str, *, api_port: int | None = None,
-                view_port: int | None = None, runtime: str = "container",
+    def session(self, id: str, *, port: int | None = None,
+                runtime: str | None = None,
                 user: str | None = None, **kw: Any) -> Session:
         """拿一个 session。**幂等:同一个 id 永远给你同一个。**
 
         没有 `create()` 也没有 `get()` —— "建"和"取"是同一件事,像 `tmux new -A -s`。
 
         **端口必须你给,不自动分配**:端口是部署决定的,我们猜一个只会让你的
-        配置和实际对不上,而且一个 session 占两个口,自动分配还得替你猜第二个。
+        配置和实际对不上。v2 里只有**一个**口 —— 画面和 API 都在它上面
+        (works/04 §1),所以这条规矩比 v1 好守。
         """
-        # **旧名不静默吞。** 0.4.0 把三层的名字对齐了(CLI --x / lib x= /
-        # 镜像 WEBMUXD_X),旧名落进 `**kw` 会被无声丢掉,然后报一个指向别处的错
-        # ——"还不存在,得给 api_port"。宁可在这儿直说。
-        for old, new in (("port", "api_port"), ("vnc_port", "view_port"),
-                         ("viewport", "window_size"), ("token", "password")):
+        # **旧名不静默吞。** 落进 `**kw` 会被无声丢掉,然后报一个指向别处的错
+        # ——"还不存在,得给 port"。宁可在这儿直说,并指出为什么没了。
+        for old, why in (
+                ("api_port", "v2 只有一个口,叫 `port=`(works/04)"),
+                ("view_port", "v2 只有一个口,画面和 API 在同一个上(works/04)"),
+                ("image", "v2 不碰容器,浏览器用 `browser=` 指(works/07 §2)"),
+                ("network", "v2 不碰容器(works/07 §2)"),
+                ("vnc_port", "v2 没有 VNC(works/01)"),
+                ("viewport", "改名叫 `window_size=`")):
             if old in kw:
-                raise BadRequest(f"`{old}=` 改名叫 `{new}=` 了(0.4.0)",
-                                 code="bad_request")
+                raise BadRequest(f"`{old}=` 没有了 —— {why}", code="bad_request")
+        runtime = runtime or rt.DEFAULT
 
         with self._lock:
             have = self._live.get(id)
             if have is not None:
                 # 同一个 id **返回同一个 Python 对象** —— 每个 Session 背后有一条 WS
                 # 和一份内存表,给两个就是两条连接、两份可能不一致的表。
-                if api_port is not None and have.api_url.endswith(f":{api_port}") is False:
+                if port is not None and have.api_url.endswith(f":{port}") is False:
                     raise BadRequest(
-                        f"{id} 已经在 {have.api_url},和你给的 api_port={api_port} 对不上",
+                        f"{id} 已经在 {have.api_url},和你给的 port={port} 对不上",
                         code="bad_request")
                 return have
 
-            if api_port is None:
+            if port is None:
                 raise BadRequest(
-                    f"session {id!r} 还不存在,得给 api_port 和 view_port —— "
+                    f"session {id!r} 还不存在,得给 port —— "
                     "端口是部署决定的,我们不替你分配", code="bad_request")
 
-            api = f"http://{self.host}:{api_port}"
+            api = f"http://{self.host}:{port}"
             t = Transport(api, token=self.token)
             owned = False
             if not t.alive():
@@ -84,24 +89,15 @@ class Webmuxd:
                 # 起不来就抛 RuntimeUnavailable 带 hint,**不静默换一种**
                 # (works/05 §4)。
                 impl = rt.get(runtime)
-                handle = impl.start(id, api_port=api_port, view_port=view_port or 0,
-                                    token=self.token, **kw)
+                handle = impl.start(id, port=port, token=self.token, **kw)
                 self._handles[id] = (impl, handle)
-                api = handle.detail.get("endpoint") or api
                 t = Transport(api, token=self.token)
                 owned = True                # 这次真的建起来了 → with 退出时归我们关
 
-            # scheme 是 runtime 说了算的 —— KasmVNC 走自签名 https,
-            # 报成 http 的话人点过去是连不上的
-            handle = (self._handles.get(id) or (None, None))[1]
-            vnc = ""
-            if view_port:
-                scheme = (handle.detail.get("view_scheme") if handle else None) or "http"
-                vnc = f"{scheme}://{self.host}:{view_port}"
-            sess = Session(id, api, view_url=vnc,
+            # **画面就是那个口** —— 没有第二个 scheme 要猜,也没有 VNC 口令
+            sess = Session(id, api, view_url=f"http://{self.host}:{port}/",
                            token=self.token, user=user or self.user,
-                           owned=owned, manager=self,
-                           view_login=(handle.detail if handle else None))
+                           owned=owned, manager=self)
             self._live[id] = sess
             return sess
 
@@ -113,8 +109,7 @@ class Webmuxd:
         if self._t is not None:
             try:
                 listing = self._t.get("/api/sessions")
-                return [self.session(s["id"], port=s.get("api_port"),
-                                     view_port=s.get("view_port"))
+                return [self.session(s["id"], port=s.get("port"))
                         for s in listing.get("sessions", [])]
             except Exception:
                 pass
@@ -141,11 +136,13 @@ class Webmuxd:
         return self._t.get("/api/server")
 
     def shutdown(self) -> None:
-        """**`process` 的跟着死,`container` 和 `remote` 活着**(works/05 §3.2)。"""
+        """**两种 runtime 的 sessiond 都跟着死** —— 它们都是我们的子进程。
+
+        `remote` 那头的浏览器不归我们,`stop` 不动它(works/07 §6)。
+        """
         for s in list(self._live.values()):
             s.detach()
         for id_, (impl, handle) in list(self._handles.items()):
-            if impl.name == "process":
-                impl.stop(handle)
+            impl.stop(handle)
             self._handles.pop(id_, None)
         self._live.clear()

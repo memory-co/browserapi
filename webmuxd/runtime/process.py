@@ -1,10 +1,16 @@
-"""`process` runtime —— 直接在本机拉起来,不要 docker。
+"""本机起一个 —— **v2 唯一的本地跑法**(docs/v2/works/07-runtime.md §5)。
 
-**秒起,但没有隔离** —— 页面跑在你自己机器上。开发和 CI 用它;
-生产用 `container`。
+v1 的 `process` 有两个尴尬:**要本机装 chromium**,以及没有 Xvnc 就只有 API
+没有画面。v2 把两个都消掉了 —— 画面来自 CDP,浏览器来自 `webmuxd install`。
+于是它从"开发和 CI 凑合用的那个"变成了**默认**。
 
-它是 server 的子进程,所以 **`kill-server` 之后跟着死** ——
-这点和 tmux 的 pane 一样(works/05 §3.2)。
+    <install 下来的 chrome> --headless=new --remote-debugging-port=<free> --user-data-dir=<profile>
+
+两个进程,秒起。它们是 server 的子进程,`kill-server` 跟着死。
+
+**剩下的差别写在明处:没有网络和文件系统隔离**,页面跑在你自己机器上。
+这一条不能因为默认了就说得轻一点 —— 要隔离,把 webmuxd 装进容器,
+或者用 `remote` 连一个别处的浏览器(§2、§6)。
 """
 
 from __future__ import annotations
@@ -14,114 +20,118 @@ import os
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 from typing import Any
 
-from webmuxd import env
+from webmuxd import browser
 from webmuxd.runtime.base import (
-    Handle, require_ports, unavailable, wait_http, wait_port,
+    Handle, free_port, require_ports, spawn_sessiond, unavailable, wait_http,
+    wait_port,
 )
 
-CHROMIUM_NAMES = ("chromium-browser", "chromium", "chromium-freeworld")
-#: VNC 那半边。没有它就只有 API,**画面是空的** —— 这件事要说出来,不能装作没有。
-VNC_NAMES = ("Xvnc", "Xtigervnc", "Xvfb")
+#: 起浏览器的固定参数。**沙箱默认不关** —— 和 v1 一样的姿态,需要时
+#: `WEBMUXD_NO_SANDBOX=1`(内核禁用非特权 user namespace 时才需要)。
+BASE_ARGS = (
+    "--headless=new",
+    "--disable-gpu",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-infobars",
+    "--disable-session-crashed-bubble",
+    # 后台 target 不产帧是**我们要的**(works/05 §2),所以不去关渲染器节流
+)
+
+
+def resolve_browser(explicit: str | None = None) -> str:
+    """用哪个浏览器。**传进来的赢**,其次记录,再其次系统里那个。
+
+    找不到就抛,并说该跑 `webmuxd install` —— 不静默降级,
+    那等于让你以为在跑钉死的那一版(works/07 §4.1)。
+    """
+    for cand in (explicit, os.environ.get("WEBMUXD_BROWSER")):
+        if cand:
+            if os.path.exists(cand):
+                return cand
+            raise unavailable("process", f"指定的浏览器不在:{cand}",
+                              "确认路径,或者跑 `webmuxd install` 下一个")
+    from webmuxd import env
+    rec = (env.get("default_browser") or {})
+    p = rec.get("path") if isinstance(rec, dict) else None
+    if p and os.path.exists(p):
+        return p
+    got = browser.find()
+    if got:
+        return got
+    got = browser.find_system()
+    if got:
+        return got
+    raise unavailable("process", "本机没有浏览器",
+                      "跑 `webmuxd install` 下一个钉死版本的,"
+                      "或者 session(browser=…) 指一个")
 
 
 class ProcessRuntime:
     name = "process"
 
     def available(self) -> tuple[bool, str]:
-        # 现探。**`install` 不记 chromium** —— 它只回答 docker 和镜像那两个
-        # 问题(cli/install.md §2),而 `shutil.which` 本来就不值得记
-        if not _which(CHROMIUM_NAMES):
-            return False, ("本机没有 chromium。装一个,或者改用 runtime=container "
-                           "(那样浏览器在镜像里)")
-        return True, ""
+        try:
+            resolve_browser()
+            return True, ""
+        except Exception as e:
+            return False, str(e)
 
-    def _chromium(self) -> str | None:
-        p = os.environ.get("WEBMUXD_CHROMIUM")
-        if p:
-            if os.path.exists(p):
-                return p
-            raise unavailable(self.name, env.stale_hint(f"chromium 在 {p}"),
-                              "跑 `webmuxd install` 重新探")
-        return _which(CHROMIUM_NAMES)
-
-    def start(self, id: str, *, api_port: int, view_port: int,
-              url: str = "about:blank", window_size: str = "",
+    def start(self, id: str, *, port: int, url: str = "about:blank",
+              window_size: str = "", browser_path: str | None = None,
               proxy: str | None = None, data_dir: str | None = None,
-              **_opts: Any) -> Handle:
-        ok, why = self.available()
-        if not ok:
-            raise unavailable(self.name, why, "改用 runtime=container")
-        require_ports(api_port)
+              token: str | None = None, **_opts: Any) -> Handle:
+        exe = resolve_browser(browser_path)
+        require_ports(port)
 
-        chromium = self._chromium()
-        vnc = _which(VNC_NAMES)
-        from webmuxd.runtime.container import DEFAULT_WINDOW_SIZE
-        window_size = window_size or DEFAULT_WINDOW_SIZE
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
-        cdp_port = _free_port()
+        cdp_port = free_port()
         notes: list[str] = []
 
-        procs: dict[str, subprocess.Popen] = {}
-        display = None
-        if vnc and vnc.endswith(("Xvnc", "Xtigervnc")):
-            display = _free_display()
-            procs["vnc"] = subprocess.Popen(
-                [vnc, display, "-geometry", window_size, "-rfbport", str(view_port),
-                 "-SecurityTypes", "None", "-AlwaysShared"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True)
-            wait_port(view_port, 10)
-        else:
-            # **说出来**:没有 VNC 就没有画面,只有 API。装作有画面比没画面更糟。
-            notes.append("本机没有 Xvnc,这个 session 只有 API 没有画面 —— "
-                         "人看不了,`view_url` 是空的")
+        # 以前镜像替用户扛掉的那些,现在落到裸机上 —— **明说,不静默**
+        missing = browser.missing_libs(exe)
+        if missing:
+            raise unavailable("process", f"浏览器缺共享库:{', '.join(missing[:6])}",
+                              "跑 `webmuxd install --with-deps`(要 root),"
+                              "或者自己 apt install 上面这些")
+        if not browser.has_cjk_font():
+            notes.append(f"{browser.FONT_HINT[1]} —— `{browser.FONT_HINT[0]}`")
 
-        args = [chromium, "--no-sandbox", "--disable-gpu",
+        args = [exe, *BASE_ARGS,
                 f"--remote-debugging-port={cdp_port}",
-                "--remote-debugging-address=127.0.0.1",
-                f"--user-data-dir={os.path.join(work, 'profile')}",
-                "--disable-infobars", "--disable-session-crashed-bubble",
-                f"--window-size={window_size.replace('x', ',')}"]
+                f"--user-data-dir={os.path.join(work, 'profile')}"]
+        if os.environ.get("WEBMUXD_NO_SANDBOX"):
+            args.append("--no-sandbox")
+        if window_size:
+            args.append(f"--window-size={window_size.replace('x', ',')}")
         if proxy:
             args.append(f"--proxy-server={proxy}")
-        if display is None:
-            args.append("--headless=new")
         args.append(url)
 
-        child_env = dict(os.environ)
-        if display:
-            child_env["DISPLAY"] = display
-        # `start_new_session` —— 脱离调用者的进程组。CLI 是一次性的命令,
-        # 不脱离的话 `webmuxd new` 一退出就把刚起的浏览器带走了。
-        procs["chromium"] = subprocess.Popen(args, env=child_env,
-                                             stdout=subprocess.DEVNULL,
-                                             stderr=subprocess.DEVNULL,
-                                             start_new_session=True)
+        procs: dict[str, subprocess.Popen] = {}
+        procs["browser"] = subprocess.Popen(
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
         if not wait_port(cdp_port, 30):
             _kill_all(procs)
-            raise unavailable(self.name, "chromium 起来了但 CDP 没监听",
-                              "看看 --user-data-dir 那个目录能不能写")
+            raise unavailable(self.name, "浏览器起来了但 CDP 没监听",
+                              f"手工跑一遍看报什么:{exe} --headless=new "
+                              f"--remote-debugging-port={cdp_port}")
 
-        procs["sessiond"] = subprocess.Popen(
-            [sys.executable, "-m", "webmuxd.serve",
-             "--cdp", f"http://127.0.0.1:{cdp_port}",
-             "--host", "127.0.0.1", "--port", str(api_port),
-             "--data", os.path.join(work, "data")],
-            env={**child_env, "PYTHONPATH": os.pathsep.join(sys.path)},
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
-        if not wait_http(f"http://127.0.0.1:{api_port}/healthz", 30):
+        procs["sessiond"] = spawn_sessiond(
+            f"http://127.0.0.1:{cdp_port}", port=port,
+            data=os.path.join(work, "data"), token=token)
+        if not wait_http(f"http://127.0.0.1:{port}/healthz", 30):
             _kill_all(procs)
             raise unavailable(self.name, "sessiond 没起来",
                               "手工跑一遍 python -m webmuxd.serve 看报什么")
 
-        return Handle(self.name, id, api_port, view_port if display else 0,
-                      {"display": display, "cdp_port": cdp_port, "work": work,
+        return Handle(self.name, id, port,
+                      {"cdp_port": cdp_port, "work": work, "browser": exe,
                        "pids": {k: p.pid for k, p in procs.items()},
                        "notes": notes, "_procs": procs})
 
@@ -130,7 +140,6 @@ class ProcessRuntime:
         if procs:
             _kill_all(procs)
             return
-        # 跨进程:只有 pid,按 pid 杀
         for pid in (handle.detail.get("pids") or {}).values():
             with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGTERM)
@@ -140,7 +149,6 @@ class ProcessRuntime:
         p = procs.get("sessiond")
         if p is not None:
             return p.poll() is None
-        # 别的进程起的(CLI 上一次调用)—— 只能看 pid 还在不在
         pid = (handle.detail.get("pids") or {}).get("sessiond")
         if not pid:
             return False
@@ -153,17 +161,14 @@ class ProcessRuntime:
 
 def _kill_all(procs: dict) -> None:
     for p in procs.values():
-        try:
+        with contextlib.suppress(Exception):
             p.send_signal(signal.SIGTERM)
-        except Exception:
-            pass
     for p in procs.values():
         try:
             p.wait(timeout=5)
         except Exception:
-            with_kill = getattr(p, "kill", None)
-            if with_kill:
-                with_kill()
+            with contextlib.suppress(Exception):
+                p.kill()
 
 
 def _which(names: tuple[str, ...]) -> str | None:
@@ -172,17 +177,3 @@ def _which(names: tuple[str, ...]) -> str | None:
         if p:
             return p
     return None
-
-
-def _free_port() -> int:
-    import socket
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _free_display() -> str:
-    for n in range(7, 100):
-        if not os.path.exists(f"/tmp/.X11-unix/X{n}"):
-            return f":{n}"
-    raise unavailable("process", "找不到空闲的 X display", "清一清 /tmp/.X11-unix")

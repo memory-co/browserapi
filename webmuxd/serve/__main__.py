@@ -1,9 +1,12 @@
-"""sessiond —— 容器里那个进程。
+"""sessiond —— 一个 session 一个进程。
 
     python -m webmuxd.serve --cdp http://127.0.0.1:9222 --port 7900
 
-**它必须跑在容器里**:Chromium 的 Host 头校验挡掉容器外的 CDP 访问
-(docs/v1/works/01-container.md §3 实测)。
+**一个口**:人打开 `/` 看画面,代码打 `/api/…`,帧和输入走 `WS /api/view`
+(docs/v2/works/04-one-port.md)。
+
+v1 里它必须跑在容器里 —— Chromium 把调试口绑死在 loopback,而容器是另一个
+network namespace。**v2 没有容器,这条前提就没了**(works/07 §3)。
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ async def _run(args: argparse.Namespace) -> None:
     await runner.setup()
     site = web.TCPSite(runner, args.host, args.port)
     await site.start()
-    logging.info("sessiond 起来了:http://%s:%d/api  (CDP %s)",
+    logging.info("sessiond 起来了:画面 http://%s:%d/  API /api  (CDP %s)",
                  args.host, args.port, args.cdp)
     try:
         await asyncio.Event().wait()          # 一直跑到被杀
@@ -47,6 +50,8 @@ def main() -> None:
     p.add_argument("--port", type=int,
                    default=int(os.environ.get("WEBMUXD_PORT", "7900")))
     p.add_argument("--data", default=os.environ.get("WEBMUXD_DATA", "/data"))
+    p.add_argument("--host-only", action="store_true",
+                   help="只绑 127.0.0.1(等价于 --host 127.0.0.1)")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     asyncio.run(_run(args))

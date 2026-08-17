@@ -73,7 +73,7 @@ def test_registry_probes_liveness_instead_of_trusting_the_file(home):
     """**文件只是线索,`alive()` 才是真相**(works/05 §6)。"""
     reg = Registry(name="default")
     from webmuxd.runtime.base import Handle
-    reg.put(Handle("process", "ghost", 9, 8, {"pids": {"sessiond": 999999}}))
+    reg.put(Handle("process", "ghost", 9, {"pids": {"sessiond": 999999}}))
 
     rows = reg.list()
     assert rows[0]["id"] == "ghost"
@@ -82,7 +82,7 @@ def test_registry_probes_liveness_instead_of_trusting_the_file(home):
 
 def test_ls_shows_dead_ones_with_how_to_clean_them(home, capsys):
     from webmuxd.runtime.base import Handle
-    Registry(name="default").put(Handle("process", "stale", 9, 8,
+    Registry(name="default").put(Handle("process", "stale", 9,
                                         {"pids": {"sessiond": 999999}}))
     assert run("ls") == 0
     out = capsys.readouterr().out
@@ -92,10 +92,10 @@ def test_ls_shows_dead_ones_with_how_to_clean_them(home, capsys):
 
 def test_ls_json_is_the_raw_shape(home, capsys):
     from webmuxd.runtime.base import Handle
-    Registry(name="default").put(Handle("process", "x", 1234, 5678, {}))
+    Registry(name="default").put(Handle("process", "x", 1234, {}))
     assert run("--json", "ls") == 0
     d = json.loads(capsys.readouterr().out)
-    assert d["sessions"][0]["api_port"] == 1234
+    assert d["sessions"][0]["port"] == 1234
 
 
 def test_info_reports_probed_runtimes(home, capsys):
@@ -110,19 +110,18 @@ def test_kill_a_missing_session_is_3(home):
 
 # ------------------------------------------------------- 起不来要说清楚
 
-def test_container_without_docker_exits_7_with_a_hint(home, capsys, monkeypatch):
-    """**不静默降级**,而且提示里要说清换成 process 的代价。"""
-    monkeypatch.setattr("webmuxd.runtime.container.shutil.which", lambda _n: None)
-    code = run("new", "-s", "w", "-p", str(_free()), "--runtime", "container")
+def test_没有浏览器时退出码_7_而且提示指向_install(home, capsys, monkeypatch):
+    """**不静默降级** —— 随便挑一个浏览器等于让你以为在跑钉死的那一版。"""
+    monkeypatch.setenv("WEBMUXD_BROWSER", "/根本没有这个/chrome")
+    code = run("new", "-s", "w", "-p", str(_free()))
     err = capsys.readouterr().err
     assert code == 7
-    assert "runtime_unavailable" in err
-    assert "process" in err and "隔离" in err
+    assert "runtime_unavailable" in err and "install" in err
 
 
-def test_remote_without_endpoint_exits_7(home, capsys):
+def test_remote_without_cdp_exits_7(home, capsys):
     assert run("new", "-s", "r", "-p", str(_free()), "--runtime", "remote") == 7
-    assert "endpoint" in capsys.readouterr().err
+    assert "cdp" in capsys.readouterr().err
 
 
 # ------------------------------------------------------------ 真跑一遍

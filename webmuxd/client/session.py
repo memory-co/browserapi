@@ -20,14 +20,13 @@ class Session:
     def __init__(self, id: str, api_url: str, *, view_url: str = "",
                  token: str | None = None, user: str = "api",
                  owned: bool = False, manager: Any = None,
-                 view_login: dict | None = None) -> None:
+                 **_v1: Any) -> None:
         self.id = id
         self.api_url = api_url.rstrip("/")
-        self.view_url = view_url
-        #: 人要用画面得先登录 —— KasmVNC 的用户名写死,密码是起的时候定的。
-        #: 拿不到就是空的(接管别人起的 session 时我们并不知道)。
-        self.view_login = (view_login or {}).get("view_login", "")
-        self.view_password = (view_login or {}).get("view_password", "")
+        #: **画面和 API 同一个口**(works/04 §1)。v1 的 `view_login` /
+        #: `view_password` 是 KasmVNC 的规矩,不是我们的 —— 一并删掉,
+        #: 权限改成 token(works/04 §3)。
+        self.view_url = view_url or (self.api_url + "/")
         self.user = user
         self._t = Transport(self.api_url, token=token)
         self._manager = manager

@@ -50,8 +50,7 @@ class Registry:
         data = self._read()
         detail = {k: v for k, v in handle.detail.items() if not k.startswith("_")}
         data[handle.id] = {"id": handle.id, "runtime": handle.kind,
-                           "api_port": handle.api_port, "view_port": handle.view_port,
-                           "detail": detail, **extra}
+                           "port": handle.port, "detail": detail, **extra}
         self._write(data)
 
     def forget(self, id: str) -> None:
@@ -66,8 +65,8 @@ class Registry:
         row = self.get(id)
         if not row:
             return None
-        return Handle(row["runtime"], row["id"], row["api_port"],
-                      row.get("view_port", 0), dict(row.get("detail") or {}))
+        return Handle(row["runtime"], row["id"], row["port"],
+                      dict(row.get("detail") or {}))
 
     # ---------------------------------------------------------------- 探活
 
@@ -76,8 +75,8 @@ class Registry:
         看不到它你就不知道该清理什么。"""
         out = []
         for row in self._read().values():
-            h = Handle(row["runtime"], row["id"], row["api_port"],
-                       row.get("view_port", 0), dict(row.get("detail") or {}))
+            h = Handle(row["runtime"], row["id"], row["port"],
+                       dict(row.get("detail") or {}))
             try:
                 alive = rt.get(row["runtime"]).alive(h)
             except Exception:

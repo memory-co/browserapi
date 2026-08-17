@@ -92,8 +92,7 @@ def _session(args: argparse.Namespace) -> Session:
     row = reg.get(sid)
     if row is None:
         raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-    return _manager(args).session(id=sid, api_port=row["api_port"],
-                                  view_port=row.get("view_port") or None)
+    return _manager(args).session(id=sid, port=row["port"])
 
 
 def _tab(args: argparse.Namespace) -> Tab:
@@ -140,8 +139,8 @@ def cmd_new(args: argparse.Namespace) -> int:
     # 参数从 lib 传(sdk/manager.md),CLI 只是把它们摆成 flag。
     runtime = args.runtime or rt.default()
     url = args.url or os.environ.get("WEBMUXD_START_URL") or "about:blank"
-    from webmuxd.runtime.container import DEFAULT_WINDOW_SIZE
-    window_size = args.window_size or DEFAULT_WINDOW_SIZE
+    from webmuxd.view.cast import DEFAULT_H, DEFAULT_W
+    window_size = args.window_size or f"{DEFAULT_W}x{DEFAULT_H}"
 
     reg = Registry(name=args.socket_name)
     impl = rt.get(runtime)
@@ -155,29 +154,21 @@ def cmd_new(args: argparse.Namespace) -> int:
         # 留着的这行正是 `webmuxd kill -t <id>` 找得到东西去清的依据 ——
         # 提前删掉的话,容器还在、登记表里却没它了,kill 只会说 session_not_found。
 
-    handle = impl.start(args.id, api_port=args.api_port,
-                        view_port=args.view_port or 0, cdp_port=args.cdp_port,
-                        url=url, window_size=window_size,
-                        volume=args.volume, proxy=args.proxy,
-                        endpoint=args.endpoint, image=args.image,
-                        network=args.network, bind=args.bind,
-                        auth=args.auth, tls=args.tls, tz=args.tz,
-                        login=args.login,
-                        password=args.password or os.environ.get("WEBMUXD_PASSWORD"))
+    handle = impl.start(args.id, port=args.port, url=url,
+                        window_size=window_size, proxy=args.proxy,
+                        browser_path=args.browser, cdp=args.cdp)
     reg.put(handle)
     d = handle.detail
-    _out(args, {"id": args.id, "api_port": handle.api_port,
-                "view_port": handle.view_port, "cdp_port": d.get("cdp_port"),
+    _out(args, {"id": args.id, "port": handle.port,
+                "cdp_port": d.get("cdp_port"), "browser": d.get("browser"),
                 "view_url": handle.view_url, "api_url": handle.api_url,
-                "login": d.get("view_login", ""),
-                "password": d.get("view_password", "")},
-         f"{args.id}  →  画面 {handle.view_url or '(无)'}   API {handle.api_url}")
-    if not args.json and d.get("view_bind") not in (None, "127.0.0.1"):
-        print(f"       ⚠ 画面口绑在 {d['view_bind']} —— "
-              f"**这台机器网络能到的人,拿到密码就能用这个浏览器**", file=sys.stderr)
-    if not args.json and d.get("auth") is False:
-        print("       ⚠ 画面口没有口令 —— 谁能连上这个地址,谁就能操作这个浏览器",
-              file=sys.stderr)
+                "notes": d.get("notes") or []},
+         f"{args.id}  →  {handle.view_url}   (API 在同一个口:{handle.api_url}/api)")
+    if not args.json:
+        for note in d.get("notes") or []:
+            print(f"       ⚠ {note}", file=sys.stderr)
+        print("       ⚠ 页面跑在这台机器上,**没有隔离** —— 要隔离见 "
+              "docs/v2/works/07 §2", file=sys.stderr)
     if not args.json and d.get("view_password"):
         # 密码是起的时候现生成的,**这是唯一会说出来的一次**
         # 证书那句只对 https 的镜像成立 —— 镜像的 scheme 是它自己标签说的
@@ -198,7 +189,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
         print("(没有 session)")
         return 0
     for r in rows:
-        ports = f"{r.get('view_port') or '-'}/{r['api_port']}"
+        ports = str(r["port"])
         tail = "" if r["state"] == "ready" else \
             f"  dead — webmuxd kill -t {r['id']} 清掉"
         print(f"{r['id']:<10} {r['runtime']:<10} {ports:<12} {r['state']}{tail}")
@@ -218,18 +209,9 @@ def cmd_kill(args: argparse.Namespace) -> int:
     reg = Registry(name=args.socket_name)
     row = reg.get(sid)
     if row is None:
-        # **登记表丢了不代表东西没了。** `webmuxd-<id>` 这个名字只可能是我们
-        # 自己留下的,所以还能去认领它 —— 否则那个容器就没人管得了,
-        # 而 kill 只会说"没有这个 session",人还得自己去敲 docker。
-        from webmuxd.runtime.container import ContainerRuntime
-        impl = ContainerRuntime()
-        prior = impl._by_name(f"webmuxd-{sid}") if impl.available()[0] else None
-        if not prior:
-            raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-        impl.stop(Handle("container", sid, 0, 0, {"container_id": prior["id"]}))
-        _out(args, {"id": sid, "removed": True}, f"{sid} 已停掉(登记表里没有它,"
-                                                 f"是按容器名认出来的)")
-        return 0
+        # v1 这儿还会去按容器名认领一个孤儿容器。v2 没有容器,
+        # 起的两个进程都是我们的子进程 —— 登记表没有就是真没有。
+        raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
     handle = reg.handle(sid)
     impl = rt.get(row["runtime"])
     impl.stop(handle)
@@ -241,7 +223,7 @@ def cmd_kill(args: argparse.Namespace) -> int:
 
 def cmd_install(args: argparse.Namespace) -> int:
     from webmuxd.cli.install import install
-    install(pull=not args.no_pull)
+    install(force=args.force, with_deps=args.with_deps, mirror=args.mirror)
     return 0
 
 
@@ -273,10 +255,8 @@ def cmd_attach(args: argparse.Namespace) -> int:
     row = Registry(name=args.socket_name).get(sid)
     if not row:
         raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-    if not row.get("view_port"):
-        raise WebmuxdError(f"{sid} 没有画面(起它的时候没有 VNC)",
-                           code="bad_request")
-    url = f"http://127.0.0.1:{row['view_port']}"
+    # **画面一定在** —— 它是我们自己产的,只要 sessiond 活着就有(works/01)
+    url = f"http://127.0.0.1:{row['port']}/"
     print(url)
     if not args.print_only:
         import webbrowser
@@ -535,46 +515,29 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--id", "-s", required=True)
     # **一件事一个名字,三层通用**:CLI 用 --x,lib 用 x=,镜像用 WEBMUXD_X。
     # 旧名留作别名,下一版删。
-    n.add_argument("--api-port", "-p", "--port", type=int, required=True,
-                   dest="api_port", help="代码连的口(webmuxd 自己的 HTTP 面)")
-    n.add_argument("--view-port", "--vnc-port", type=int, default=0,
-                   dest="view_port", help="**人**用浏览器打开的那个口")
-    n.add_argument("--cdp-port", type=int, default=0, dest="cdp_port",
-                   help="CDP 口。不给就自动挑一个空闲的 —— 它只在本机用")
-    n.add_argument("--password", default=None, help="看画面要的口令。不给就现生成")
-    n.add_argument("--login", default=None,
-                   help="看画面的登录名。有些镜像写死了改不了(kasm 是 kasm_user)")
-    n.add_argument("--runtime", default=None,
-                   choices=["container", "process", "remote"])
+    # **一个口** —— 画面和 API 都在它上面(works/04 §1)
+    n.add_argument("--port", "-p", type=int, required=True,
+                   help="这个 session 的口:人打开它看画面,代码连它调 API")
+    n.add_argument("--runtime", default=None, choices=["process", "remote"],
+                   help="process(默认)= 本机起一个浏览器;"
+                        "remote = 你给一个 CDP 端点,浏览器不归我们")
+    n.add_argument("--browser", default=None,
+                   help="用哪个浏览器二进制。不给就用 `webmuxd install` 下的那个")
+    n.add_argument("--cdp", default=None,
+                   help="runtime=remote 时对面那个 CDP 端点")
     n.add_argument("--url", "-u", default=None)
     n.add_argument("--window-size", "-v", "--viewport", default=None,
                    dest="window_size", help="画面尺寸,例 1280x800")
-    n.add_argument("--volume", default=None)
     n.add_argument("--proxy", default=None)
-    n.add_argument("--endpoint", default=None)
-    n.add_argument("--network", default="host", choices=["host", "bridge"],
-                   help="host(默认)= 容器里的 localhost 就是你的;"
-                        "bridge = 有网络隔离,但够不着你的 localhost")
-    n.add_argument("--tz", default=None,
-                   help="容器时区,例:--tz Asia/Shanghai。"
-                        "跑本地化站点、测和时间相关的逻辑时用得上")
-    n.add_argument("--tls", action=argparse.BooleanOptionalAction, default=True,
-                   help="画面口走 https(默认)。--no-tls 换成 http —— 不是每个"
-                        "镜像都支持(KasmVNC 恒 TLS),不支持会直接报错")
-    n.add_argument("--auth", action=argparse.BooleanOptionalAction, default=True,
-                   help="画面口要口令(默认)。--no-auth **只在 --bind 127.0.0.1 "
-                        "时才该用**,否则等于把一个能操作的浏览器直接放出去")
-    n.add_argument("--bind", default="127.0.0.1",
-                   help="画面口绑哪个地址。默认只绑本机;"
-                        "填 0.0.0.0 就是对外开放,拿到密码的人就能用")
-    n.add_argument("--image", default=None,
-                   help="容器镜像。默认读 ~/.webmuxd.json 的 default_container")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
 
     ins = add("install", cmd_install, target=False,
               help="探一遍环境、装该装的、把结果记下来")
-    ins.add_argument("--no-pull", action="store_true",
-                     help="不拉镜像,只探(离线时用)")
+    ins.add_argument("--force", action="store_true", help="重下一遍")
+    ins.add_argument("--with-deps", action="store_true",
+                     help="顺便装系统依赖(要 root,只支持 Debian/Ubuntu)")
+    ins.add_argument("--mirror", default=None,
+                     help="换下载源。国内:https://cdn.npmmirror.com/binaries/chrome-for-testing")
     add("ls", cmd_ls, target=False, help="列出 session")
     add("info", cmd_info, target=False, help="server 状态和 runtime 探测")
     add("has", cmd_has, help="只返回退出码,给脚本用")
