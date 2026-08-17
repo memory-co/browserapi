@@ -1,0 +1,305 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>webmuxd</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  内置观看页面 —— docs/v2/works/04-one-port.md §2。
+
+  **它不是"界面"**:画面 + 一条 tab 条 + 一个地址栏,没有会话列表、没有登录页、
+  没有设置面板、没有仪表盘。存在的唯一理由是「跑起来之后用浏览器打开这个地址,
+  链路通没通一眼就看出来」。
+
+  上层要自己画就自己画 —— 用的是同一组接口(WS /api/view 拿帧,/api/tabs 拿 tab 表),
+  这里没有私货。
+-->
+<style>
+  :root {
+    --bg: #1b1f23; --bar: #24292f; --line: #32383f; --ink: #e6edf3;
+    --dim: #8b949e; --accent: #2f81f7; --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 13px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+
+  #tabs { display: flex; gap: 2px; padding: 6px 8px 0; background: var(--bar);
+    overflow-x: auto; scrollbar-width: thin; }
+  .tab { display: flex; align-items: center; gap: 6px; max-width: 200px;
+    padding: 6px 10px; border-radius: 6px 6px 0 0; background: #2d333b;
+    color: var(--dim); cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
+  .tab.on { background: var(--bg); color: var(--ink); }
+  .tab span { overflow: hidden; text-overflow: ellipsis; }
+  .tab b { font-weight: 400; opacity: .5; padding: 0 2px; }
+  .tab b:hover { opacity: 1; }
+  #newtab { padding: 6px 12px; color: var(--dim); cursor: pointer; flex: 0 0 auto; }
+
+  #bar { display: flex; gap: 8px; align-items: center; padding: 6px 8px;
+    background: var(--bar); border-bottom: 1px solid var(--line); }
+  #bar button { background: none; border: 0; color: var(--dim); cursor: pointer;
+    font-size: 15px; padding: 2px 6px; border-radius: 4px; }
+  #bar button:hover { background: #32383f; color: var(--ink); }
+  #url { flex: 1; min-width: 0; padding: 5px 10px; border-radius: 6px;
+    border: 1px solid var(--line); background: #0d1117; color: var(--ink);
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #ro { color: var(--warn); font-size: 11px; white-space: nowrap; }
+
+  #stage { flex: 1; display: grid; place-items: center; overflow: auto; padding: 10px; }
+  #screen { display: block; background: #000; image-rendering: auto;
+    outline: none; user-select: none; -webkit-user-drag: none; }
+  #screen.dead { opacity: .35; }
+
+  #status { display: flex; gap: 16px; padding: 4px 10px; background: var(--bar);
+    border-top: 1px solid var(--line); color: var(--dim);
+    font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #status b { color: var(--ink); font-weight: 500; }
+  #status .bad { color: var(--warn); }
+  #ime { position: fixed; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+</style>
+
+<div id="tabs"></div>
+
+<div id="bar">
+  <button id="back" title="后退">←</button>
+  <button id="fwd" title="前进">→</button>
+  <button id="reload" title="刷新">⟳</button>
+  <input id="url" spellcheck="false" placeholder="输入网址回车">
+  <span id="ro" hidden>只读</span>
+</div>
+
+<div id="stage"><img id="screen" alt=""></div>
+
+<div id="status">
+  <span>帧 <b id="s-fps">0</b> fps</span>
+  <span><b id="s-kbps">0</b> kbps</span>
+  <span>画质 <b id="s-q">–</b></span>
+  <span>RTT <b id="s-rtt">–</b></span>
+  <span>帧 <b id="s-size">–</b></span>
+  <span>有效缩放 <b id="s-zoom">–</b></span>
+  <span id="s-conn">连接中…</span>
+</div>
+
+<textarea id="ime" autocomplete="off"></textarea>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const img = $("screen"), ime = $("ime");
+  const qs = new URLSearchParams(location.search);
+  const token = qs.get("t") || "";
+  // token 会进历史和 Referer,进来之后就抹掉(works/04 §4)
+  if (token) history.replaceState({}, "", location.pathname);
+  const auth = token ? "?t=" + encodeURIComponent(token) : "";
+
+  let ws = null, writable = false, castW = 1024, castH = 768;
+  let frameW = 0, frameH = 0, url = null, tabs = [], active = null;
+  let frames = 0, bytes = 0, composing = false;
+
+  // ---------------------------------------------------------------- 帧
+  // 28 字节头 + 图片裸字节(works/02 §1)。castSessionId / targetId 对不上就丢 ——
+  // 切 tab 的瞬间管道里还有旧 tab 的帧,不丢会闪一下。
+  let castId = 0, targetHex = "";
+  const hex = (dv, off) => {
+    let s = "";
+    for (let i = 0; i < 4; i++) s += dv.getUint32(off + i * 4, true).toString(16).padStart(8, "0");
+    return s;
+  };
+
+  function onFrame(buf) {
+    const dv = new DataView(buf);
+    const cast = dv.getUint32(0, true), target = hex(dv, 8);
+    if (castId && cast < castId) return;          // 旧的一轮,丢
+    castId = cast;
+    if (targetHex && target !== targetHex) return;
+    frames++; bytes += buf.byteLength;
+    const blob = new Blob([new Uint8Array(buf, 28)], { type: "image/jpeg" });
+    const next = URL.createObjectURL(blob);
+    if (url) URL.revokeObjectURL(url);
+    url = next;
+    img.src = url;
+    send({ type: "ack" });                        // 环 B —— 背压就靠它
+  }
+
+  // ---------------------------------------------------------------- 连接
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(proto + "//" + location.host + "/api/view" + auth);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { $("s-conn").textContent = "已连接"; $("s-conn").className = ""; };
+    ws.onmessage = (e) => {
+      if (typeof e.data !== "string") return onFrame(e.data);
+      const m = JSON.parse(e.data);
+      if (m.type === "hello") {
+        writable = !!m.writable;
+        $("ro").hidden = writable;
+        if (m.w) setSize(m.w, m.h);
+        sendSize();
+      } else if (m.type === "cast") {
+        setSize(m.w, m.h);
+        $("s-q").textContent = m.quality;
+        targetHex = "";
+      } else if (m.type === "meta") {
+        frameW = m.frame_w; frameH = m.frame_h;
+        $("s-size").textContent = frameW + "×" + frameH;
+        updateZoom();
+      } else if (m.type === "quality") {
+        $("s-q").textContent = m.quality + (m.every_nth > 1 ? " /" + m.every_nth : "");
+      } else if (m.type === "cursor") {
+        img.style.cursor = m.cursor;              // 服务端已经过白名单
+      }
+    };
+    ws.onclose = () => {
+      $("s-conn").textContent = "断开,重连中…"; $("s-conn").className = "bad";
+      img.classList.add("dead");
+      setTimeout(connect, 1000);
+    };
+  }
+  const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+  function setSize(w, h) {
+    castW = w; castH = h;
+    // **显式定成 CSS 像素**。dsf>1 时帧是 2x 的,不写死会整个画面大一倍(works/02 §4③)
+    img.style.width = w + "px";
+    img.style.height = h + "px";
+    img.classList.remove("dead");
+    updateZoom();
+  }
+
+  function updateZoom() {
+    if (!frameW) return;
+    // 有效缩放 = 物理像素 / 帧原始像素。1.00x 才是像素级对齐(works/02 §4③)
+    const z = (img.clientWidth * devicePixelRatio) / frameW;
+    const el = $("s-zoom");
+    el.textContent = z.toFixed(2) + "x";
+    el.className = Math.abs(z - 1) < 0.02 ? "" : "bad";
+  }
+
+  function sendSize() {
+    const st = document.getElementById("stage");
+    send({ type: "resize", w: Math.max(320, st.clientWidth - 20),
+           h: Math.max(240, st.clientHeight - 20) });
+  }
+  addEventListener("resize", () => { clearTimeout(window._rz);
+    window._rz = setTimeout(sendSize, 250); updateZoom(); });
+
+  // ---------------------------------------------------------------- 输入
+  // 客户端只做归一化,翻译成 CDP Input.* 在服务端(works/03 §1)。
+  const pt = (e) => {
+    const r = img.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (castW / r.width),
+             y: (e.clientY - r.top) * (castH / r.height) };
+  };
+  const mods = (e) => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) |
+                      (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+
+  img.addEventListener("mousemove", (e) => {
+    const p = pt(e); send({ type: "mouse", event: "move", ...p, buttons: e.buttons, modifiers: mods(e) });
+  });
+  img.addEventListener("mousedown", (e) => {
+    e.preventDefault(); ime.focus();
+    const p = pt(e);
+    send({ type: "mouse", event: "down", ...p, button: e.button, buttons: e.buttons,
+           clicks: e.detail || 1, modifiers: mods(e) });
+  });
+  addEventListener("mouseup", (e) => {
+    const p = pt(e);
+    send({ type: "mouse", event: "up", ...p, button: e.button, buttons: e.buttons,
+           clicks: e.detail || 1, modifiers: mods(e) });
+  });
+  img.addEventListener("contextmenu", (e) => e.preventDefault());
+  img.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const p = pt(e);
+    send({ type: "wheel", ...p, dx: e.deltaX, dy: e.deltaY, modifiers: mods(e) });
+  }, { passive: false });
+
+  // IME:组字全在本地,`compositionend` 才发最终文本(works/03 §3)——
+  // 这是 v2 相对 VNC 的净胜,不是打平。
+  ime.addEventListener("compositionstart", () => { composing = true; });
+  ime.addEventListener("compositionend", (e) => {
+    composing = false;
+    if (e.data) send({ type: "text", text: e.data });
+    ime.value = "";
+  });
+  ime.addEventListener("keydown", (e) => {
+    if (composing) return;                        // 组字期间一个按键都不发
+    if (e.key === "Tab" || (e.ctrlKey && "wt".includes(e.key))) e.preventDefault();
+    send({ type: "key", event: "down", key: e.key, code: e.code, modifiers: mods(e) });
+  });
+  ime.addEventListener("keyup", (e) => {
+    if (composing) return;
+    send({ type: "key", event: "up", key: e.key, code: e.code, modifiers: mods(e) });
+  });
+  ime.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const t = (e.clipboardData || window.clipboardData).getData("text");
+    if (t) send({ type: "text", text: t });
+  });
+  ime.addEventListener("input", () => { if (!composing) ime.value = ""; });
+
+  // ---------------------------------------------------------------- tab 条
+  // 数据全部来自 /api/tabs 和 /api/events —— 和上层自己画用的是同一组接口。
+  const api = (path, opt) => fetch("/api" + path + (auth && (path.includes("?") ? "&" + auth.slice(1) : auth)),
+    { headers: { "content-type": "application/json" }, ...opt });
+
+  async function loadTabs() {
+    try {
+      const r = await (await api("/tabs")).json();
+      tabs = r.tabs || []; active = r.active;
+      render();
+    } catch (e) {}
+  }
+
+  function render() {
+    const box = $("tabs");
+    box.innerHTML = "";
+    for (const t of tabs) {
+      const el = document.createElement("div");
+      el.className = "tab" + (t.active ? " on" : "");
+      el.innerHTML = "<span></span><b>×</b>";
+      el.firstChild.textContent = t.title || t.url || "新标签页";
+      el.title = t.url || "";
+      el.onclick = (e) => {
+        if (e.target.tagName === "B") { api("/tabs/" + t.id, { method: "DELETE" }); return; }
+        send({ type: "tab", id: t.id });
+        targetHex = "";
+      };
+      box.appendChild(el);
+      if (t.active) $("url").value = t.url || "";
+    }
+    const plus = document.createElement("div");
+    plus.id = "newtab"; plus.textContent = "＋";
+    plus.onclick = () => api("/tabs", { method: "POST", body: JSON.stringify({ url: "about:blank" }) });
+    box.appendChild(plus);
+  }
+
+  $("url").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !active) return;
+    let u = $("url").value.trim();
+    if (u && !/^[a-z]+:/i.test(u)) u = (u.includes(".") && !u.includes(" ")) ? "https://" + u
+      : "https://www.google.com/search?q=" + encodeURIComponent(u);
+    api("/tabs/" + active + "/goto", { method: "POST", body: JSON.stringify({ url: u }) });
+    ime.focus();
+  });
+  for (const [id, verb] of [["back", "back"], ["fwd", "forward"], ["reload", "reload"]])
+    $(id).onclick = () => active && api("/tabs/" + active + "/" + verb, { method: "POST" });
+
+  function events() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const es = new WebSocket(proto + "//" + location.host + "/api/events" + auth);
+    es.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type.startsWith("tab.")) loadTabs();
+    };
+    es.onclose = () => setTimeout(events, 2000);
+  }
+
+  // ---------------------------------------------------------------- 状态栏
+  setInterval(() => {
+    $("s-fps").textContent = frames;
+    $("s-kbps").textContent = Math.round(bytes * 8 / 1000);
+    frames = 0; bytes = 0;
+  }, 1000);
+
+  connect(); events(); loadTabs(); ime.focus();
+})();
+</script>

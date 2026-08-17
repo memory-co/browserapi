@@ -37,6 +37,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["webmuxd*"]
 
+[tool.setuptools.package-data]
+"webmuxd.view" = ["static/*.html"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 python_files = ["test.py", "test_*.py"]

@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import json
 import os
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from aiohttp import WSMsgType, web
@@ -17,6 +18,8 @@ from aiohttp import WSMsgType, web
 from webmuxd.core import locate
 from webmuxd.errors import BadRequest, ReadOnly, WebmuxdError
 from webmuxd.serve.session import Session
+from webmuxd.view.protocol import HEADER_SIZE, UPSTREAM
+from webmuxd.view.viewer import Viewer
 
 #: 设了就要 `Authorization: Bearer <token>`,没设就不鉴权(api/README §1)。
 TOKEN = os.environ.get("WEBMUXD_TOKEN") or ""
@@ -61,10 +64,16 @@ async def auth(request: web.Request, handler: Callable[..., Awaitable]) -> web.R
         if known:
             if read_only and request.method in _WRITE_METHODS:
                 return _err(ReadOnly("这是只读链接", code="read_only"))
+            request["writable"] = not read_only
             return await handler(request)
 
+    request["writable"] = True
     if TOKEN or VIEW_TOKEN:
         if VIEW_TOKEN and given == VIEW_TOKEN:
+            # **画面那一半的只读,v2 才第一次是真的**(works/04 §3):
+            # HTTP 靠方法判,而 WS 上的输入靠这个标记 —— 服务端丢弃,
+            # 不是前端把按钮变灰。
+            request["writable"] = False
             if request.method in _WRITE_METHODS:
                 return _err(ReadOnly("这是只读链接", code="read_only"))
         elif not TOKEN or given != TOKEN:
@@ -117,6 +126,9 @@ def build(session: Session) -> web.Application:
     # /api/download/{name}、/api/openapi.json —— 文档里有,这儿先空着,
     # 免得留半截路由骗人。
     r.add_get("/api/events", h_events)
+    # 画面 —— v2 新增的两条,和 API 同一个口(works/04 §1)
+    r.add_get("/api/view", h_view)
+    r.add_get("/", h_index)
     r.add_get("/healthz", lambda _r: web.Response(text="ok"))
     return app
 
@@ -378,3 +390,67 @@ async def _pump(ws: web.WebSocketResponse, q: asyncio.Queue,
             e = await q.get()
             if wanted(e):
                 await ws.send_str(_dumps(e))
+
+
+# --------------------------------------------------------------------- 画面
+
+_INDEX = Path(__file__).resolve().parent.parent / "view" / "static" / "index.html"
+
+
+async def h_index(request: web.Request) -> web.Response:
+    """内置观看页面。
+
+    **它不是"界面"**(works/04 §2):画面 + 一条 tab 条 + 一个地址栏,没有会话
+    列表、没有登录页、没有设置面板。存在的唯一理由是"跑起来之后用浏览器打开
+    这个地址,链路通没通一眼就看出来"。上层要自己画,用的是同一组接口。
+    """
+    return web.FileResponse(_INDEX, headers={"Cache-Control": "no-store"})
+
+
+async def h_view(request: web.Request) -> web.WebSocketResponse:
+    """帧下行 + ack / 输入上行 —— docs/v2/works/02 · 03。"""
+    s = _s(request)
+    ws = web.WebSocketResponse(heartbeat=20, max_msg_size=0)
+    await ws.prepare(request)
+
+    writable = bool(request.get("writable", True))
+    v = Viewer(ws.send_bytes, lambda d: ws.send_str(_dumps(d)),
+               writable=writable, name=request.query.get("as") or "")
+    # **权限只在连接建立时说一次。** 鼠标移动一秒几十个事件,逐个回 403
+    # 等于自己 DoS 自己(works/04 §3)。
+    await v.tell("hello", writable=writable, protocol=HEADER_SIZE,
+                 **{k: val for k, val in s.view.stats().items() if k != "viewers"})
+    await s.view.add_viewer(v)
+    try:
+        async for msg in ws:
+            if msg.type is not WSMsgType.TEXT:
+                if msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
+                    break
+                continue
+            try:
+                m = json.loads(msg.data)
+            except ValueError:
+                continue
+            await _view_msg(s, v, m)
+    finally:
+        await s.view.remove_viewer(v)
+    return ws
+
+
+async def _view_msg(s: Session, v: Viewer, m: dict) -> None:
+    kind = m.get("type")
+    if kind not in UPSTREAM:
+        return                                  # 白名单,不是黑名单
+    if kind == "ack":
+        await s.view.on_viewer_ack(v)
+        return
+    if not v.writable:
+        return                                  # **服务端丢弃**,静默
+    if kind == "resize":
+        await s.view.resize(m.get("w") or 0, m.get("h") or 0)
+    elif kind == "tab":
+        tab_id = str(m.get("id") or "")
+        if tab_id in s.tabs:
+            await s.tabs.activate(tab_id)
+    else:
+        await s.view.handle_input(m)

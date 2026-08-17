@@ -24,6 +24,8 @@ from webmuxd.core.log import Log, Seq
 from webmuxd.core.observe import Observation
 from webmuxd.core.tabs import TabTable
 from webmuxd.errors import Busy, BusyHuman, TabGone
+from webmuxd.view import cursor as cursor_probe
+from webmuxd.view.cast import Screencaster
 
 #: 人在 VNC 里动过之后,API 让路多少毫秒(api/README §5)。0 = 关掉这个行为。
 HUMAN_YIELD_MS = 3000
@@ -52,6 +54,8 @@ class Session:
 
         self._exec: dict[str, Executor] = {}
         self._sessions: dict[str, str] = {}    # tab_id -> CDP sessionId
+        #: 画面。v2 里它是我们自己的([works/01](../../docs/v2/works/01-frame-source.md))
+        self.view = Screencaster(self)
         self._action_lock = asyncio.Lock()
         self.started_at = time.time()
         self.restarts = 0
@@ -72,6 +76,7 @@ class Session:
         self.cdp.on("Page.javascriptDialogOpening", self._on_dialog)
         self.cdp.on("Page.javascriptDialogClosed", self._on_dialog_closed)
         self.cdp.on("Runtime.bindingCalled", self._on_binding)
+        await self.view.start()
         await self.tabs.start()
         await asyncio.sleep(0.3)               # 让已存在的 target 都进来
         self.log.append("session", event="session_started")
@@ -99,6 +104,11 @@ class Session:
             info = _json.loads(params.get("payload") or "{}")
         except Exception:
             info = {}
+        if info.get("kind") == "cursor":
+            # 光标形状变了 —— 不是人的输入,不开让路窗口,也不进日志
+            shape = cursor_probe.sanitize(info.get("cursor", ""))
+            asyncio.create_task(self.view._tell_all("cursor", cursor=shape))
+            return
         self.note_human_activity(info.get("kind", "input"))
         tab_id = self._tab_of_session(sid)
         # 人干的**也进日志** —— 这样它才是完整的操作路径,不是"只有 API 干过的事"
@@ -137,6 +147,7 @@ class Session:
         self._emit("chrome.restarted", {"restarts": self.restarts})
 
     async def close(self) -> None:
+        await self.view.close()
         for ex in self._exec.values():
             ex.stop()
         self._exec.clear()
@@ -151,6 +162,11 @@ class Session:
         for q in list(self._subscribers):
             with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(evt)
+
+        # **`active` 就是 screencast 挂在哪个 target 上**(works/05 §2)——
+        # 所以 active 一变,画面必须跟着搬,否则观看者看到的是黑屏。
+        if type_ in ("tab.activated", "tab.closed") and self.view.viewers:
+            asyncio.create_task(self.view.follow(self.tabs.active))
 
         # tab 的生死落盘 —— 事件只在内存里活 1000 条,重启就没了(api/log.md §3)
         if type_ == "tab.created":
@@ -217,8 +233,18 @@ class Session:
         # 因为只有页面自己调原生 open 才能保住 opener 关系。
         await shim.install(self.cdp, sid)
         await shim.install_input_watch(self.cdp, sid)
+        await cursor_probe.install(self.cdp, sid)
         self._exec[tab_id] = ex
         return ex
+
+    async def cdp_session_for(self, tab_id: str) -> str:
+        """这个 tab 的 CDP sessionId,没 attach 过就现 attach。
+
+        `view/` 要它来发 `Page.startScreencast` 和 `Input.*`。走的是和动作
+        完全相同的那条 attach 路径 —— **画面和操作打在同一个 session 上**。
+        """
+        await self.executor_for(tab_id)
+        return self._sessions[tab_id]
 
     def resolve_tab(self, tab_id: str | None) -> str:
         """不传就是当前激活的那个 —— 线上才需要这条规则,因为 HTTP 没有句柄
