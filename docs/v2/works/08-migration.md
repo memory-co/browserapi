@@ -25,7 +25,9 @@ print(sess.view_url)          # 带 token,和 API 同一个口
 | `view_url` | 保留,含义变了 | 现在指向我们自己的页面 |
 | `sess.viewport()` 里的 `crop_top` | **删** | 帧里没有浏览器 UI 可裁([01 §2](01-frame-source.md#2-一整篇设计随之作废)) |
 | `share(writable=, ttl=)` | **签名不变**,但只读第一次是真的 | [04 §3](04-one-port.md#3-读和写是两个-token) |
-| `image` | 保留,默认换成瘦镜像 | [07 §4](07-runtime.md#4-我们要不要自己发镜像) |
+| `image` | **降级** —— 只有 `runtime="container"` 时才用得上,而那个镜像是你自己三行 build 的 | [07 §4.5](07-runtime.md#45-那容器还要不要) |
+| `browser=` | **新** —— 指定用哪个浏览器二进制。不传就用 `install` 下的那个 | [07 §4.4](07-runtime.md#44-install-的形状内容换掉规矩全留) |
+| 默认 `runtime` | `container` → **`process`**。容器只剩隔离一个理由 | [07 §5](07-runtime.md#5-process-成了默认) |
 | `runtime="remote"` | 只要 `cdp=`,不要画面口 | [07 §6](07-runtime.md#6-remote-第一次真正好用) |
 
 ### CLI
@@ -113,7 +115,7 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 3 | ack 背压 + RTT 自适应 | 慢客户端不拖累别人(照抄 demo 的那一项自测) |
 | 4 | 内置页面的 tab 条 / 地址栏,接 `/api/tabs` | 切 tab、导航,和 API 侧同一份状态 |
 | 5 | 六类原生 UI 的前三条(对话框 / 下载 / 文件选择) | **可宣布可用的门槛**([06 §5](06-no-desktop.md#5-排期不是全都要一次做完)) |
-| 6 | 瘦镜像 + `process` + `remote` 三个 runtime | 一机多开、云 CDP 自带画面 |
+| 6 | `webmuxd install` + `process` / `container` / `remote` 三个 runtime | 不装 docker 也能跑、一机多开、云 CDP 自带画面 |
 | 7 | 只读 / 可写 token | `share()` 那个承诺兑现 |
 
 1–3 步的参考实现就是 `~/browserbox/demo/`,那 700 行已经跑通并有 17 项自测。
@@ -130,3 +132,5 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 真实网页(非 data: 页)的帧率与码率 | [01 §4](01-frame-source.md#4-代价老实写) 引的是 demo 在 youtube 上的数字 | 带宽预期要重写 |
 | **screencast vs kasm 的流畅度对比数字**(fps 曲线 / 端到端延迟 / 码率 / CPU,同机同链路同视频) | [01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅) 目前只有主观对比 | 结论方向已经实测过,缺的是**能对外讲的数字** |
 | 六类原生 UI 的 CDP 拦截逐条验证 | [06 §2](06-no-desktop.md#2-六类逐条) | 排期要重排 |
+| **Chrome for Testing 的条款**允不允许 webmuxd 这种用法 | [07 §4.2](07-runtime.md#42-下什么从哪下) | 退回纯 BSD 的 Chromium 构建,"视频能放"那条收回 |
+| `install` 在裸机上到底缺哪些 `.so`(Debian / Ubuntu / Alpine 各一遍) | [07 §4.3](07-runtime.md#43-系统依赖和字体照抄-playwright-的姿态) | `install-deps` 的清单要重写 |

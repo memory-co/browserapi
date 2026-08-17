@@ -39,7 +39,7 @@ v1:    ────────────────┘        └───�
 | [04-one-port.md](04-one-port.md) | 一个口:session 形状、token、只读分享 |
 | [05-active-tab.md](05-active-tab.md) | tab 外挂模式一字不改;`active` 从两份真相合成一份 |
 | [06-no-desktop.md](06-no-desktop.md) | 没有桌面之后:六类原生 UI 用 CDP 收回来 —— **v2 唯一的真实工作量** |
-| [07-runtime.md](07-runtime.md) | runtime 变薄:headless 瘦镜像、一机多开、`remote` 自带画面 |
+| [07-runtime.md](07-runtime.md) | runtime 变薄:**`webmuxd install` 下浏览器**(照着 playwright)、`process` 成默认、一机多开 |
 | [08-migration.md](08-migration.md) | v1 → v2:什么变了、什么一个字没动 |
 
 ## 明确不做

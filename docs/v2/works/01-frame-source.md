@@ -139,7 +139,7 @@ IME 提交后只发最终文本 —— 远端 Chromium 收到的就是一个带 
 | 权限 | 一个 VNC 密码,给了就是全权 | 读 / 写两个 token |
 | 帧里有什么 | 整个桌面,要 `crop_top` 裁 | 只有页面内容 |
 | runtime 契约 | 两个端点 | 一个 CDP 端点 |
-| 镜像 | 4.4 GB 带 xfce | 几百 MB headless |
+| 浏览器从哪来 | 4.4 GB 的桌面镜像 | `webmuxd install` 下一个([07 §4](07-runtime.md#4-浏览器从哪来webmuxd-install-下一个)) |
 | 原生对话框 | 桌面里能看见 | 必须 CDP 拦截 |
 | `session()` 参数 | `api_port` + `view_port` + `view_password` | `port` + token |
 
