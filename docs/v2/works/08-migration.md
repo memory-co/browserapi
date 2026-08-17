@@ -90,12 +90,17 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 你的情况 | 用 |
 | --- | --- |
 | 要**完整桌面**(文件管理器、系统对话框、非浏览器程序、音频) | **v1** |
-| 要**极低带宽**下的远程操作 | **v1**(VNC 的区域重传更省,[01 §4](01-frame-source.md#4-代价老实写)) |
+| **带宽是硬约束**(按流量计费、窄带链路) | **v1** —— 区域重传更省字节。但注意换来的是**更省,不是更流畅** |
 | 其余一切 | **v2** |
 
-前两条不是客套 —— v2 明确不做桌面也不做帧间编码
-([works/README §明确不做](README.md#明确不做))。落在那两格里的人应该继续用 v1,
-它的文档、镜像、实测记录一个字没删。
+第一条不是客套,v2 明确不做桌面([works/README §明确不做](README.md#明确不做))。
+
+**第二条只谈字节,不谈体验。** 实测在 YouTube 看视频 screencast 比 kasm 更流畅
+([01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅))—— 全屏运动是区域重传的负收益区。
+所以"带宽敏感就用 v1"是一笔明确的交换:**省流量,换掉流畅度**,
+而不是"低配场景用 v1、高配场景用 v2"那种想当然的分法。
+
+落在这两格里的人继续用 v1,它的文档、镜像、实测记录一个字没删。
 
 ## 5. 落地顺序
 
@@ -123,4 +128,5 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 多个 target 各自 `Emulation.setDeviceMetricsOverride` 是否互不干扰、帧尺寸跟不跟着变 | [02 §5](02-frame-protocol.md#5-分辨率是-per-tab-的) | `resize` 退回 session 级 |
 | `window.open` 的 target 类型 / `openerId` / 能否 screencast | [05 §4](05-active-tab.md#4-popup-不再是特殊情况) | popup 要单独处理,v1/works/07 复活 |
 | 真实网页(非 data: 页)的帧率与码率 | [01 §4](01-frame-source.md#4-代价老实写) 引的是 demo 在 youtube 上的数字 | 带宽预期要重写 |
+| **screencast vs kasm 的流畅度对比数字**(fps 曲线 / 端到端延迟 / 码率 / CPU,同机同链路同视频) | [01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅) 目前只有主观对比 | 结论方向已经实测过,缺的是**能对外讲的数字** |
 | 六类原生 UI 的 CDP 拦截逐条验证 | [06 §2](06-no-desktop.md#2-六类逐条) | 排期要重排 |
