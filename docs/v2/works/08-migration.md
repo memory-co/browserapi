@@ -118,7 +118,8 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 | 6 | `webmuxd install` + `process` / `container` / `remote` 三个 runtime | 不装 docker 也能跑、一机多开、云 CDP 自带画面 |
 | 7 | 只读 / 可写 token | `share()` 那个承诺兑现 |
 
-1–3 步的参考实现就是 `~/browserbox/demo/`,那 700 行已经跑通并有 17 项自测。
+1–3 步的参考实现就是 `~/browserbox/demo/`,那 700 行已经跑通并有 17 项自测 ——
+**照抄,不重新设计,也不顺手调参**([02 §0](02-frame-protocol.md#0-这一篇的地位照抄不重新设计))。
 
 ## 6. 落地前必须补的实测
 
