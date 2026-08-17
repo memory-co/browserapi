@@ -14,6 +14,7 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 |---|---|
 | [`one_endpoint/`](one_endpoint/) | **runtime 只做一件事**:给出一个 CDP 端点。不可用时抛不降级、端口不替你换、浏览器版本钉死 |
 | [`pixels_on_a_wire/`](pixels_on_a_wire/) | **画面是我们自己产的**:帧头形状、两个 ack 环解耦、切 tab 时 targetId 真的变了、只读是服务端丢弃 |
+| [`no_desktop/`](no_desktop/) | **六类原生 UI 用 CDP 收回来**:拦得下来、回填得进去、超时不静默。判据是页面自己动了,不是我们收到了事件 |
 | [`tab_identity/`](tab_identity/) | **tab 表就是 target 表**:`t_N` 不复用、`reason` 靠 `openerId` 分、关掉和被挤掉是两回事、先建后挤 |
 | [`pointing_at_things/`](pointing_at_things/) | **按人看得见的字找**:分档匹配命中即停、有歧义给候选不替你挑、找不到也要说这页上有什么 |
 | [`doing_and_seeing/`](doing_and_seeing/) | **做一下再看看**:变化变成一句人话(没变就不说)、观测一次给全、标注层用完就撤 |

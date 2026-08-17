@@ -54,6 +54,27 @@
   #status b { color: var(--ink); font-weight: 500; }
   #status .bad { color: var(--warn); }
   #ime { position: fixed; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+
+  /* 六类原生 UI —— headless 里它们不渲染,所以这一层是我们画的(works/06 §2③) */
+  #modal { position: fixed; inset: 0; display: none; place-items: center;
+    background: #000a; z-index: 9; }
+  #modal.on { display: grid; }
+  .card { background: var(--bar); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; min-width: 320px; max-width: 460px; }
+  .card h3 { margin: 0 0 4px; font-size: 13px; color: var(--dim); font-weight: 500; }
+  .card p { margin: 0 0 14px; white-space: pre-wrap; word-break: break-word; }
+  .card input[type=text], .card input[type=file] { width: 100%; padding: 6px 8px;
+    margin-bottom: 12px; background: #0d1117; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 5px; }
+  .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .row button { padding: 5px 14px; border-radius: 5px; border: 1px solid var(--line);
+    background: #2d333b; color: var(--ink); cursor: pointer; font-size: 13px; }
+  .row button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #toasts { position: fixed; right: 12px; bottom: 34px; display: flex;
+    flex-direction: column; gap: 6px; z-index: 8; }
+  .toast { background: var(--bar); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; font-size: 12px; max-width: 320px; }
+  .toast a { color: var(--accent); }
 </style>
 
 <div id="tabs"></div>
@@ -77,6 +98,9 @@
   <span>有效缩放 <b id="s-zoom">–</b></span>
   <span id="s-conn">连接中…</span>
 </div>
+
+<div id="modal"><div class="card" id="card"></div></div>
+<div id="toasts"></div>
 
 <textarea id="ime" autocomplete="off"></textarea>
 
@@ -236,6 +260,72 @@
   });
   ime.addEventListener("input", () => { if (!composing) ime.value = ""; });
 
+  // ------------------------------------------------------ 六类原生 UI(works/06)
+  // 它们在 headless 里根本不渲染 —— 不画,人就会遇到"点了没反应"。
+  // 数据来自 /api/pending 和 /api/events,和上层自己画用的是同一组接口。
+  const modal = $("modal"), card = $("card");
+  let queue = [];
+
+  function showNext() {
+    const it = queue[0];
+    if (!it) { modal.classList.remove("on"); ime.focus(); return; }
+    modal.classList.add("on");
+    if (it.kind === "dialog") {
+      const prompt = it.subtype === "prompt";
+      card.innerHTML = `<h3>页面弹了一个 ${it.subtype}</h3><p></p>` +
+        (prompt ? `<input type=text id=dtext>` : "") +
+        `<div class=row>${it.subtype === "alert" ? "" : "<button id=no>取消</button>"}
+         <button class=go id=yes>确定</button></div>`;
+      card.querySelector("p").textContent = it.text || "";
+      if (prompt) { const i = card.querySelector("#dtext"); i.value = it.default || ""; i.focus(); }
+      const answer = (accept) => {
+        api("/tabs/" + it.tab + "/dialog", { method: "POST", body: JSON.stringify(
+          { accept, text: prompt ? card.querySelector("#dtext").value : "" }) });
+        queue.shift(); showNext();
+      };
+      card.querySelector("#yes").onclick = () => answer(true);
+      const no = card.querySelector("#no"); if (no) no.onclick = () => answer(false);
+    } else if (it.kind === "file") {
+      card.innerHTML = `<h3>页面要选文件</h3><p>选一个传上去,或者取消。</p>
+        <input type=file id=fpick ${it.mode === "selectMultiple" ? "multiple" : ""}>
+        <div class=row><button id=fno>取消</button>
+        <button class=go id=fyes>用它</button></div>`;
+      const done = (names) => {
+        api("/file-chooser/" + it.id, { method: "POST",
+          body: JSON.stringify({ files: names }) });
+        queue.shift(); showNext();
+      };
+      card.querySelector("#fno").onclick = () => done([]);
+      card.querySelector("#fyes").onclick = async () => {
+        const picked = [...card.querySelector("#fpick").files];
+        const names = [];
+        for (const f of picked) {
+          const r = await api("/upload?name=" + encodeURIComponent(f.name),
+                              { method: "POST", body: f });
+          names.push(...(await r.json()).files);
+        }
+        done(names);
+      };
+    }
+  }
+
+  function enqueue(it) { queue.push(it); if (queue.length === 1) showNext(); }
+
+  function toast(html, ms = 8000) {
+    const el = document.createElement("div");
+    el.className = "toast"; el.innerHTML = html;
+    $("toasts").appendChild(el);
+    setTimeout(() => el.remove(), ms);
+  }
+
+  async function loadPending() {
+    try {
+      const p = await (await api("/pending")).json();
+      queue = [...(p.dialogs || []), ...(p.file_choosers || [])];
+      showNext();
+    } catch (e) {}
+  }
+
   // ---------------------------------------------------------------- tab 条
   // 数据全部来自 /api/tabs 和 /api/events —— 和上层自己画用的是同一组接口。
   const api = (path, opt) => fetch("/api" + path + (auth && (path.includes("?") ? "&" + auth.slice(1) : auth)),
@@ -289,6 +379,16 @@
     es.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.type.startsWith("tab.")) loadTabs();
+      else if (m.type === "dialog.opened" || m.type === "file.opened") enqueue(m);
+      else if (m.type === "dialog.closed" || m.type === "file.closed") {
+        // 别人回填了、或者超时了 —— 把我这边那张卡撤掉
+        const n = queue.length;
+        queue = queue.filter(q => q.id !== m.id);
+        if (queue.length !== n) showNext();
+      }
+      else if (m.type === "download.began") toast("下载中 " + m.file);
+      else if (m.type === "download.done" && m.state === "done")
+        toast(`下载好了 <a href="/api/downloads/${m.id}${auth ? auth : ""}" download>${m.file}</a>`, 20000);
     };
     es.onclose = () => setTimeout(events, 2000);
   }
@@ -300,6 +400,6 @@
     frames = 0; bytes = 0;
   }, 1000);
 
-  connect(); events(); loadTabs(); ime.focus();
+  connect(); events(); loadTabs(); loadPending(); ime.focus();
 })();
 </script>

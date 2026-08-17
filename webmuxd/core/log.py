@@ -27,7 +27,11 @@ LOG_LIMIT = int(os.environ.get("WEBMUXD_LOG_LIMIT", "5000"))
 
 #: 三类,没有第四类。页面自己的变化(标题变了、loading 变了)**不进日志** ——
 #: 没有人"做"它们,那只是同步通知(works/03 §1.2)。
-KINDS = ("action", "tab", "session")
+#: v1 是三类。v2 多出来的四类是**没有桌面之后**那批原生 UI
+#: (docs/v2/works/06 §3)—— 它们是"页面为什么停住"的唯一解释,
+#: 不进 scrollback 的话,现象就只剩"observe 返回的页面一直没变"。
+KINDS = ("action", "tab", "session", "dialog", "download", "file",
+         "permission", "auth")
 
 
 class Seq:

@@ -122,9 +122,21 @@ def build(session: Session) -> web.Application:
     r.add_get("/api/log/bundle", h_bundle)
     r.add_get("/api/log/{seq}/shot", h_log_shot)
 
-    # 还没做:/api/tabs/{id}/favicon、/api/live-token、/api/upload、
-    # /api/download/{name}、/api/openapi.json —— 文档里有,这儿先空着,
-    # 免得留半截路由骗人。
+    # 没有桌面之后那六类 —— **每类一个事件 + 一个端点,不动架构**
+    # (works/06 §2)。事件走 /api/events,端点在这儿。
+    r.add_get("/api/pending", h_pending)
+    r.add_get("/api/downloads", h_downloads)
+    r.add_get("/api/downloads/{id}", h_download_file)
+    r.add_post("/api/upload", h_upload)
+    r.add_get("/api/files", h_files)
+    r.add_post("/api/file-chooser/{id}", h_file_fill)
+    r.add_get("/api/permissions", h_perms)
+    r.add_post("/api/permissions", h_perm_grant)
+    r.add_delete("/api/permissions", h_perm_reset)
+    r.add_post("/api/auth", h_auth_set)
+    r.add_delete("/api/auth", h_auth_clear)
+
+    # 还没做:/api/tabs/{id}/favicon、/api/live-token、/api/openapi.json
     r.add_get("/api/events", h_events)
     # 画面 —— v2 新增的两条,和 API 同一个口(works/04 §1)
     r.add_get("/api/view", h_view)
@@ -261,16 +273,14 @@ async def h_dialog(request: web.Request) -> web.Response:
     s = _s(request)
     tab_id = request.match_info["id"]
     body = await _body(request)
-    tab = s.tabs.get(tab_id)
-    if not tab.dialog:
+    if not s.tabs.get(tab_id).dialog:
         raise BadRequest("这个 tab 上没有待回应的弹窗", code="bad_request")
-    await s.executor_for(tab_id)
-    await s.cdp.send("Page.handleJavaScriptDialog",
-                     {"accept": bool(body.get("accept")),
-                      "promptText": body.get("text", "")},
-                     session_id=s._sessions[tab_id])
-    s.tabs.update(tab_id, dialog=None)
-    return _json({"ok": True})
+    # **不替用户决定** —— accept 没有默认值,调用方必须说(works/06 §2)
+    if "accept" not in body:
+        raise BadRequest("要说 accept:true 还是 false", code="bad_request")
+    return _json(await s.native.dialogs.respond(
+        tab_id, accept=bool(body["accept"]), text=body.get("text", ""),
+        by=body.get("user", "api")))
 
 
 # ---------------------------------------------------------------- act/observe
@@ -454,3 +464,83 @@ async def _view_msg(s: Session, v: Viewer, m: dict) -> None:
             await s.tabs.activate(tab_id)
     else:
         await s.view.handle_input(m)
+
+
+# ------------------------------------------------------- 没有桌面之后(works/06)
+
+async def h_pending(request: web.Request) -> web.Response:
+    """**挡着页面的东西一次给全。** UI 一连上先拉这个对齐,之后靠事件增量。"""
+    return _json(_s(request).native.pending_json())
+
+
+async def h_downloads(request: web.Request) -> web.Response:
+    return _json({"downloads": _s(request).native.downloads.list_json()})
+
+
+async def h_download_file(request: web.Request) -> web.Response:
+    p = _s(request).native.downloads.path_of(request.match_info["id"])
+    if p is None:
+        raise BadRequest("没有这个下载,或者它还没完成", code="not_found")
+    return web.FileResponse(p)
+
+
+async def h_upload(request: web.Request) -> web.Response:
+    """把文件放进 session 的 files 目录,回填文件选择框时按名字引用它。
+
+    收两种:`multipart/form-data`,或者裸 body + `?name=`。
+    """
+    files = _s(request).native.files
+    saved = []
+    if request.content_type.startswith("multipart/"):
+        reader = await request.multipart()
+        while (part := await reader.next()) is not None:
+            name = part.filename or part.name or "upload"
+            saved.append(files.save(name, await part.read(decode=False)))
+    else:
+        name = request.query.get("name") or "upload"
+        saved.append(files.save(name, await request.read()))
+    return _json({"files": saved}, status=201)
+
+
+async def h_files(request: web.Request) -> web.Response:
+    return _json({"files": _s(request).native.files.list_files()})
+
+
+async def h_file_fill(request: web.Request) -> web.Response:
+    body = await _body(request)
+    names = body.get("files")
+    if names is not None and not isinstance(names, list):
+        raise BadRequest("files 要是个数组(空数组 = 取消)", code="bad_request")
+    return _json(await _s(request).native.files.fill(
+        request.match_info["id"], names or [], by=body.get("user", "api")))
+
+
+async def h_perms(request: web.Request) -> web.Response:
+    return _json(_s(request).native.permissions.list_json())
+
+
+async def h_perm_grant(request: web.Request) -> web.Response:
+    body = await _body(request)
+    names = body.get("names")
+    if not isinstance(names, list) or not names:
+        raise BadRequest("names 要是个非空数组", code="bad_request")
+    return _json(await _s(request).native.permissions.grant(
+        names, origin=body.get("origin", ""), by=body.get("user", "api")))
+
+
+async def h_perm_reset(request: web.Request) -> web.Response:
+    return _json(await _s(request).native.permissions.reset(
+        by=request.query.get("user", "api")))
+
+
+async def h_auth_set(request: web.Request) -> web.Response:
+    body = await _body(request)
+    if not body.get("user") or body.get("password") is None:
+        raise BadRequest("要给 user 和 password", code="bad_request")
+    return _json(await _s(request).native.auth.set(
+        origin=body.get("origin", ""), user=body["user"],
+        password=body["password"]))
+
+
+async def h_auth_clear(request: web.Request) -> web.Response:
+    return _json(await _s(request).native.auth.clear())

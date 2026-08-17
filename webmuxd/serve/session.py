@@ -24,6 +24,7 @@ from webmuxd.core.log import Log, Seq
 from webmuxd.core.observe import Observation
 from webmuxd.core.tabs import TabTable
 from webmuxd.errors import Busy, BusyHuman, TabGone
+from webmuxd.native import Natives
 from webmuxd.view import cursor as cursor_probe
 from webmuxd.view.cast import Screencaster
 
@@ -68,15 +69,18 @@ class Session:
             d.mkdir(parents=True, exist_ok=True)
         self._tokens: dict[str, tuple[bool, float]] = {}
 
+        #: 六类原生 UI。headless 里它们根本不渲染,只能用 CDP 收回来
+        #: ([works/06](../../docs/v2/works/06-no-desktop.md))
+        self.native = Natives(self)   # 目录建好之后才能造它
+
     # ------------------------------------------------------------------ 起
 
     async def start(self) -> None:
         self.cdp.on("Target.attachedToTarget", self._on_attached)
         self.cdp.on("Inspector.targetCrashed", self._on_crashed)
-        self.cdp.on("Page.javascriptDialogOpening", self._on_dialog)
-        self.cdp.on("Page.javascriptDialogClosed", self._on_dialog_closed)
         self.cdp.on("Runtime.bindingCalled", self._on_binding)
         await self.view.start()
+        await self.native.attach()
         await self.tabs.start()
         await asyncio.sleep(0.3)               # 让已存在的 target 都进来
         self.log.append("session", event="session_started")
@@ -119,19 +123,8 @@ class Session:
                              if info.get("name") else None,
                         ok=True, ms=0)
 
-    def _on_dialog(self, params: dict, sid: str | None) -> None:
-        """弹窗**挡住了页面**,等回应 —— 所以它是 tab 上的状态,不只是一条通知
-        (api/tabs.md §3)。"""
-        tab_id = self._tab_of_session(sid)
-        if tab_id:
-            self.tabs.update(tab_id, dialog={
-                "kind": params.get("type"), "message": params.get("message", ""),
-                "default": params.get("defaultPrompt") or ""})
-
-    def _on_dialog_closed(self, _params: dict, sid: str | None) -> None:
-        tab_id = self._tab_of_session(sid)
-        if tab_id:
-            self.tabs.update(tab_id, dialog=None)
+    # 弹窗的拦截、超时和记账搬到 `native/dialogs.py` 了 —— v1 只做了"记在 tab 上",
+    # 而 v2 没有桌面兜底,还得有事件、超时和日志(works/06 §1)。
 
     def _tab_of_session(self, sid: str | None) -> str | None:
         if not sid:
@@ -234,6 +227,7 @@ class Session:
         await shim.install(self.cdp, sid)
         await shim.install_input_watch(self.cdp, sid)
         await cursor_probe.install(self.cdp, sid)
+        await self.native.attach_target(sid)
         self._exec[tab_id] = ex
         return ex
 

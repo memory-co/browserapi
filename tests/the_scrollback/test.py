@@ -16,12 +16,22 @@ def log(tmp_path):
     return Log(tmp_path, limit=10)
 
 
-# ------------------------------------------------------------------ 三类
+# ------------------------------------------------------------------ 类目
 
-def test_only_three_kinds():
-    """**没有第四类。** 页面自己的变化不进日志 —— 没有人"做"它们
-    (works/03 §1.2)。"""
-    assert KINDS == ("action", "tab", "session")
+def test_kinds_are_a_closed_set():
+    """**类目是封闭的,而且每一类都对应"有人要为它负责"。**
+
+    v1 是三类,判据是"页面自己的变化不进日志 —— 没有人做它们"(works/03 §1.2)。
+    v2 多的五类**没有推翻那条**:对话框、文件选择、权限、认证都是
+    **挡住页面、等人回答**的决定点,下载是"东西落到了这台机器上" ——
+    它们全都有人负责,而且是「页面为什么停住」的唯一解释
+    (docs/v2/works/06 §3)。
+
+    仍然进不来的是页面自己的变化:滚动、动画、XHR、DOM 改了 ——
+    那些没有人"做",它们属于观测,不属于 scrollback。
+    """
+    assert KINDS == ("action", "tab", "session", "dialog", "download",
+                     "file", "permission", "auth")
 
 
 def test_unknown_kind_is_rejected(log):

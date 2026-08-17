@@ -28,20 +28,39 @@ v2 没有兜底。screencast 拍的是页面内容,浏览器自己的 UI **一�
 | **文件选择框** | `Page.setInterceptFileChooserDialog` → `Page.fileChooserOpened` | `DOM.setFileInputFiles` |
 | **下载** | `Browser.setDownloadBehavior` + `Browser.downloadWillBegin` / `downloadProgress` | 文件落到 session 目录,API 取 |
 | **权限请求**<br>定位 / 通知 / 摄像头 / 剪贴板 | 不弹框,默认拒绝 | `Browser.grantPermissions` / `resetPermissions` 显式给 |
-| **HTTP Basic 认证** | `Fetch.enable {handleAuthRequests}` → `Fetch.authRequired` | `Fetch.continueWithAuth` |
+| **HTTP Basic 认证** | `Fetch.enable {handleAuthRequests}` → `Fetch.authRequired` | `Fetch.continueWithAuth`。**默认不开**,见 §2.1 |
 | **PDF / 浏览器内置查看器** | headless 无内置查看器 | 当下载处理;要看内容用 `Page.printToPDF` 反向 |
 
 每一条都是**一个事件 + 一个端点**,不动架构 —— v1 那句判断在这一点上仍然对。
 
-### 三条共同的规矩
+### 2.1 认证那条默认不开 —— 落地时改的
+
+写这篇的时候这六类是平等的"拦下来"。**实现的时候发现认证那条不一样**:
+
+拦 auth 的唯一办法是 `Fetch.enable`,而一旦开了,**这个 target 的每一个请求都要
+过我们的手**再 `continueRequest` 放行 —— 一个页面几十上百个请求,全部多绕一趟。
+那是实打实的性能税,而 Basic 认证今天已经很少见。
+
+关键是**不开的代价和别的几类不同**:
+
+| | 不拦会怎样 |
+| --- | --- |
+| 对话框 / 文件选择 | **页面静止在那儿**,人看不出为什么 —— 彻底卡死 |
+| Basic 认证 | 401 照常渲染成服务器返回的那个页面 —— **看得见的失败** |
+
+所以它改成 **`POST /api/auth` 设凭证时才打开**,`DELETE /api/auth` 关掉把税退回去。
+真实流程本来就是这个顺序:**先撞上 401,再设凭证,再重进**。
+
+### 2.2 三条共同的规矩
 
 **① 不替用户决定。** `alert` 不自动 accept,文件选择不自动填,权限不自动 grant。
 一律抛事件出去等回填 —— 因为这些**本来就是人的决定**,替他做了,自动化脚本
 就会在"以为点了确定"和"其实没点"之间产生看不见的分歧。
 
 **② 有超时,而且超时是显式的。** 拦下来没人回填,页面就永远卡着。
-每类都有默认超时和默认动作(`alert` → dismiss、文件选择 → 取消、
-认证 → 取消),超时**写进日志**,不静默。
+每类都有默认超时和默认动作 —— **一律是"取消"那一侧**,因为"没人回答"最接近的
+意思是"别做":对话框 dismiss(`confirm` 当没点确定、`beforeunload` 留在原页)、
+文件选择填空列表。超时**写进日志**,不静默。
 
 **③ 内置页面要能画它们。** [04 §2](04-one-port.md#2-get--是内置的但它不是界面)
 说内置页面不带产品决策,但这六类是**协议的一部分**,不是产品功能:
@@ -87,7 +106,7 @@ v1 的操作日志是"每一步看到什么、做了什么、页面变成什么�
 | **必须** | JS 对话框 | 任何 `confirm` 都会让页面永久卡住,而且看不出来 |
 | **必须** | 下载 | 点了下载什么都不发生,文件在容器里没人知道 |
 | **必须** | 文件选择 | 上传类流程完全走不通 |
-| 应该 | Basic 认证 | 遇到就是白屏,但比较少见 |
+| 应该 | Basic 认证 | 遇到就是白屏,但比较少见。**做了,但默认不开**(§2.1) |
 | 应该 | 权限 | 默认拒绝是安全的默认,不做也不会卡住 |
 | 可以晚 | 右键菜单 / 拖放 / 打印 | 有替代路径(API / 快捷键) |
 

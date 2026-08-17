@@ -52,14 +52,14 @@ def free_port() -> int:
 
 def main() -> None:
     url = serve_page()
-    api, vnc = free_port(), free_port()
+    port = free_port()
 
     print("① 管理实例 —— 空壳,不起任何浏览器")
     web = Webmuxd(user="claudecode")
 
-    print(f"② 起一个 session(一个 kasm/Chromium)  API :{api}")
-    sess = web.session(id="quickstart", port=api, vnc_port=vnc,
-                       runtime="process")
+    print(f"② 起一个 session(一个浏览器)  一个口 :{port}")
+    sess = web.session(id="quickstart", port=port, runtime="process")
+    print(f"   画面和 API 在同一个口上:{sess.view_url}")
 
     try:
         print(f"③ 开一个 tab  {url}")
@@ -102,9 +102,9 @@ def main() -> None:
                 print(f"       {changed}")
 
         print("\n✓ 跑通了。")
-        print(f"  有 Xvnc 的话,画面在 http://127.0.0.1:{vnc}")
+        print(f"  画面在 {sess.view_url} —— 浏览器打开就能看,能上手")
     finally:
-        web.shutdown()          # process runtime 的跟着死
+        web.shutdown()          # 起的两个进程都是我们的子进程,跟着死
 
 
 if __name__ == "__main__":

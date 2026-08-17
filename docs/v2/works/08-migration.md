@@ -48,10 +48,16 @@ webmuxd new --id work --port 7900
 新增一类,其余不动:
 
 ```jsonc
-{ "type":"dialog.opened",   "subtype":"confirm", "text":"确定要删除吗?" }   // 新([06](06-no-desktop.md))
-{ "type":"download.began",  "file":"报表.xlsx" }                            // 新
-{ "type":"tab.created", … }  { "type":"tab.updated", … }                    // 原样
+{ "type":"dialog.opened",  "subtype":"confirm", "text":"确定要删除吗?" }  // 新([06](06-no-desktop.md))
+{ "type":"dialog.closed",  "action":"timeout", "by":"default" }           // 新
+{ "type":"file.opened",    "mode":"selectSingle" }                        // 新
+{ "type":"download.began" } { "type":"download.done" }                    // 新
+{ "type":"auth.required" }  { "type":"permission.changed" }               // 新
+{ "type":"tab.created", … }  { "type":"tab.updated", … }                  // 原样
 ```
+
+日志也多了四类(`dialog` / `download` / `file` / `permission` / `auth`)——
+v1 是三类。它们是"页面为什么停住"的唯一解释([06 §3](06-no-desktop.md#3-日志里必须看得见))。
 
 `viewport.changed` 那个事件删掉了 —— 它存在的唯一理由是 `crop_top` 会变。
 
