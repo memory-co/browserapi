@@ -244,6 +244,7 @@ def cmd_info(args: argparse.Namespace) -> int:
     xpra_ok, xpra_why = xpra_mod.available()
     info = {"version": __import__("webmuxd").__version__, "runtimes": rt.detect(),
             "default_runtime": rt.default(),
+            "default_transport": "xpra" if xpra_ok else None,
             "transports": {"screencast": True, "xpra": xpra_ok},
             "xpra_why": "" if xpra_ok else xpra_why,
             "env_record": {"at": rec["at"]} if rec else None,
@@ -255,8 +256,8 @@ def cmd_info(args: argparse.Namespace) -> int:
                     f"runtime   " + ", ".join(
                         f"{k}{'' if v else '(不可用)'}"
                         for k, v in info["runtimes"].items()),
-                    f"画面      screencast(默认)"
-                    + (", xpra" if xpra_ok else f";xpra 不可用 —— {xpra_why}"),
+                    ("画面      xpra(默认),screencast" if xpra_ok else
+                     f"画面      screencast —— **默认的 xpra 用不了**:{xpra_why}"),
                     f"session   {info['sessions']['ready']} 在跑,"
                     f"{info['sessions']['dead']} 死了",
                     (f"记录      {rec['at']}(webmuxd install 探的)" if rec
@@ -563,13 +564,13 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--bind", default="127.0.0.1",
                    help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
                         "拿到 token 的人就能操作这个浏览器")
-    # **画面从哪来。** 默认 screencast:开箱即用,只要一个浏览器。
-    # xpra 要 Xvfb + xpra + python3-pil,换来的是按区域编码和 `scroll`
-    # (滚动时零字节搬像素,works/12 §9)。**起不来就是起不来,不回退**。
-    n.add_argument("--transport", default="screencast",
+    # **画面从哪来。默认 xpra**(works/11 §6)——它按 damage 区域编码,
+    # 滚动时 `scroll` 包零字节搬像素。`webmuxd install` 会把它装上。
+    # 起不来就报错,**不静默退回 screencast**;退路是显式说一声。
+    n.add_argument("--transport", default=None,
                    choices=["screencast", "xpra"],
-                   help="画面怎么来。screencast(默认)= CDP 截屏,开箱即用;"
-                        "xpra = 按区域编码,滚动更顺,但要 apt install xpra xvfb python3-pil")
+                   help="画面怎么来。不给就是 xpra —— 按区域编码,滚动更顺;"
+                        "screencast = CDP 截屏,零系统依赖,xpra 装不上时用它")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
 
     ins = add("install", cmd_install, target=False,

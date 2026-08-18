@@ -13,6 +13,7 @@ import json
 import pytest
 
 from webmuxd import browser, env
+from webmuxd.cli import deps as deps_mod
 from webmuxd.cli.install import install
 from webmuxd.errors import RuntimeUnavailable
 from webmuxd.runtime.process import ProcessRuntime, resolve_browser
@@ -45,6 +46,16 @@ def fake_download(tmp_path, monkeypatch):
     monkeypatch.setattr("webmuxd.browser.find_system", lambda: None)
     monkeypatch.setattr("webmuxd.browser.missing_libs", lambda p: [])
     monkeypatch.setattr("webmuxd.browser.has_cjk_font", lambda: True)
+    # **测试绝不许动这台机器的系统包。**
+    #
+    # 0.7.0 起 `install` 探到缺了就装,而这台机器上 `sudo -n` 很可能是通的 ——
+    # 那样跑一次测试就会真的 `apt-get install xpra xvfb …`。
+    # 这儿把包管理器那条路整个封死:探测一律说"齐",真去装就直接把用例判失败。
+    monkeypatch.setattr("webmuxd.xpra.available", lambda: (True, ""))
+    monkeypatch.setattr("webmuxd.cli.install.xpra_mod.available", lambda: (True, ""))
+    monkeypatch.setattr(
+        "webmuxd.cli.deps.apply",
+        lambda *a, **k: pytest.fail("测试去动系统包了 —— 这条路必须是封死的"))
     return state
 
 
@@ -109,20 +120,56 @@ def test_下不到就不写那个键_并且给出退路(record_file, fake_downlo
     assert browser.CN_MIRROR in text, "到不了源时该把国内那个源说出来"
 
 
-def test_缺中文字体是一条警告不是沉默(record_file, fake_download, monkeypatch):
-    """**裸服务器渲染中文全是豆腐块** —— 撞上的人一定会以为是 bug。"""
+def test_没_root_时缺中文字体是一条警告不是沉默(record_file, fake_download, monkeypatch):
+    """**裸服务器渲染中文全是豆腐块** —— 撞上的人一定会以为是 bug。
+
+    0.7.0 起有 root 就直接装了,所以"打印"这条要在**装不了**的前提下验。
+    """
     monkeypatch.setattr("webmuxd.browser.has_cjk_font", lambda: False)
+    monkeypatch.setattr("webmuxd.cli.deps.can_root", lambda: False)
     out = io.StringIO()
     install(out=out, force=True)
     assert "fonts-noto-cjk" in out.getvalue()
 
 
-def test_缺共享库要明说而不是等它起不来(record_file, fake_download, monkeypatch):
+def test_没_root_时缺共享库要明说而不是等它起不来(record_file, fake_download, monkeypatch):
     monkeypatch.setattr("webmuxd.browser.missing_libs",
                         lambda p: ["libnss3.so", "libgbm.so.1"])
+    monkeypatch.setattr("webmuxd.cli.deps.can_root", lambda: False)
     out = io.StringIO()
     install(out=out, force=True)
-    assert "libnss3.so" in out.getvalue() and "apt-get" in out.getvalue()
+    text = out.getvalue()
+    assert "libnss3.so" in text and "apt-get" in text
+
+
+def test_有_root_就直接装_不是打印一行让你自己跑(record_file, fake_download,
+                                                monkeypatch):
+    """**探到缺了却不装,等于把活原样退回去。**
+
+    这是 0.7.0 翻过来的一条:`--with-deps` 从开关变成默认行为。
+    """
+    monkeypatch.setattr("webmuxd.browser.has_cjk_font", lambda: False)
+    monkeypatch.setattr("webmuxd.cli.deps.can_root", lambda: True)
+    monkeypatch.setattr("webmuxd.cli.deps.detect", lambda: deps_mod.APT)
+    called = []
+
+    def fake_apply(fam, pkgs, **kw):
+        called.append(pkgs)
+        monkeypatch.setattr("webmuxd.browser.has_cjk_font", lambda: True)
+        return True, ""
+
+    monkeypatch.setattr("webmuxd.cli.deps.apply", fake_apply)
+    out = io.StringIO()
+    install(out=out, force=True)
+    assert called and "fonts-noto-cjk" in called[0]
+    assert "装好了" in out.getvalue()
+
+
+def test_with_deps_还认_但会说它已经是默认了(record_file, fake_download):
+    """旧参数不静默吞 —— 脚本里还写着它的人得知道发生了什么。"""
+    out = io.StringIO()
+    install(out=out, force=True, with_deps=True)
+    assert "已经是默认行为" in out.getvalue()
 
 
 # ------------------------------------------------------------ 记录怎么被用
@@ -147,7 +194,7 @@ def test_记录过期了要说去重跑_install(record_file, monkeypatch):
     """**记录会撒谎** —— 你删了缓存目录它不知道。"""
     monkeypatch.setenv("WEBMUXD_BROWSER", "/已经不在了/chrome")
     with pytest.raises(RuntimeUnavailable) as ei:
-        ProcessRuntime().start("x", port=1)
+        ProcessRuntime().start("x", port=1, transport="screencast")
     assert "install" in ei.value.hint
 
 

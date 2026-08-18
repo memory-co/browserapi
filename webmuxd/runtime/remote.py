@@ -33,7 +33,11 @@ class RemoteRuntime:
     def start(self, id: str, *, port: int, cdp: str | None = None,
               data_dir: str | None = None, token: str | None = None,
               bind: str = "127.0.0.1", view: dict[str, Any] | None = None,
-              transport: str = "screencast", **_opts: Any) -> Handle:
+              transport: str | None = None, **_opts: Any) -> Handle:
+        # **remote 上不存在默认之争:screencast 是唯一可能的那个。**
+        # 我们手里只有一个 CDP 端点,那台机器上的 X 显示我们碰不到 ——
+        # 所以这不是"降级",是这条路上画面唯一的来源。
+        transport = transport or "screencast"
         # **不静默忽略。** xpra 要截的是那个浏览器所在机器上的 X 显示,
         # 而 `remote` 的浏览器根本不在这台机器上 —— 我们只有一个 CDP 端点。
         # 悄悄给一个 screencast 的画面,等于让人以为自己在看 xpra 的画质。

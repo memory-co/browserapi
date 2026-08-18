@@ -13,30 +13,47 @@ docker 那一问整个消失 —— v2 不再关心机器上有没有它(§2)。
 **探不到就不写那个键**、**不静默重探**、**它不是配置文件**、
 **没装过也能用**。
 
-`--with-deps` 照抄 playwright 的姿态:**能装就装,装不了就明说缺什么、
-给出那行命令,绝不静默**(§4.3)。
+**装是默认行为,不是一个开关。** 0.7.0 之前要加 `--with-deps` 才动包管理器;
+现在探到缺了就装 —— `install` 的职责就是"跑之前把环境弄好",探到却不装等于
+把活原样退回去。**只有没 root 时才退化成打印**,那时候我们确实做不了。
+
+姿态还是 playwright 那个:**装不了就明说缺什么、给出完整的那行命令,绝不静默**
+(§4.3)。包名和发行版差异在 [deps.py](deps.py)。
 """
 
 from __future__ import annotations
 
 import os
 import platform
-import shutil
-import subprocess
 import sys
 from typing import Any
 
-from webmuxd import browser, env
+from webmuxd import browser, env, xpra as xpra_mod
+from webmuxd.cli import deps
 
 OK, WARN = "✓", "⚠"
 
-#: Debian/Ubuntu 上 headless chrome 常缺的那些。别的发行版只打印,不装。
-APT_DEPS = (
-    "libnss3", "libnspr4", "libatk1.0-0", "libatk-bridge2.0-0", "libcups2",
-    "libdrm2", "libxkbcommon0", "libxcomposite1", "libxdamage1", "libxfixes3",
-    "libxrandr2", "libgbm1", "libpango-1.0-0", "libcairo2", "libasound2",
-    "fonts-noto-cjk",
-)
+
+def _w(s: str) -> int:
+    """字符串占几列。**中文是双宽的** —— 按字符数补空格,加一行中文标签
+    就会把整块输出弄歪。原来那几个 `:<9` / `:<10` / `:<11` 是手调出来的。"""
+    import unicodedata
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+
+def _pad(s: str, width: int) -> str:
+    return s + " " * max(0, width - _w(s))
+
+
+def _cut(s: str, width: int) -> str:
+    """按显示宽度截断,不是按字符数。"""
+    out, n = "", 0
+    for c in s:
+        n += _w(c)
+        if n > width:
+            return out
+        out += c
+    return out
 
 
 def install(*, version: str = browser.PINNED, mirror: str | None = None,
@@ -44,39 +61,48 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
             out=sys.stdout, **_compat: Any) -> dict[str, Any]:
     say = lambda *a: print(*a, file=out)      # noqa: E731
     say("探测环境…")
-    say(f"  {'python':<11} {platform.python_version():<38} {OK}")
+    say(f"  {_pad('python', 10)} {_pad(platform.python_version(), 38)} {OK}")
 
     record: dict[str, Any] = {}
 
+    fam = deps.detect()
+    rooted = deps.can_root()
+    if fam is None:
+        say(f"  {_pad('包管理', 10)} {_pad('没探到 —— 缺什么只能打印出来', 38)} {WARN}")
+    elif rooted:
+        say(f"  {_pad('包管理', 10)} {_pad(fam.name + ',可以装', 38)} {OK}")
+    else:
+        say(f"  {_pad('包管理', 10)} {_pad(fam.name + ',没有 root —— 只打印', 38)} {WARN}")
     if with_deps:
-        _install_deps(say)
+        # **旧参数不静默吞。** 它现在是默认行为了,说一声比装作没看见好。
+        say("     (--with-deps 已经是默认行为了,这个参数可以不用加)")
 
     # ---------------------------------------------------------------- 浏览器
     have = browser.find(version)
     if have and not force:
-        say(f"  {'浏览器':<10} {('chrome ' + version + ' 已经下过'):<38} {OK}")
+        say(f"  {_pad('浏览器', 10)} {_pad('chrome ' + version + ' 已经下过', 38)} {OK}")
         path = have
     else:
         # 目录在、标记不在 —— 要么是上次装到一半,要么是 0.5.1 之前装的
         # (那时候还没有标记这回事)。**重下 150 MB 不能不吭声。**
         if not force and browser.install_dir(version).exists():
-            say(f"  {'浏览器':<10} {'装了一半或是旧版本装的,重下一次':<34} {WARN}")
+            say(f"  {_pad('浏览器', 10)} {_pad('装了一半或是旧版本装的,重下一次', 38)} {WARN}")
         # **传进来的赢**:显式给了源就不探 —— 探测是"这台机器上哪个快"的事实,
         # 而你指定哪个是你的选择(v1/cli/install.md §3 那条规矩)
         chosen = mirror or os.environ.get("WEBMUXD_BROWSER_MIRROR")
         if not chosen:
             chosen = _pick_mirror(version, say)
         try:
-            say(f"  {'浏览器':<10} {('下 chrome ' + version + ' …'):<38}")
+            say(f"  {_pad('浏览器', 10)} {_pad('下 chrome ' + version + ' …', 38)}")
             path = browser.install(version, mirror=chosen, force=force,
                                    on_progress=_progress(out))
-            say(f"\r  {'浏览器':<10} {('chrome ' + version):<38} {OK}")
+            say(f"\r  {_pad('浏览器', 10)} {_pad('chrome ' + version, 38)} {OK}")
         except Exception as e:
             # **不记一个下不到的路径。** 键不在,就是"你得自己填"。
             #
             # 原因**整句打出来,不截断** —— 截在半句上的提示等于没有提示,
             # 而这儿的原因(DNS 不通 / 403 / 连接超时)决定了下一步该做什么。
-            say(f"\r  {'浏览器':<10} {'下不到':<38} {WARN}")
+            say(f"\r  {_pad('浏览器', 10)} {_pad('下不到', 38)} {WARN}")
             say(f"     {e}")
             sysone = browser.find_system()
             if sysone:
@@ -89,24 +115,29 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
 
     # ---------------------------------------------------------------- 依赖
     if path:
-        missing = browser.missing_libs(path)
-        if missing:
-            say(f"  {'共享库':<10} {('缺 ' + ', '.join(missing[:3])):<38} {WARN}")
-            say(f"     装上:sudo apt-get install -y {' '.join(APT_DEPS)}")
-            say("     或者 `webmuxd install --with-deps`(要 root)")
-        else:
-            say(f"  {'共享库':<10} {'齐':<38} {OK}")
+        def libs():
+            m = browser.missing_libs(path)
+            return (not m), ("缺 " + ", ".join(m[:3])) if m else ""
 
-        if browser.has_cjk_font():
-            say(f"  {'中文字体':<9} {'有':<38} {OK}")
-        else:
-            # **裸服务器渲染中文全是豆腐块** —— 和代码无关,但撞上的人一定会以为是 bug
-            say(f"  {'中文字体':<9} {browser.FONT_HINT[1]:<38} {WARN}")
-            say(f"     装上:sudo {browser.FONT_HINT[0]}")
+        _ensure(say, fam, rooted, "共享库", libs,
+                fam.chrome if fam else deps.APT.chrome)
+        # **裸服务器渲染中文全是豆腐块** —— 和代码无关,但撞上的人一定会以为是 bug
+        _ensure(say, fam, rooted, "中文字体",
+                lambda: (browser.has_cjk_font(), browser.FONT_HINT[1]),
+                fam.font if fam else deps.APT.font, good_text="有")
 
         record["default_browser"] = {
             "path": path, "version": version, "source": "chrome-for-testing",
         }
+
+    # ------------------------------------------------------------------ xpra
+    # **画面默认走 xpra**(works/11 §6),所以它和浏览器一样是"跑之前要有的东西",
+    # 不是一个可选的加分项。装不上也要把话说完:怎么装、以及不想装可以走哪条。
+    ok = _ensure(say, fam, rooted, "xpra", xpra_mod.available,
+                 fam.xpra if fam else deps.APT.xpra,
+                 tail="不想装的话:webmuxd new … --transport screencast")
+    if ok:
+        record["xpra"] = {"vfb": "Xvfb"}
 
     p = env.save(record)
     say("")
@@ -124,7 +155,7 @@ def _pick_mirror(version: str, say) -> str:
     **量的是吞吐,不是能不能连上** —— 下 150 MB 的时候,握手快 20ms 一文不值。
     探不通不是错误,列出来就是了([browser.probe_mirrors](../browser.py))。
     """
-    say(f"  {'下载源':<10} 探测中…")
+    say(f"  {_pad('下载源', 10)} 探测中…")
     ranked = browser.probe_mirrors(version)
     for i, (name, _base, kbps) in enumerate(ranked):
         speed = f"{kbps / 1024:.1f} MB/s" if kbps else "探不通"
@@ -143,27 +174,41 @@ def _progress(out):
         if not total or not out.isatty():
             return
         pct = done * 100 // total
-        print(f"\r  {'浏览器':<10} {f'下 chrome … {pct}%':<38}", end="", file=out)
+        print(f"\r  {_pad('浏览器', 10)} {_pad(f'下 chrome … {pct}%', 38)}", end="", file=out)
     return cb
 
 
-def _install_deps(say) -> None:
-    """**能装就装,装不了只打印。** playwright 就是这个姿态,理由见 §4.3。"""
-    apt = shutil.which("apt-get")
-    if not apt:
-        say(f"  {'依赖':<11} {'非 Debian/Ubuntu,自己装':<38} {WARN}")
-        say(f"     大致是这些:{' '.join(APT_DEPS)}")
-        return
-    cmd = ["apt-get", "install", "-y", "-q", *APT_DEPS]
-    if shutil.which("sudo"):
-        cmd = ["sudo", "-n", *cmd]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    except Exception as e:
-        r = None
-        say(f"  {'依赖':<11} {str(e)[:38]:<38} {WARN}")
-    if r is not None and r.returncode == 0:
-        say(f"  {'依赖':<11} {'装好了':<38} {OK}")
-    elif r is not None:
-        say(f"  {'依赖':<11} {'装不了(要 root)':<38} {WARN}")
-        say(f"     自己跑:sudo apt-get install -y {' '.join(APT_DEPS)}")
+def _ensure(say, fam, rooted, label: str, probe, pkgs, tail: str = "",
+            good_text: str = "齐") -> bool:
+    """探一样东西;缺了就装;装完**再探一遍**。
+
+    最后那次重探不是形式:`apt-get` 返回 0 只说明"命令没报错",
+    而我们要的是"现在真的有了"。**判据永远是探测结果,不是安装器的退出码。**
+    """
+    ok, why = probe()
+    if ok:
+        say(f"  {_pad(label, 10)} {_pad(good_text, 38)} {OK}")
+        return True
+    if fam is None or not rooted:
+        say(f"  {_pad(label, 10)} {_pad(_cut(why, 38), 38)} {WARN}")
+        # 包管理器都没探到的时候,`line()` 返回的是一句话不是一行命令 ——
+        # 再套一个"装上:"就成了病句。
+        say(f"     {deps.line(fam, pkgs)}" if fam is None
+            else f"     装上:{deps.line(fam, pkgs)}")
+        if tail:
+            say(f"     {tail}")
+        return False
+
+    say(f"  {_pad(label, 10)} {_pad(_cut(why, 28) + ' —— 装上…', 38)}")
+    good, msg = deps.apply(fam, pkgs)
+    ok, why = probe()                       # **以重探为准**
+    if ok:
+        say(f"  {_pad(label, 10)} {_pad('装好了', 38)} {OK}")
+        return True
+    say(f"  {_pad(label, 10)} {_pad(_cut(msg or why, 38), 38)} {WARN}")
+    if not good and msg:
+        say(f"     {msg}")
+    say(f"     自己跑:{deps.line(fam, pkgs)}")
+    if tail:
+        say(f"     {tail}")
+    return False

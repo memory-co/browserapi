@@ -1,5 +1,64 @@
 # 更新日志
 
+## 0.7.0
+
+**画面默认走 xpra,依赖由 `webmuxd install` 装干净。**
+
+### 默认翻了
+
+```bash
+webmuxd new --id work --port 7900                        # 现在是 xpra
+webmuxd new --id work --port 7900 --transport screencast # 原来那条
+```
+
+0.6.x 的默认是 screencast,理由写的是"它零依赖"。**翻的理由不是偏好,是数**:
+滚动时 xpra 的 `scroll` 包**零字节**干掉了 57% 的重绘面积,而 screencast
+滚动是整屏重发([works/12 §9](docs/v2/works/12-xpra-client.md))。
+**默认值该给的是好的那个,不是好装的那个** —— "好装"那一半交给 `install`。
+
+**起不来就报错,不静默退回。** 静默退回等于让你以为自己在看 xpra 的画质:
+
+```
+✗ 默认走 xpra,但这台机器起不来:缺:Xvfb(Debian/Ubuntu:xvfb;RHEL:xorg-x11-server-Xvfb)
+   装上:`webmuxd install`(有 root 就自动装,没 root 会打出该跑的那行);
+   不想装就显式说:`--transport screencast`
+```
+
+`--runtime remote` 上不受影响:那儿只有一个 CDP 端点、碰不到对面的 X 显示,
+**screencast 是唯一可能的画面来源**,所以它在那条路上就是默认,这不是降级。
+
+### `webmuxd install` 现在真的把环境弄齐
+
+**装是默认行为,不再要 `--with-deps`。** 探到缺了却不装,等于把活原样退回去 ——
+`install` 的职责就是"跑之前把环境弄好"。**只有没 root 时才退化成打印**,
+那时候我们确实做不了,而不是选择不做。
+
+```
+探测环境…
+  python     3.11.2                                 ✓
+  包管理     apt-get,可以装                         ✓
+  浏览器     chrome 152.0.7977.42 已经下过          ✓
+  共享库     齐                                     ✓
+  中文字体   有                                     ✓
+  xpra       齐                                     ✓
+```
+
+- **apt / dnf / yum 都认。** 原来只支持 Debian/Ubuntu。真机上撞了才知道
+  这不是换个前缀:RHEL 那边 Xvfb 叫 `xorg-x11-server-Xvfb`、Pillow 叫
+  `python3-pillow`,chrome 的共享库更是一个都对不上。
+- **装不上要分清是"源里没这个包"还是"没权限"** —— 两者的下一步完全不同。
+  xpra 在 RHEL 系不在基础源里,会直接告诉你去哪加源。
+- **装完重新探一遍。** `apt-get` 返回 0 只说明命令没报错,不说明东西真的有了。
+  判据永远是探测结果,不是安装器的退出码。
+- `--with-deps` 还认,但会告诉你它已经是默认行为了。
+
+### 别的
+
+- `--dsf` 在 xpra 上用不了(尺寸由 X 显示定),报错里会说清 xpra 是你选的
+  还是默认来的 —— 没说要 xpra 的人被告知"dsf 在 xpra 上没用",第一反应会是
+  "我什么时候要 xpra 了"。
+- `webmuxd install` 的输出按**显示宽度**对齐,中文标签不再把整块弄歪。
+
 ## 0.6.1
 
 **xpra 在 RHEL 系的机器上起不来 —— 虚拟显示是发行版的打包方选的,不是我们。**

@@ -43,7 +43,7 @@ v1:    ────────────────┘        └───�
 | [08-migration.md](08-migration.md) | v1 → v2:什么变了、什么一个字没动 |
 | [09-wire-format.md](09-wire-format.md) | **一帧逐字节长什么样** —— ttyd 一个字节、我们二十八个,为什么;三家的上行怎么组织;以及**那个缺掉的协议客户端** |
 | [10-install.md](10-install.md) | **playwright 的 install 拆开看** —— 下的是 bin 还是 rpm(两条都有,刻意分开)、标记文件、镜像轮转、依赖怎么探。末尾是该抄什么不该抄什么 |
-| [11-xpra.md](11-xpra.md) | **画面换 xpra** —— 但它只负责像素:两条 WS、输入不走它(收口不动)、`--kiosk` 让 bar 根本不出现、原生 UI 照旧归我们 |
+| [11-xpra.md](11-xpra.md) | **画面默认走 xpra** —— 但它只负责像素:两条 WS、输入不走它(收口不动)、`--kiosk` 让 bar 根本不出现、原生 UI 照旧归我们 |
 | [12-xpra-client.md](12-xpra-client.md) | **客户端解码,实测** —— xpra-html5 里没有解码器,自写约 500 行;`start-desktop` + `--kiosk`;`scroll` 用零字节干掉 57% 重绘面积 |
 
 ## 明确不做

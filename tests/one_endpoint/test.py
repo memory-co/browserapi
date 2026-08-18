@@ -124,7 +124,7 @@ def test_本机起一个_然后画面和_api_都在那个口上():
 
     impl = ProcessRuntime()
     port = _free()
-    h = impl.start("t-proc", port=port)
+    h = impl.start("t-proc", port=port, transport="screencast")
     try:
         assert impl.alive(h) and h.kind == "process"
         assert h.port == port
@@ -136,7 +136,8 @@ def test_本机起一个_然后画面和_api_都在那个口上():
         assert r.status == 200 and b"/api/view" in page
 
         web = Webmuxd()
-        sess = web.session(id="t-proc", port=port, runtime="process")
+        sess = web.session(id="t-proc", port=port, runtime="process",
+                           transport="screencast")
         tab = sess.open("about:blank")
         assert tab.js("1+1") == 2
         assert sess.view_url.startswith(f"http://127.0.0.1:{port}")
@@ -154,7 +155,8 @@ def test_session_拿不到就拉起来_而且第二次给同一个对象():
 
     web = Webmuxd()
     port = _free()
-    sess = web.session(id="t-auto", port=port, runtime="process")
+    sess = web.session(id="t-auto", port=port, runtime="process",
+                       transport="screencast")
     try:
         assert sess.status()["ok"] is True
         assert web.session(id="t-auto") is sess
@@ -192,7 +194,8 @@ def test_浏览器起不来时把它自己那句话带出来(tmp_path):
 
     with pytest.raises(RuntimeUnavailable) as ei:
         ProcessRuntime().start("x", port=_free(), browser_path=str(fake),
-                               data_dir=str(tmp_path / "work"))
+                               data_dir=str(tmp_path / "work"),
+                               transport="screencast")
     msg = str(ei.value)
     assert "no-sandbox" in msg, f"浏览器自己那句话没带出来:{msg}"
     # 那一坨 [pid:pid:时间:ERROR:文件:行] 前缀对使用者没意义,会把真正的话挤出屏幕
@@ -227,7 +230,7 @@ def test_root_下自动关沙箱_并且说出来(monkeypatch, tmp_path):
 
     with pytest.raises(RuntimeUnavailable):
         ProcessRuntime().start("x", port=_free(), browser_path="/bin/true",
-                               data_dir=str(tmp_path))
+                               data_dir=str(tmp_path), transport="screencast")
     assert "--no-sandbox" in seen["args"], "root 下不加的话根本起不来"
 
 
@@ -273,9 +276,11 @@ def test_绑非回环要留一条警告(tmp_path, monkeypatch):
     monkeypatch.setattr(proc_mod, "spawn_sessiond", lambda *a, **k: FakePopen([]))
 
     h = ProcessRuntime().start("x", port=_free(), browser_path="/bin/true",
-                               data_dir=str(tmp_path), bind="0.0.0.0")
+                               data_dir=str(tmp_path), bind="0.0.0.0",
+                               transport="screencast")
     assert any("0.0.0.0" in n for n in h.detail["notes"]), h.detail["notes"]
 
     h2 = ProcessRuntime().start("y", port=_free(), browser_path="/bin/true",
-                                data_dir=str(tmp_path / "2"))
+                                data_dir=str(tmp_path / "2"),
+                                transport="screencast")
     assert not any("0.0.0.0" in n for n in h2.detail["notes"]), "默认不该报警"

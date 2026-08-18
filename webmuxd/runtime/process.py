@@ -70,6 +70,28 @@ def resolve_browser(explicit: str | None = None) -> str:
                       "或者 session(browser=…) 指一个")
 
 
+def resolve_transport(explicit: str | None) -> str:
+    """没显式说的时候走哪条画面路。**默认 xpra。**
+
+    xpra 按 damage 区域编码,滚动时 `scroll` 包零字节搬像素 ——
+    实测滚一页 Wikipedia,57% 的重绘面积没花一个字节
+    ([12 §9](../../docs/v2/works/12-xpra-client.md))。这是默认值该给的东西。
+
+    **起不来就抛,不退回 screencast。** 静默退回等于让你以为自己在看 xpra
+    的画质,而那正是 [07](../../docs/v2/works/07-runtime.md) 那句
+    "不可用时抛,不降级"要防的事。退路是**显式说一声**,不是我们替你决定。
+    """
+    if explicit:
+        return explicit
+    ok, why = xpra_mod.available()
+    if ok:
+        return "xpra"
+    raise unavailable(
+        "process", f"默认走 xpra,但这台机器起不来:{why}",
+        "装上:`webmuxd install`(有 root 就自动装,没 root 会打出该跑的那行);"
+        "不想装就显式说:`--transport screencast` / `transport=\"screencast\"`")
+
+
 class ProcessRuntime:
     name = "process"
 
@@ -85,7 +107,9 @@ class ProcessRuntime:
               proxy: str | None = None, data_dir: str | None = None,
               token: str | None = None, bind: str = "127.0.0.1",
               dsf: float = 1.0, view: dict[str, Any] | None = None,
-              transport: str = "screencast", **_opts: Any) -> Handle:
+              transport: str | None = None, **_opts: Any) -> Handle:
+        asked = transport                      # 用户显式说的,还是默认来的
+        transport = resolve_transport(transport)
         # **参数先对,再动机器。** 这一条和浏览器、端口都无关,放最前面 ——
         # 不静默吃掉一个明确给了的参数:dsf 靠的是 `--force-device-scale-factor`
         # 加上 screencast 的 maxWidth/maxHeight 一起乘
@@ -93,11 +117,14 @@ class ProcessRuntime:
         # 没有 screencast —— 画面尺寸就是那个 X 显示的尺寸。
         # **给了却不起作用,比报错难查得多。**
         if transport == "xpra" and dsf and dsf != 1.0:
+            # **说清 xpra 是你选的还是默认来的。** 没说要 xpra 的人被告知
+            # "dsf 在 xpra 上没用",第一反应会是"我什么时候要 xpra 了"。
+            which = "--transport xpra" if asked else "默认的 xpra"
             raise unavailable(
-                "process", f"--dsf {dsf} 在 --transport xpra 上没有用",
+                "process", f"--dsf {dsf} 在 {which} 上没有用",
                 "xpra 截的是那个 X 显示,倍率得由显示尺寸决定 —— "
                 "把 --window-size 开大(比如 2048x1536)是等价的做法;"
-                "或者去掉 --dsf")
+                "要 dsf 就用 --transport screencast")
         exe = resolve_browser(browser_path)
         require_ports(port)
 

@@ -45,11 +45,13 @@ print(sess.view_url)                         # 人从这儿进去看,浏览器�
 
 ```bash
 pip install webmuxd
-webmuxd install          # 下一个钉死版本的浏览器,顺带探一遍依赖
+webmuxd install          # 下浏览器 + 把环境弄齐(有 root 会顺手装依赖)
 ```
 
-`install` 把浏览器放进 `~/.cache/webmuxd/`,路径记进 `~/.webmuxd.json`。
-**它是幂等的** —— 再跑一次就是重新探一遍,所以"检查"和"安装"是同一个命令。
+`install` 把浏览器放进 `~/.cache/webmuxd/`,路径记进 `~/.webmuxd.json`,
+并且探一遍共享库、中文字体、以及**画面默认走的 xpra**。
+**有 root 就直接装上,没 root 就打出完整的那行命令** —— 它不会探到缺了却不管。
+**幂等** —— 再跑一次就是重新探一遍,所以"检查"和"安装"是同一个命令。
 
 ### 当库用
 
@@ -85,11 +87,12 @@ webmuxd kill     -t work
 
 ## 它和别的东西不一样在哪
 
-- **画面是自己产的。** 不是 VNC,不是桌面 —— CDP 的 `Page.startScreencast` 出帧,
-  人的鼠标键盘被归一化后翻译成 `Input.*` 打回去。所以画面里**只有页面内容**,
-  tab 条和地址栏由你自己画([docs/v2/works/01](docs/v2/works/01-frame-source.md))。
-  滚动多的场景可以换成 xpra 出帧(见下),**换的只有像素从哪来** ——
-  输入、只读、tab、原生 UI 一模一样。
+- **画面是自己产的。** 不是 VNC,不是桌面 —— 人的鼠标键盘被归一化后翻译成
+  CDP `Input.*` 打回去,所以画面里**只有页面内容**,tab 条和地址栏由你自己画
+  ([docs/v2/works/01](docs/v2/works/01-frame-source.md))。
+  像素默认由 xpra 出(按区域编码,滚动时零字节搬像素),装不上时退到
+  CDP 截屏那条 —— **两条路换的只有像素从哪来**,输入、只读、tab、原生 UI
+  一模一样([works/11](docs/v2/works/11-xpra.md))。
 - **按人看得见的字操作。** `click("提交订单")`,不写选择器。分档匹配(精确 → 子串 →
   忽略大小写),**有歧义就给候选,绝不替你挑一个** —— 挑错了你永远不会知道。
 - **"看见"= 元素表 + 标注截图。** `observe()` 一次给全,直接喂多模态模型;
@@ -148,10 +151,10 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 - **没有隔离。** 页面跑在你自己机器上。要隔离就**把 webmuxd 放进容器里**,
   或者用 `remote` 连一个别处的浏览器 —— 那是部署决定,不是我们的参数。
 - **没有声音。** 画面是帧流,音频不在这条通道上。视频能放,但是静音的。
-- **带宽不省。** 每帧都是完整 JPEG,滚动时能到 10 Mbps。静止时是 0。
-  (但**流畅度反而更好** —— 全屏运动正是 VNC 区域重传的负收益区,
-  [01 §4.1](docs/v2/works/01-frame-source.md#41-但更费带宽--更不流畅)。
-  在意滚动的话换 `--transport xpra`,见下。)
+- **带宽不省。** 静止时是 0,动起来能到几 Mbps。xpra 那条靠 `scroll` 把滚动
+  压得很低,但**全屏持续运动仍然贵**(实测 9 Mbps)—— 那是这条路线的性质:
+  整屏都在动时,分区域重传会退化成整屏重传
+  ([01 §4.1](docs/v2/works/01-frame-source.md#41-但更费带宽--更不流畅))。
 - **没有桌面。** 文件管理器、系统对话框、非浏览器程序都没有。浏览器自己那些
   原生 UI(对话框、下载、文件选择、权限、Basic 认证)是**用 CDP 一条条收回来的**,
   见 [works/06](docs/v2/works/06-no-desktop.md)。
@@ -159,32 +162,40 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 这几条不是"还没做",是**这条路线的性质** —— 画面是从浏览器的合成器直接出来的,
 所以它只有页面,没有桌面,也没有声音。要完整桌面就该用远程桌面,不是用这个。
 
-## 换一条像素来源:xpra
+## 画面从哪来
 
-滚动和局部更新多的场景,可以让 xpra 出帧:
+默认走 **xpra**:它按 damage 区域编码,尤其是滚动 —— `scroll` 包**零字节搬像素**。
+实测滚一页 Wikipedia,**57% 的重绘面积一个字节没花**
+([works/12 §9](docs/v2/works/12-xpra-client.md))。
+
+```bash
+webmuxd install                                          # 有 root 就把它装上
+webmuxd new --id work --port 7900                        # 默认就是 xpra
+webmuxd new --id work --port 7900 --transport screencast # 零系统依赖那条
+webmuxd info                                             # 这台机器上能不能走
+```
+
+要三个系统包(`webmuxd install` 会装,或者自己来):
 
 ```bash
 apt install xpra xvfb python3-pil                     # Debian / Ubuntu
-# yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里云
-webmuxd new --id work --port 7900 --transport xpra
-webmuxd info                               # 看这台机器上它可不可用
+yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里云
 ```
 
-差别只有**一件事**:像素从哪来。输入、光标、tab、只读、原生 UI、日志、token
-**完全一样** —— 观看页自己换成 canvas,别的代码一行不动
-([works/11](docs/v2/works/11-xpra.md))。
+**装不上就报错,不会静默退回。** 静默退回等于让你以为自己在看 xpra 的画质;
+退路是显式说一声 `--transport screencast`。
 
-它强在按 damage 区域编码,尤其是 `scroll`:滚动时**零字节搬像素**。
-实测滚一页 Wikipedia,57% 的重绘面积是 `scroll` 包干的,一个字节没花
-([works/12 §9](docs/v2/works/12-xpra-client.md))。
+两条路的差别**只有像素从哪来**:输入、光标、tab、只读、原生 UI、日志、token
+完全一样,观看页自己换成 canvas,别的代码一行不动。
 
-代价说清楚:
+什么时候该显式选 screencast:
 
-- 要装 `xpra` / `Xvfb` / `python3-pil`,**装不上就是用不了**,不会静默退回 screencast
-- 浏览器是**有头的**(kiosk 模式,画面里没有 tab 条和地址栏),比 headless 吃资源
-- 全屏持续运动反而是它的劣势区(实测能到 9 Mbps),那种场景 screencast 更合适
-
-**默认仍然是 screencast**,因为它零依赖。
+- 机器上装不了 xpra(没 root、或者 macOS 没有 Xvfb)
+- `--runtime remote` —— 那儿我们只有一个 CDP 端点,碰不到对面的 X 显示,
+  **screencast 是唯一可能的画面来源**,也是那条路上的默认
+- 要 `--dsf`(高 DPI 匹配)—— 它靠的是 screencast 那套参数
+- **全屏持续放视频** —— 那是 xpra 的劣势区(实测能到 9 Mbps),
+  整屏都在动的时候分区域重传会退化成整屏重传还多背分区开销
 
 ## 依赖
 
@@ -192,10 +203,11 @@ webmuxd info                               # 看这台机器上它可不可用
 | --- | --- | --- |
 | **Python** | ≥ 3.10 | |
 | **系统** | Linux / macOS | Chrome for Testing 没有 linux-arm64 构建,那种机器上用系统的浏览器 |
+| **画面默认要的** | `xpra` · `Xvfb` · `PIL` | `webmuxd install` 会装。macOS 上没有 Xvfb,得显式 `--transport screencast` |
 
-裸服务器上还要 headless chrome 的那些共享库和**中文字体**(没有字体的话
-中文全是豆腐块,和代码无关)。`webmuxd install` 会探一遍并把缺的说出来,
-`webmuxd install --with-deps` 能替你装(要 root,只支持 Debian/Ubuntu)。
+裸服务器上还要 chrome 的那些共享库和**中文字体**(没有字体的话中文全是豆腐块,
+和代码无关)。这些连同 xpra 那三个,`webmuxd install` **有 root 就直接装**
+(apt / dnf / yum 都认),没 root 就打出完整的那行命令。
 
 ## 开发
 

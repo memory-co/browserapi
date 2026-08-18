@@ -544,3 +544,178 @@ def test_起不来时先说清是哪一层没起来():
            "process.py").read_text()
     assert "sess.proc.poll() is not None" in src, "没有区分 xpra 死没死"
     assert "xpra 自己退了" in src and "虚拟显示" in src
+
+
+# ------------------------------------------------------------------ 默认是 xpra
+
+def test_默认走_xpra():
+    """0.7.0 起 xpra 是默认。它按 damage 区域编码,滚动时 `scroll` 包零字节
+    搬像素(§9)—— 这是默认值该给的东西。"""
+    from webmuxd.runtime.process import resolve_transport
+    assert resolve_transport(None) == "xpra"
+
+
+def test_显式给的赢():
+    from webmuxd.runtime.process import resolve_transport
+    assert resolve_transport("screencast") == "screencast"
+    assert resolve_transport("xpra") == "xpra"
+
+
+def test_xpra_起不来时报错_不静默退回_screencast(monkeypatch):
+    """**静默退回等于让你以为自己在看 xpra 的画质。**
+
+    退路是显式说一声,不是我们替你决定 —— 所以那句话里既要有"怎么装",
+    也要有"不想装走哪条"。
+    """
+    from webmuxd.errors import RuntimeUnavailable
+    from webmuxd.runtime.process import resolve_transport
+    monkeypatch.setattr(xpra_mod.shutil, "which",
+                        lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
+    with pytest.raises(RuntimeUnavailable) as ei:
+        resolve_transport(None)
+    assert "默认走 xpra" in ei.value.message
+    hint = str(ei.value.details)
+    assert "webmuxd install" in hint            # 怎么装
+    assert "screencast" in hint                 # 不想装走哪条
+
+
+def test_remote_上_screencast_是唯一可能的_所以它就是默认():
+    """**这不是"降级"。** 我们手里只有一个 CDP 端点,那台机器上的 X 显示
+    碰不到 —— screencast 是那条路上画面唯一的来源。"""
+    import inspect
+    from webmuxd.runtime.remote import RemoteRuntime
+    src = inspect.getsource(RemoteRuntime.start)
+    assert 'transport or "screencast"' in src
+    assert inspect.signature(RemoteRuntime.start).parameters["transport"].default is None
+
+
+def test_dsf_报错要说清_xpra_是你选的还是默认来的(monkeypatch):
+    """没说要 xpra 的人被告知"dsf 在 xpra 上没用",第一反应是"我什么时候要 xpra 了"。"""
+    from webmuxd.errors import RuntimeUnavailable
+    from webmuxd.runtime.process import ProcessRuntime
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ProcessRuntime().start("x", port=65010, dsf=2.0)
+    assert "默认的 xpra" in ei.value.message
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ProcessRuntime().start("x", port=65010, dsf=2.0, transport="xpra")
+    assert "--transport xpra" in ei.value.message
+    assert "screencast" in str(ei.value.details)     # 要 dsf 该走哪条
+
+
+# --------------------------------------------------------------- install 装依赖
+
+def test_两个发行版家族的包名是真的不一样():
+    """**这不是换个前缀就完了。** 撞了才知道:RHEL 那边 Xvfb 的包名是
+    `xorg-x11-server-Xvfb`,Pillow 是 `python3-pillow`。"""
+    from webmuxd.cli import deps
+    assert deps.APT.xpra == ("xpra", "xvfb", "python3-pil")
+    assert deps.YUM.xpra == ("xpra", "xorg-x11-server-Xvfb", "python3-pillow")
+    assert deps.DNF.xpra == deps.YUM.xpra
+    # chrome 的共享库两边一个都对不上
+    assert not set(deps.APT.chrome) & set(deps.YUM.chrome)
+    assert "mesa-libgbm" in deps.YUM.chrome and "libgbm1" in deps.APT.chrome
+
+
+def test_装不上要分清是没这个包还是没权限(monkeypatch):
+    """**两者的下一步完全不同**:前者要加软件源,后者要 sudo。"""
+    from webmuxd.cli import deps
+
+    class R:
+        def __init__(self, rc, err): self.returncode, self.stderr, self.stdout = rc, err, ""
+
+    monkeypatch.setattr(deps.subprocess, "run",
+                        lambda *a, **k: R(1, "No match for argument: xpra"))
+    ok, why = deps.apply(deps.YUM, deps.YUM.xpra)
+    assert not ok and "源里没有" in why
+    assert deps.XPRA_REPO in why, "RHEL 上 xpra 不在基础源里,得说去哪加源"
+
+    monkeypatch.setattr(deps.subprocess, "run",
+                        lambda *a, **k: R(1, "Permission denied"))
+    ok, why = deps.apply(deps.APT, deps.APT.xpra)
+    assert not ok and "没权限" in why
+
+
+def test_没有_root_时只打印_而且给完整的那一行(monkeypatch):
+    """**"装一下依赖"不是提示,一整行命令才是。**"""
+    import io
+    from webmuxd.cli import deps, install as ins
+    monkeypatch.setattr(deps, "can_root", lambda: False)
+    monkeypatch.setattr(deps, "detect", lambda: deps.YUM)
+    monkeypatch.setattr(deps, "apply", lambda *a, **k: pytest.fail("没 root 还去装了"))
+    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:Xvfb"))
+    out = io.StringIO()
+    ins.install(out=out)
+    text = out.getvalue()
+    assert "sudo yum install -y -q xpra xorg-x11-server-Xvfb python3-pillow" in text
+    assert "--transport screencast" in text, "得说清不想装可以走哪条"
+
+
+def test_装完要重新探一遍_不看安装器的退出码(monkeypatch):
+    """`apt-get` 返回 0 只说明命令没报错,不说明东西真的有了。
+    **判据永远是探测结果。**"""
+    import io
+    from webmuxd.cli import deps, install as ins
+    monkeypatch.setattr(deps, "can_root", lambda: True)
+    monkeypatch.setattr(deps, "detect", lambda: deps.APT)
+    monkeypatch.setattr(deps, "apply", lambda *a, **k: (True, ""))   # 装"成功"了
+    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:Xvfb"))  # 但还是没有
+    out = io.StringIO()
+    ins.install(out=out)
+    assert "装好了" not in out.getvalue(), "安装器说成功就信了"
+
+
+# --------------------------------------------- 默认那条路上,那几条也得成立
+
+def _fake_xpra_start(monkeypatch, tmp_path):
+    """把 xpra 那条路上的三个外部动作都换掉,只留下"我们拼了什么参数"。"""
+    from webmuxd.runtime import process as proc_mod
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, argv, **kw):
+            seen.setdefault("argv", []).append(argv)
+            self.pid = 1
+
+        def poll(self): return None
+        def send_signal(self, s): pass
+        def wait(self, timeout=None): return 0
+        def kill(self): pass
+
+    monkeypatch.setattr(xpra_mod.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(xpra_mod, "available", lambda: (True, ""))
+    monkeypatch.setattr(xpra_mod, "stop", lambda *a, **k: None)
+    monkeypatch.setattr(proc_mod, "wait_port", lambda *a, **k: True)
+    monkeypatch.setattr(proc_mod, "wait_http", lambda *a, **k: True)
+    monkeypatch.setattr(proc_mod, "spawn_sessiond", lambda *a, **k: FakePopen([]))
+    monkeypatch.setattr(proc_mod.browser, "missing_libs", lambda p: [])
+    monkeypatch.setattr(proc_mod.browser, "has_cjk_font", lambda: True)
+    return seen
+
+
+def test_默认那条路上_root_也要自动关沙箱并且说出来(monkeypatch, tmp_path):
+    """**root + 沙箱没有能跑的配置**(crbug 638180)。这条在 screencast 那边
+    有测试守着,而 0.7.0 之后**默认走的是 xpra** —— 默认那条不能没人看着。
+    """
+    import os as _os
+    from webmuxd.runtime.process import ProcessRuntime
+    seen = _fake_xpra_start(monkeypatch, tmp_path)
+    monkeypatch.setattr(_os, "geteuid", lambda: 0)
+    monkeypatch.delenv("WEBMUXD_NO_SANDBOX", raising=False)
+
+    h = ProcessRuntime().start("x", port=65020, browser_path="/bin/true",
+                               data_dir=str(tmp_path))
+    child = [a for a in seen["argv"][0] if a.startswith("--start-child=")][0]
+    assert "--no-sandbox" in child, "root 下不加的话浏览器根本起不来"
+    assert any("沙箱是关着的" in n for n in h.detail["notes"]), "关了不说等于偷偷关"
+
+
+def test_默认那条路上_绑非回环也要留一条警告(monkeypatch, tmp_path):
+    """对外开放是**你的决定**,但不能悄悄发生 —— 换了默认 transport 不改变这条。"""
+    from webmuxd.runtime.process import ProcessRuntime
+    _fake_xpra_start(monkeypatch, tmp_path)
+    h = ProcessRuntime().start("x", port=65021, browser_path="/bin/true",
+                               data_dir=str(tmp_path), bind="0.0.0.0")
+    assert any("0.0.0.0" in n for n in h.detail["notes"]), h.detail["notes"]
+    h2 = ProcessRuntime().start("y", port=65022, browser_path="/bin/true",
+                                data_dir=str(tmp_path / "2"))
+    assert not any("0.0.0.0" in n for n in h2.detail["notes"]), "默认不该报警"

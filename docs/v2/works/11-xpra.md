@@ -1,11 +1,12 @@
 # 11 · xpra 那条路
 
 **一句话**:**xpra 只负责像素,别的一律不归它。** 两条 WebSocket —— xpra 那条
-只下行画面,输入、光标、tab、原生 UI、裁边全走我们自己的控制通道。
+只下行画面,输入、光标、tab、原生 UI 全走我们自己的控制通道。
 
 **两个 transport 之间唯一的差别,是像素从哪来**(§5)。
 
-`Page.startScreencast` 那套留着当兜底:它开箱即用,而 xpra 要 Xvfb + xpra 本体。
+**0.7.0 起 xpra 是默认**(§6)。`Page.startScreencast` 那套留着当明确的退路 ——
+xpra 装不上的机器上用它,`remote` 上它是唯一能用的那个。
 
 ## 1. 为什么值得换
 
@@ -155,25 +156,44 @@ xpra 截的是**真实的 chromium 窗口**,所以画面里本来会有 tab 条�
 2. 它必须是**盖住整个视口的 scrim**,否则画面上会同时出现两个对话框,
    而其中一个是死的
 
-## 6. 什么时候用哪个
+## 6. 默认走哪条
 
 ```bash
-webmuxd new --id work --port 7900                  # screencast,开箱即用
-webmuxd new --id work --port 7900 --transport xpra # 画面更好,但要 Xvfb + xpra
+webmuxd install                                          # 有 root 就把 xpra 那套装上
+webmuxd new --id work --port 7900                        # **默认 xpra**
+webmuxd new --id work --port 7900 --transport screencast # 零系统依赖那条
 ```
 
-**screencast 是缺省,因为它零依赖。** xpra 要 Xvfb、xpra 本体、编码器 ——
-`webmuxd install` 现在只下一个浏览器([07 §4](07-runtime.md))。
+**默认是 xpra。** 这一条在 0.7.0 翻过来了,原来写的是"screencast 是缺省,
+因为它零依赖"。翻的理由不是偏好,是[12 §9](12-xpra-client.md)那组数:
+滚动时 `scroll` 包**零字节**干掉了 57% 的重绘面积,而 screencast 那边滚动
+是整屏重发。**默认值该给的是好的那个**,不是好装的那个。
 
-**不静默降级。** 要了 xpra 而机器上没有,就报错并说清缺什么 ——
-这条和 [07](07-runtime.md) 那句"不可用时抛,不降级"是同一条:
-静默退回 screencast 等于让你以为自己在看 xpra 的画质。
+"好装"那一半由 `webmuxd install` 兜:它本来就是跑之前必须走一遍的
+(浏览器得下下来),现在顺手把 xpra / Xvfb / PIL 也装了 ——
+有 root 就装,没 root 就打出完整的那行命令([10](10-install.md))。
+
+**起不来就报错,不静默退回 screencast。** 静默退回等于让你以为自己在看 xpra
+的画质,而那正是 [07](07-runtime.md) 那句"不可用时抛,不降级"要防的事。
+退路是**显式说一声**:
+
+```
+✗ 默认走 xpra,但这台机器起不来:缺:Xvfb(Debian/Ubuntu:xvfb;RHEL:xorg-x11-server-Xvfb)
+   装上:`webmuxd install`(有 root 就自动装,没 root 会打出该跑的那行);
+   不想装就显式说:`--transport screencast`
+```
+
+**`remote` 上没有这个问题**:那儿我们只有一个 CDP 端点,碰不到对面的 X 显示,
+所以 screencast 是**唯一可能**的画面来源 —— 它在那条路上是默认,而这不是降级。
 
 > 这和 [01 §5](01-frame-source.md#5-为什么不留一个开关) 那句"不留开关"矛盾吗?
 > **那一条要修正。** 它当时的论证是"两套画面路径意味着两套输入路径、两套权限模型、
 > 两套 runtime 契约,没有一处能共用"—— 而 §2.1 的决定恰恰让**输入路径和权限模型
 > 完全共用**,只有画面那一段不同。当年拒绝的那个形状(VNC 连输入一起换)和现在
 > 这个不是一回事。
+>
+> 而且 `--transport` 不是一个"两边都行、你挑一个"的旋钮:**默认只有一个**,
+> screencast 是 xpra 装不上时的明确退路,以及 `remote` 上唯一能用的那个。
 
 ## 7. 客户端:`09 §7` 那个空缺,现在必须填了
 

@@ -38,8 +38,11 @@ $ webmuxd install
 WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing webmuxd install
 ```
 
-装依赖(要 root,只支持 Debian/Ubuntu):`webmuxd install --with-deps`。
-别的发行版它只打印缺什么,**不静默**。
+**依赖是它自己装的** —— chrome 的共享库、中文字体、以及画面默认要的
+xpra / Xvfb / PIL。有 root 就直接装(apt / dnf / yum 都认),没 root 就打出
+完整的那行命令让你自己跑,**不会探到缺了却不管**。
+
+(`--with-deps` 还认,但现在是默认行为了,不用再加。)
 
 ## 起一个
 
@@ -142,30 +145,30 @@ webmuxd new --id work --port 7900 --min-quality 40  # 链路差时最多降到 4
 `--min-quality` 是自适应最多降到多少,默认 25。再低就是马赛克 —— 到底了它会改成
 抽帧,那才是链路真撑不住时该退的方向。
 
-### 滚动不顺?那是另一回事
+### 滚动不顺?先确认走的是哪条
 
-上面三个都是"清晰度"。**滚动顺不顺是第四件事**,而它不归上面任何一个旋钮管 ——
-screencast 每帧都是整屏重发,滚动时该发多少发多少。
+上面三个都是"清晰度"。**滚动顺不顺是第四件事**,而它不归上面任何一个旋钮管。
 
-在意滚动的话换一条像素来源:
+默认走的 xpra 按 damage 区域编码,滚动时用 `scroll` 包**零字节搬像素** ——
+实测滚一页 Wikipedia,57% 的重绘面积没花一个字节
+([works/12 §9](docs/v2/works/12-xpra-client.md))。所以先看状态栏:
+
+| 状态栏「画质」那格 | 走的是 | |
+| --- | --- | --- |
+| `xpra` | xpra | 滚动已经是最优的那条 |
+| 一个数字(`80` / `60`…) | screencast | 滚动是整屏重发 —— 看看 `webmuxd info` 为什么没走 xpra |
 
 ```bash
-apt install xpra xvfb python3-pil                     # Debian / Ubuntu
-# yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里云
-webmuxd new --id work --port 7900 --transport xpra
-webmuxd info                       # 先看这台机器上可不可用
+webmuxd info        # 「画面」那行会说 xpra 能不能用、不能用缺什么
+webmuxd install     # 有 root 就把缺的装上
 ```
 
-它按 damage 区域编码,滚动时用 `scroll` 包**零字节搬像素** —— 实测滚一页
-Wikipedia,57% 的重绘面积没花一个字节
-([works/12 §9](docs/v2/works/12-xpra-client.md))。
+**全屏持续放视频是个例外**:那是 xpra 的劣势区(实测能到 9 Mbps),
+整屏都在动的时候分区域重传会退化成整屏重传还多背分区开销。那种场景显式用
+`--transport screencast` 反而更合适。
 
-**变的只有像素从哪来**:输入、只读、tab、原生 UI、状态栏全都一样。
-代价是要装那三个包(装不上就是用不了,不会悄悄退回),浏览器是有头的比较吃资源,
-而且**全屏持续放视频反而是它的劣势区** —— 那种场景默认的 screencast 更合适。
-
-`--dsf` 在 xpra 上没有用(尺寸由 X 显示定),给了会直接报错而不是被忽略 ——
-要更高的分辨率就把 `--window-size` 开大。
+`--dsf` 只在 screencast 那条上有意义(尺寸由 X 显示定),在 xpra 上给了会直接
+报错而不是被忽略 —— 要更高的分辨率就把 `--window-size` 开大。
 
 ## 给别人看
 
@@ -201,7 +204,7 @@ webmuxd **不碰容器** —— tmuxd 不会 `docker run` 一个 tmux。姿态�
 
 ```dockerfile
 FROM python:3.12-slim
-RUN pip install webmuxd && webmuxd install --with-deps
+RUN pip install webmuxd && webmuxd install     # 容器里是 root,依赖它自己装
 ```
 
 或者让浏览器待在别处,只把 CDP 端点给我们:
