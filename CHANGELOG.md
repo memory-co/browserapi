@@ -1,5 +1,46 @@
 # 更新日志
 
+## 0.5.2
+
+**修一个升级就撞的崩溃:登记表里的旧行会把第一条命令带崩。**
+
+```
+$ webmuxd new --id work --port 8090
+  File ".../cli/registry.py", line 78, in list
+    h = Handle(row["runtime"], row["id"], row["port"],
+KeyError: 'port'
+```
+
+0.4 的 session 行是 `api_port` / `view_port`,0.5 只有一个 `port`
+([works/04](docs/v2/works/04-one-port.md))。升上来之后 `~/.../sessions.json`
+里还留着旧行,而代码里是裸下标 —— **第一条命令就崩,而且报错完全不指方向**。
+
+规矩和环境记录那条一样:**格式对不上就当没有**。差别是这儿要**说出来** ——
+那些 session 可能还真在跑,只是我们管不了了:
+
+```
+⚠ 登记表里有 2 行读不懂(多半是 0.4 留下的),已忽略:old2, work
+  那些 session 要是还在跑,得自己清 —— 我们已经管不了它们了。
+  登记表在 /run/user/0/webmuxd/default/sessions.json
+```
+
+警告只说一次,第一条成功的命令会把表重写干净。
+
+### 另外两个 bug,是拆 playwright 的 install 时照出来的
+
+写 [works/10](docs/v2/works/10-install.md)(把 playwright 的安装机制逐条拆开)
+的时候对着自己的代码核,发现两处:
+
+- **解压到一半会看起来像装好了。** 实测:目录里只放一个已 chmod 的 `chrome`、
+  别的全缺,`find()` 照样返回路径 —— 然后我们去跑一个残缺的浏览器。
+  抄 playwright 的 `INSTALLATION_COMPLETE`:标记是解压和 chmod **之后**才写的
+  最后一步。
+- **下载失败时只删了 `.part`**,解压出来的半个目录留着。现在一起删。
+
+**迁移代价**:0.5.1 及更早装的浏览器没有标记文件,升级后会重下一次。
+150 MB 不能静默发生,所以 `install` 会先说一句「装了一半或是旧版本装的,
+重下一次」再动手。
+
 ## 0.5.1
 
 **`webmuxd install` 自己挑最快的下载源。**

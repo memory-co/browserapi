@@ -213,3 +213,39 @@ def test_send_is_the_escape_hatch(session, capsys, tmp_path):
     code = run("send", "-t", "work",
                json.dumps([{"type": "select", "role": "combobox", "value": "b"}]))
     assert code == 0, capsys.readouterr().err
+
+
+# ------------------------------------------------- 升级之后表里还有旧行
+
+def test_登记表里的旧行不该把命令带崩(home, capsys):
+    """**0.5.1 真的崩过。**
+
+    v1 的行是 `api_port` / `view_port`,v2 只有 `port`。升级之后表里还留着旧行,
+    而代码里是 `row["port"]` —— 第一条命令就 KeyError,报错还完全不指方向。
+
+    规矩和环境记录那条一样:**格式对不上就当没有**。差别是这儿要说出来 ——
+    那些 session 可能还真在跑,人得知道去自己清。
+    """
+    reg = Registry(name="default")
+    reg.file.write_text(json.dumps({
+        "work": {"id": "work", "runtime": "container",
+                 "api_port": 7900, "view_port": 6901, "detail": {}},
+        "ok": {"id": "ok", "runtime": "process", "port": 7777, "detail": {}},
+    }, ensure_ascii=False))
+
+    rows = reg.list()                       # 不该抛
+    assert [r["id"] for r in rows] == ["ok"], "旧行该被滤掉,好行该留着"
+
+    err = capsys.readouterr().err
+    assert "读不懂" in err and "work" in err, "扔掉了却不说,人不知道去清什么"
+    assert str(reg.file) in err, "得告诉人表在哪"
+
+
+def test_ls_遇到旧行照常列出好的那些(home, capsys):
+    reg = Registry(name="default")
+    reg.file.write_text(json.dumps({
+        "老的": {"id": "老的", "runtime": "container", "api_port": 1, "detail": {}},
+    }, ensure_ascii=False))
+    assert run("ls") == 0
+    out = capsys.readouterr().out
+    assert "没有 session" in out, "全是旧行的话,等于一个都没有"

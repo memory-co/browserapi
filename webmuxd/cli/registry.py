@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -32,14 +33,43 @@ class Registry:
         self.dir = Path(path) if path else default_dir(name)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.file = self.dir / "sessions.json"
+        self._warned_stale = False
 
     # ---------------------------------------------------------------- 读写
 
     def _read(self) -> dict[str, dict]:
+        """读登记表,**读不懂的行直接扔掉,绝不让它把命令带崩**。
+
+        v1 的行长这样:`{"api_port": 7900, "view_port": 6901, …}`;
+        v2 只有一个 `port`([works/04](../../docs/v2/works/04-one-port.md))。
+        升级之后表里还留着旧行,而 `row["port"]` 会 `KeyError` —— 于是
+        **第一条命令就崩,报错还完全不指方向**。这是 0.5.1 真的发生过的事。
+
+        规矩和环境记录那条一样([v1/cli/install.md](../../docs/v1/cli/install.md)):
+        **格式对不上就当没有**。差别是这儿要**说出来** —— 那些 session 可能还
+        真在跑,只是我们管不了了,人得知道去自己清。
+        """
         try:
-            return json.loads(self.file.read_text() or "{}")
+            raw = json.loads(self.file.read_text() or "{}")
         except (OSError, json.JSONDecodeError):
             return {}
+        if not isinstance(raw, dict):
+            return {}
+
+        good, stale = {}, []
+        for key, row in raw.items():
+            if isinstance(row, dict) and isinstance(row.get("port"), int) \
+                    and row.get("runtime") and row.get("id"):
+                good[key] = row
+            else:
+                stale.append(key)
+        if stale and not self._warned_stale:
+            self._warned_stale = True
+            print(f"⚠ 登记表里有 {len(stale)} 行读不懂(多半是 0.4 留下的),已忽略:"
+                  f"{', '.join(sorted(stale))}\n"
+                  f"  那些 session 要是还在跑,得自己清 —— 我们已经管不了它们了。\n"
+                  f"  登记表在 {self.file}", file=sys.stderr)
+        return good
 
     def _write(self, data: dict[str, dict]) -> None:
         tmp = self.file.with_suffix(".tmp")
@@ -65,8 +95,7 @@ class Registry:
         row = self.get(id)
         if not row:
             return None
-        return Handle(row["runtime"], row["id"], row["port"],
-                      dict(row.get("detail") or {}))
+        return _handle_of(row)
 
     # ---------------------------------------------------------------- 探活
 
@@ -75,8 +104,7 @@ class Registry:
         看不到它你就不知道该清理什么。"""
         out = []
         for row in self._read().values():
-            h = Handle(row["runtime"], row["id"], row["port"],
-                       dict(row.get("detail") or {}))
+            h = _handle_of(row)
             try:
                 alive = rt.get(row["runtime"]).alive(h)
             except Exception:
@@ -86,3 +114,9 @@ class Registry:
 
     def __iter__(self) -> Iterator[dict]:
         return iter(self.list())
+
+
+def _handle_of(row: dict) -> Handle:
+    """`_read()` 已经把形状不对的行滤掉了,所以到这儿可以直接取。"""
+    return Handle(row["runtime"], row["id"], row["port"],
+                  dict(row.get("detail") or {}))
