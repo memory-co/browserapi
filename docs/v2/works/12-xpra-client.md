@@ -80,7 +80,7 @@ UI 不要(我们自己画)。
 所以"借用 xpra-html5 的解码部分"这个想法本身是空的 —— **解码部分不存在**,
 存在的是我们全都不要的那部分。
 
-## 5. 结论:自写,约 500 行
+## 5. 结论:自写,约 500 行 —— **实际 413**
 
 | 要写的 | 量 | 说明 |
 | --- | --- | --- |
@@ -92,6 +92,31 @@ UI 不要(我们自己画)。
 | 握手 + `map-window` + ack | ~60 | §7 |
 
 **不写的**:WebCodecs 视频(§7)、lz4、brotli、加密、音频、窗口管理、输入。
+
+写完之后回来对账:
+
+| | 行数(含注释) | 去掉注释和空行 |
+| --- | --- | --- |
+| `view/static/rencode.js` | 126 | **93** |
+| `view/static/xpra.js` | 287 | **223** |
+| | | **316** |
+
+比估的 500 还少 —— 估多的是 rencodeplus(以为要 250,实际 93,因为**只解不编
+全套**:上行那 6 种包用最朴素的显式编码就够,不需要挑最短表示)。
+
+服务端那两个不在这张表里,因为它们不是"客户端":
+`webmuxd/xpra.py` 195 行(起 xpra),`view/relay.py` 187 行(代理 + 白名单)。
+
+**东西在哪:**
+
+| | |
+| --- | --- |
+| 起 xpra + Xvfb + kiosk chrome | [`webmuxd/xpra.py`](../../../webmuxd/xpra.py) |
+| 代理 + 上行白名单(§7) | [`webmuxd/view/relay.py`](../../../webmuxd/view/relay.py) |
+| rencodeplus 编解码(§2) | [`webmuxd/view/static/rencode.js`](../../../webmuxd/view/static/rencode.js) |
+| 协议 + 解码 + 上画(§3) | [`webmuxd/view/static/xpra.js`](../../../webmuxd/view/static/xpra.js) |
+| "只换像素从哪来"那个开关 | [`webmuxd/view/cast.py`](../../../webmuxd/view/cast.py) 里几个 `if self.xpra` |
+| 测试 | [`tests/pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
 
 ## 6. seamless 还是 desktop:实测定案
 
@@ -113,7 +138,7 @@ seamless 那条路要求客户端做窗口管理,而窗口管理正是 §4 里"�
 `shim.install` 更要紧"。**在 desktop 模式下不成立** —— popup 被合成进同一个窗口,
 客户端根本看不见它是个窗口。
 
-## 7. 上行不是"什么都不发",是**五个包**
+## 7. 上行不是"什么都不发",是**六个包**
 
 [11 §2.1](11-xpra.md) 写的是"我们自己的客户端根本不往 xpra 那条连接发任何东西"。
 **这句话字面上是错的,得改。** 实测下来,不发这些协议根本不动:
@@ -125,6 +150,8 @@ seamless 那条路要求客户端做窗口管理,而窗口管理正是 §4 里"�
 | `focus` | 键盘焦点(我们不用,但省不掉几行) |
 | `damage-sequence` | 发几帧就停 —— 这是 xpra 的背压 ack,对应我们的 ring B([02 §3](02-frame-protocol.md)) |
 | `ping_echo` | 一段时间后服务端主动断开 |
+
+> 写实现时补上了第六个 `disconnect` —— 探针没发它是因为探针不在乎自己走得好不好看。
 
 **但原则活下来了,而且变强了。** §2.1 反对的是"在代理层按黑名单丢 packet",
 理由是漏一类就破一个口。现在我们知道上行是一个**闭集**,于是可以走白名单:
@@ -250,7 +277,61 @@ Input.dispatchMouseEvent(mousePressed/mouseReleased @ OK 按钮坐标)
 3. [11 §5](11-xpra.md) 末尾那段"白拿的好处:人在画面里点了原生对话框,
    `javascriptDialogClosed` 会让我们的记账跟着清" —— **删掉,人点不了。**
 
-## 12. 还没验的
+## 12. 落地时撞到的三件事
+
+设计稿写完之后照着实现了一遍(`webmuxd/xpra.py`、`view/relay.py`、
+`view/static/{rencode,xpra}.js`)。**跑通之前撞了三个坑,每个都值得记下来**,
+因为它们都属于"看代码看不出来、跑一次立刻现形"的那一类。
+
+### 12.1 `steal: false` 会被拒,哪怕我们是唯一的客户端
+
+握手里报 `"steal": false`(意思是"我不抢别人的位子")看起来是最礼貌的选择。
+实测**连不上**,服务端回 `session busy (this session is already active)`。
+
+看它的判断([`server/subsystem/sharing.py`](https://github.com/Xpra-org/xpra)):
+
+```python
+if not c.boolget("steal", True) and self.server._server_sources:
+    return f"{SESSION_BUSY}:this session is already active"
+```
+
+而 `_server_sources` **在我们这个唯一的客户端连上去之前就不是空的**。
+所以正确的组合是 `steal: true` + `share: true`:前者绕开这个检查,
+后者才是"多人同看"真正靠的那个字段(配 `--sharing=yes`)。
+
+顺带一条:服务端会把 **uuid 相同**的旧连接踢掉。uuid 要真随机 ——
+用时间戳的话,同一毫秒开两个标签页会互相踢。
+
+### 12.2 `heartbeat=0` 不是"关掉心跳",是"立刻超时"
+
+代理那头 `web.WebSocketResponse(heartbeat=0)` —— 我的本意是"这一层不要再加一份
+心跳,xpra 自己有 `ping`/`ping_echo`"。aiohttp 的实现是
+`call_later(heartbeat, ping)` 加一个 `heartbeat/2` 的 pong 超时,
+**0 的意思是马上 ping、马上判超时**,于是连上就断。要写 `None`。
+
+症状极具误导性:WebSocket 升级返回 101(日志里看着一切正常),然后立刻关。
+一开始我以为是 xpra 拒了我们。
+
+### 12.3 顺带发现:观看页已经坏了两个版本
+
+写这一篇时给观看页加了一条 `node --check`,**当场发现 0.5.5 和 0.5.6 发出去的
+`index.html` 整个 `<script>` 是语法错的** —— 删一个分支时,
+`} else if (m.type === "quality") {` 这一整行被吞进了上一行注释里。
+
+语法错意味着**整个脚本一行都不执行**:没有画面、没有输入、没有 tab 条。
+两个版本没人发现,是因为**没有任何测试碰过那个文件**。
+
+现在有两条挡着(`tests/pixels_from_xpra/`):
+
+| | 覆盖什么 | 依赖 |
+| --- | --- | --- |
+| 注释里不许出现 `) {` / `} else` | **正是这个错法** | 无,永远跑 |
+| `node --check` + `import()` 每个模块 | 一切语法错 | 有 node 才跑 |
+
+第一条不依赖任何外部工具,所以它**永远会跑** —— 这是刻意的:一条"装了才跑"的
+测试,在没装的机器上等于不存在。
+
+## 13. 还没验的
 
 - **h264 到底强多少**。§8 解释了为什么没测到,但"报上 `full_csc_modes` 之后
   同一段动画的码率"这个数还是空的。这是决定要不要上 WebCodecs 的唯一依据。
@@ -261,7 +342,7 @@ Input.dispatchMouseEvent(mousePressed/mouseReleased @ OK 按钮坐标)
 - **多 tab 时的 X 窗口数**。desktop 模式下 popup 被合成了(§6),但
   `window.open` 出来的**真窗口**是另一回事,还没测。
 
-## 13. ↔ 别处
+## 14. ↔ 别处
 
 - [11](11-xpra.md) —— 本篇是它 §7、§8 的答案,并修正了它的 §2.1、§3、§4、§5
 - [02](02-frame-protocol.md) —— 我们自己那套帧协议,§2/§9 全程在和它对照

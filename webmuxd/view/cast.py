@@ -51,8 +51,17 @@ class Screencaster:
     def __init__(self, session: "Session", *, width: int = DEFAULT_W,
                  height: int = DEFAULT_H, fmt: str = DEFAULT_FORMAT,
                  quality: int = DEFAULT_QUALITY, dsf: float = 1.0,
-                 min_quality: int = 25) -> None:
+                 min_quality: int = 25, transport: str = "screencast") -> None:
         self.session = session
+        #: **像素从哪来 —— 这是两个 transport 之间唯一的差别**
+        #: ([11 §5](../../docs/v2/works/11-xpra.md))。
+        #:
+        #: `xpra` 时这个类**照常干所有别的活**:跟着 tab 走(`Target.activateTarget`)、
+        #: 收输入、发光标、管观看者名单 —— 只有 `Page.startScreencast` 那三行不发。
+        #: 那条原则落到代码上就是下面几个 `if self.xpra: return`,没有第二处分叉。
+        self.transport = transport
+        self.xpra = transport == "xpra"
+        self._warned_resize = False
         self.width, self.height = width, height
         self.format = fmt
         #: 渲染倍率。**只用来匹配观看端的 dpr,不是"越大越清晰"**
@@ -134,6 +143,10 @@ class Screencaster:
                              dsf=self.dsf)
 
     async def _start_cast(self, *, locked: bool = False) -> None:
+        if self.xpra:
+            # 画面由 xpra 那条连接下来,**这里一个 CDP 截图命令都不发** ——
+            # 两条都开着等于同一份画面编码两遍。
+            return
         if self._sid is None:
             return
         self._cast_id += 1
@@ -151,6 +164,9 @@ class Screencaster:
         self._on = True
 
     async def _stop_cast(self, *, locked: bool = False) -> None:
+        if self.xpra:
+            self._on = False
+            return
         if not self._on or self._sid is None:
             self._on = False
             return
@@ -161,6 +177,11 @@ class Screencaster:
 
     async def _apply_viewport(self) -> None:
         """视口是 per-tab 的,一条 CDP 命令([02 §5](../../docs/v2/works/02-frame-protocol.md))。"""
+        if self.xpra:
+            # **xpra 下画面尺寸是那个 X 显示的尺寸,不是 CDP 说了算的。**
+            # 这时候再 setDeviceMetricsOverride,页面会被渲染成另一个尺寸,
+            # 而窗口不变 —— 结果是画面里一圈空白。所以不发。
+            return
         if self._sid is None:
             return
         with contextlib.suppress(Exception):
@@ -169,6 +190,14 @@ class Screencaster:
                 "deviceScaleFactor": 0, "mobile": False}, session_id=self._sid)
 
     async def resize(self, width: int, height: int) -> None:
+        if self.xpra:
+            # 尺寸由 `xpra --resize-display=WxH` 定死,浏览器窗口拉大拉小
+            # 不改变它 —— **说一次,别每次都吵**。
+            if not self._warned_resize:
+                self._warned_resize = True
+                log.info("xpra 模式下画面尺寸是固定的(%dx%d),忽略客户端的 resize",
+                         self.width, self.height)
+            return
         width = max(200, min(4096, int(width)))
         height = max(200, min(4096, int(height)))
         if (width, height) == (self.width, self.height):
@@ -276,6 +305,7 @@ class Screencaster:
 
     def stats(self) -> dict[str, Any]:
         return {
+            "transport": self.transport,
             "on": self._on, "tab": self._tab, "cast_id": self._cast_id,
             "frames": self.frames, "bytes": self.bytes_out,
             "format": self.format, "quality": self.adaptor.quality,

@@ -142,6 +142,30 @@ webmuxd new --id work --port 7900 --min-quality 40  # 链路差时最多降到 4
 `--min-quality` 是自适应最多降到多少,默认 25。再低就是马赛克 —— 到底了它会改成
 抽帧,那才是链路真撑不住时该退的方向。
 
+### 滚动不顺?那是另一回事
+
+上面三个都是"清晰度"。**滚动顺不顺是第四件事**,而它不归上面任何一个旋钮管 ——
+screencast 每帧都是整屏重发,滚动时该发多少发多少。
+
+在意滚动的话换一条像素来源:
+
+```bash
+apt install xpra xvfb python3-pil
+webmuxd new --id work --port 7900 --transport xpra
+webmuxd info                       # 先看这台机器上可不可用
+```
+
+它按 damage 区域编码,滚动时用 `scroll` 包**零字节搬像素** —— 实测滚一页
+Wikipedia,57% 的重绘面积没花一个字节
+([works/12 §9](docs/v2/works/12-xpra-client.md))。
+
+**变的只有像素从哪来**:输入、只读、tab、原生 UI、状态栏全都一样。
+代价是要装那三个包(装不上就是用不了,不会悄悄退回),浏览器是有头的比较吃资源,
+而且**全屏持续放视频反而是它的劣势区** —— 那种场景默认的 screencast 更合适。
+
+`--dsf` 在 xpra 上没有用(尺寸由 X 显示定),给了会直接报错而不是被忽略 ——
+要更高的分辨率就把 `--window-size` 开大。
+
 ## 给别人看
 
 ```python

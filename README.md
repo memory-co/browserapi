@@ -88,6 +88,8 @@ webmuxd kill     -t work
 - **画面是自己产的。** 不是 VNC,不是桌面 —— CDP 的 `Page.startScreencast` 出帧,
   人的鼠标键盘被归一化后翻译成 `Input.*` 打回去。所以画面里**只有页面内容**,
   tab 条和地址栏由你自己画([docs/v2/works/01](docs/v2/works/01-frame-source.md))。
+  滚动多的场景可以换成 xpra 出帧(见下),**换的只有像素从哪来** ——
+  输入、只读、tab、原生 UI 一模一样。
 - **按人看得见的字操作。** `click("提交订单")`,不写选择器。分档匹配(精确 → 子串 →
   忽略大小写),**有歧义就给候选,绝不替你挑一个** —— 挑错了你永远不会知道。
 - **"看见"= 元素表 + 标注截图。** `observe()` 一次给全,直接喂多模态模型;
@@ -106,6 +108,7 @@ webmuxd kill     -t work
 http://host:7900/           ← 人:浏览器打开就能看,能上手
 http://host:7900/api/…      ← 代码:同一个口
 ws://host:7900/api/view     ← 帧下行 + 输入上行
+ws://host:7900/xpra         ← 换了 xpra 出帧时,画面走这条(输入仍然走上面那条)
 ```
 
 画面和 API 在同一个端口上。给别人看不用把整个浏览器交出去 ——
@@ -147,13 +150,40 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 - **没有声音。** 画面是帧流,音频不在这条通道上。视频能放,但是静音的。
 - **带宽不省。** 每帧都是完整 JPEG,滚动时能到 10 Mbps。静止时是 0。
   (但**流畅度反而更好** —— 全屏运动正是 VNC 区域重传的负收益区,
-  [01 §4.1](docs/v2/works/01-frame-source.md#41-但更费带宽--更不流畅)。)
+  [01 §4.1](docs/v2/works/01-frame-source.md#41-但更费带宽--更不流畅)。
+  在意滚动的话换 `--transport xpra`,见下。)
 - **没有桌面。** 文件管理器、系统对话框、非浏览器程序都没有。浏览器自己那些
   原生 UI(对话框、下载、文件选择、权限、Basic 认证)是**用 CDP 一条条收回来的**,
   见 [works/06](docs/v2/works/06-no-desktop.md)。
 
 这几条不是"还没做",是**这条路线的性质** —— 画面是从浏览器的合成器直接出来的,
 所以它只有页面,没有桌面,也没有声音。要完整桌面就该用远程桌面,不是用这个。
+
+## 换一条像素来源:xpra
+
+滚动和局部更新多的场景,可以让 xpra 出帧:
+
+```bash
+apt install xpra xvfb python3-pil          # 只有这条路需要
+webmuxd new --id work --port 7900 --transport xpra
+webmuxd info                               # 看这台机器上它可不可用
+```
+
+差别只有**一件事**:像素从哪来。输入、光标、tab、只读、原生 UI、日志、token
+**完全一样** —— 观看页自己换成 canvas,别的代码一行不动
+([works/11](docs/v2/works/11-xpra.md))。
+
+它强在按 damage 区域编码,尤其是 `scroll`:滚动时**零字节搬像素**。
+实测滚一页 Wikipedia,57% 的重绘面积是 `scroll` 包干的,一个字节没花
+([works/12 §9](docs/v2/works/12-xpra-client.md))。
+
+代价说清楚:
+
+- 要装 `xpra` / `Xvfb` / `python3-pil`,**装不上就是用不了**,不会静默退回 screencast
+- 浏览器是**有头的**(kiosk 模式,画面里没有 tab 条和地址栏),比 headless 吃资源
+- 全屏持续运动反而是它的劣势区(实测能到 9 Mbps),那种场景 screencast 更合适
+
+**默认仍然是 screencast**,因为它零依赖。
 
 ## 依赖
 

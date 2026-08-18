@@ -44,9 +44,10 @@
   #ro { color: var(--warn); font-size: 11px; white-space: nowrap; }
 
   #stage { flex: 1; display: grid; place-items: center; overflow: auto; padding: 10px; }
-  #screen { display: block; background: #000; image-rendering: auto;
+  #screen, #screen2 { display: block; background: #000; image-rendering: auto;
     outline: none; user-select: none; -webkit-user-drag: none; }
-  #screen.dead { opacity: .35; }
+  #screen.dead, #screen2.dead { opacity: .35; }
+  #screen2[hidden], #screen[hidden] { display: none; }
 
   #status { display: flex; gap: 16px; padding: 4px 10px; background: var(--bar);
     border-top: 1px solid var(--line); color: var(--dim);
@@ -56,8 +57,12 @@
   #ime { position: fixed; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
 
   /* 六类原生 UI —— headless 里它们不渲染,所以这一层是我们画的(works/06 §2③) */
+  /* **不透明,不是半透明。** xpra 那条路上画面里是一个**有头的** chromium,
+     它自己也会把 JS 对话框画出来,而那一份的按钮 CDP 的鼠标事件点不动
+     (works/12 §11)。挡不住它,人就会看见两个对话框、点错那个死的。
+     两个 transport 一套行为,所以两边都不透明。 */
   #modal { position: fixed; inset: 0; display: none; place-items: center;
-    background: #000a; z-index: 9; }
+    background: #000; z-index: 9; }
   #modal.on { display: grid; }
   .card { background: var(--bar); border: 1px solid var(--line); border-radius: 10px;
     padding: 18px 20px; min-width: 320px; max-width: 460px; }
@@ -87,7 +92,7 @@
   <span id="ro" hidden>只读</span>
 </div>
 
-<div id="stage"><img id="screen" alt=""></div>
+<div id="stage"><img id="screen" alt=""><canvas id="screen2" hidden></canvas></div>
 
 <div id="status">
   <span>帧 <b id="s-fps">0</b> fps</span>
@@ -107,7 +112,10 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const img = $("screen"), ime = $("ime");
+  const img = $("screen"), cvs = $("screen2"), ime = $("ime");
+  // **画面在哪个元素上。** screencast 是 <img>,xpra 是 <canvas> ——
+  // 除了这一处,下面所有代码对两者一视同仁(works/11 §5)。
+  let screenEl = img, xpra = null;
   const qs = new URLSearchParams(location.search);
   const token = qs.get("t") || "";
   // token 会进历史和 Referer,进来之后就抹掉(works/04 §4)
@@ -165,28 +173,63 @@
       if (m.type === "hello") {
         writable = !!m.writable;
         $("ro").hidden = writable;
+        if (m.transport === "xpra" && !xpra) startXpra();
         if (m.w) setSize(m.w, m.h);
-        sendSize();
+        if (!xpra) sendSize();          // xpra 的尺寸是 X 显示定的,问也没用
       } else if (m.type === "cast") {
         setSize(m.w, m.h);
         $("s-q").textContent = m.quality;
         targetHex = "";
-      }
       // meta 里的 deviceWidth/Height 是 **CSS 尺寸**,dsf>1 时和真实帧尺寸对不上
-      // ——所以帧尺寸和有效缩放都以解码出来的那张图为准(见 img.onload)。 else if (m.type === "quality") {
+      // ——所以帧尺寸和有效缩放都以解码出来的那张图为准(见 img.onload)。
+      } else if (m.type === "quality") {
         $("s-q").textContent = m.quality + (m.every_nth > 1 ? " /" + m.every_nth : "");
       } else if (m.type === "cursor") {
-        img.style.cursor = m.cursor;              // 服务端已经过白名单
+        screenEl.style.cursor = m.cursor;         // 服务端已经过白名单
       }
     };
     ws.onclose = () => {
       clearTimeout(ackTimer);
       $("s-conn").textContent = "断开,重连中…"; $("s-conn").className = "bad";
-      img.classList.add("dead");
+      screenEl.classList.add("dead");
       setTimeout(connect, 1000);
     };
   }
   const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+  // ------------------------------------------------------------ xpra 那条画面路
+  // **只换像素从哪来。** 输入、光标、tab、原生 UI 上面那一整套一行不动
+  // (works/11 §5)——所以这个函数只干三件事:换元素、连上去、把尺寸接过来。
+  async function startXpra() {
+    let XpraClient;
+    try {
+      ({ XpraClient } = await import("/static/xpra.js" + auth));
+    } catch (err) {
+      // **不静默回退到 screencast。** 选了 xpra 而它起不来,是个要修的事,
+      // 不是一个该被悄悄绕过去的事(works/11 §6)。
+      $("s-conn").textContent = "xpra 客户端加载失败"; $("s-conn").className = "bad";
+      toast("xpra 客户端加载失败:" + err.message, 20000);
+      return;
+    }
+    img.hidden = true; cvs.hidden = false; screenEl = cvs;
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    xpra = new XpraClient(proto + "//" + location.host + "/xpra" + auth, cvs, {
+      status: (st) => {
+        $("s-conn").textContent = st === "ready" ? "已连接(xpra)"
+          : st === "connected" ? "xpra 握手中…" : "xpra " + st;
+        $("s-conn").className = (st === "error" || st === "closed") ? "bad" : "";
+        if (st === "error" || st === "closed") screenEl.classList.add("dead");
+      },
+      size: (w, h) => {
+        frameW = w; frameH = h;
+        $("s-size").textContent = w + "×" + h;
+        setSize(w, h);
+      },
+      log: (m) => toast(m, 12000),
+    }).connect();
+    $("s-q").textContent = "xpra";
+    addEventListener("beforeunload", () => xpra && xpra.close());
+  }
 
   // **帧的真实尺寸只有解码之后才知道。** CDP 的 metadata 报的是 CSS 尺寸,
   // dsf=2 时它说 1024×768,而图其实是 2048×1536 —— 拿它算"有效缩放"会差一倍,
@@ -201,16 +244,16 @@
   function setSize(w, h) {
     castW = w; castH = h;
     // **显式定成 CSS 像素**。dsf>1 时帧是 2x 的,不写死会整个画面大一倍(works/02 §4③)
-    img.style.width = w + "px";
-    img.style.height = h + "px";
-    img.classList.remove("dead");
+    screenEl.style.width = w + "px";
+    screenEl.style.height = h + "px";
+    screenEl.classList.remove("dead");
     updateZoom();
   }
 
   function updateZoom() {
     if (!frameW) return;
     // 有效缩放 = 物理像素 / 帧原始像素。1.00x 才是像素级对齐(works/02 §4③)
-    const z = (img.clientWidth * devicePixelRatio) / frameW;
+    const z = (screenEl.clientWidth * devicePixelRatio) / frameW;
     const el = $("s-zoom");
     el.textContent = z.toFixed(2) + "x";
     el.className = Math.abs(z - 1) < 0.02 ? "" : "bad";
@@ -227,17 +270,20 @@
   // ---------------------------------------------------------------- 输入
   // 客户端只做归一化,翻译成 CDP Input.* 在服务端(works/03 §1)。
   const pt = (e) => {
-    const r = img.getBoundingClientRect();
+    const r = screenEl.getBoundingClientRect();
     return { x: (e.clientX - r.left) * (castW / r.width),
              y: (e.clientY - r.top) * (castH / r.height) };
   };
   const mods = (e) => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) |
                       (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
 
-  img.addEventListener("mousemove", (e) => {
+  // **两个元素都绑。** 只有一个是可见的,事件只会从那个上来 ——
+  // 比"切换时重新绑"少一个会忘的状态。
+  for (const el of [img, cvs]) {
+  el.addEventListener("mousemove", (e) => {
     const p = pt(e); send({ type: "mouse", event: "move", ...p, buttons: e.buttons, modifiers: mods(e) });
   });
-  img.addEventListener("mousedown", (e) => {
+  el.addEventListener("mousedown", (e) => {
     e.preventDefault(); ime.focus();
     const p = pt(e);
     send({ type: "mouse", event: "down", ...p, button: e.button, buttons: e.buttons,
@@ -248,12 +294,13 @@
     send({ type: "mouse", event: "up", ...p, button: e.button, buttons: e.buttons,
            clicks: e.detail || 1, modifiers: mods(e) });
   });
-  img.addEventListener("contextmenu", (e) => e.preventDefault());
-  img.addEventListener("wheel", (e) => {
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("wheel", (e) => {
     e.preventDefault();
     const p = pt(e);
     send({ type: "wheel", ...p, dx: e.deltaX, dy: e.deltaY, modifiers: mods(e) });
   }, { passive: false });
+  }
 
   // IME:组字全在本地,`compositionend` 才发最终文本(works/03 §3)——
   // 这是 v2 相对 VNC 的净胜,不是打平。
@@ -413,7 +460,13 @@
   }
 
   // ---------------------------------------------------------------- 状态栏
+  let xLast = { frames: 0, bytes: 0 };
   setInterval(() => {
+    if (xpra) {                         // xpra 的帧不经过 onFrame,自己数
+      const st = xpra.stats();
+      frames = st.frames - xLast.frames; bytes = st.bytes - xLast.bytes;
+      xLast = { frames: st.frames, bytes: st.bytes };
+    }
     $("s-fps").textContent = frames;
     $("s-kbps").textContent = Math.round(bytes * 8 / 1000);
     frames = 0; bytes = 0;

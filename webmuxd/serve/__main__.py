@@ -28,15 +28,15 @@ async def _run(args: argparse.Namespace) -> None:
     session = Session(cdp, data_dir=args.data, view={
         "width": args.width, "height": args.height,
         "fmt": args.format, "quality": args.quality, "dsf": args.dsf,
-        "min_quality": args.min_quality})
+        "min_quality": args.min_quality, "transport": args.transport})
     await session.start()
 
-    runner = web.AppRunner(build(session))
+    runner = web.AppRunner(build(session, xpra_ws=args.xpra_ws))
     await runner.setup()
     site = web.TCPSite(runner, args.bind, args.port)
     await site.start()
-    logging.info("sessiond 起来了:画面 http://%s:%d/  API /api  (CDP %s)",
-                 args.bind, args.port, args.cdp)
+    logging.info("sessiond 起来了:画面 http://%s:%d/  API /api  (CDP %s,画面走 %s)",
+                 args.bind, args.port, args.cdp, args.transport)
     if args.bind not in ("127.0.0.1", "localhost", "::1"):
         logging.warning("绑在 %s —— **这台机器网络能到的人,拿到 token 就能"
                         "操作这个浏览器**", args.bind)
@@ -72,6 +72,13 @@ def main() -> None:
     p.add_argument("--quality", type=int, default=80)
     p.add_argument("--min-quality", type=int, default=25, dest="min_quality")
     p.add_argument("--dsf", type=float, default=1.0)
+    # **画面从哪来。** 默认 screencast —— 它开箱即用;xpra 要 Xvfb + xpra 本体,
+    # 换来的是按区域编码和 `scroll`(works/11 §6、12 §9)。
+    # **不静默回退**:选了 xpra 而 xpra 起不来,就是起不来。
+    p.add_argument("--transport", default="screencast",
+                   choices=["screencast", "xpra"])
+    p.add_argument("--xpra-ws", dest="xpra_ws", default="",
+                   help="transport=xpra 时,上游那个 xpra 的 ws 地址")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     asyncio.run(_run(args))

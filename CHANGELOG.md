@@ -1,5 +1,64 @@
 # 更新日志
 
+## 0.6.0
+
+**画面可以走 xpra 了。而且修了两个真 bug —— 其中一个让 0.5.5 / 0.5.6 的观看页
+彻底不工作。**
+
+### ⚠ 观看页从 0.5.5 起就是坏的
+
+`index.html` 里整个 `<script>` 是**语法错**的:0.5.5 删一个分支时,
+`} else if (m.type === "quality") {` 这一整行被写进了上一行注释里。
+
+语法错意味着**一行都不执行** —— 没有画面、没有输入、没有 tab 条。
+发了两个版本没人发现,因为**没有任何测试碰过那个文件**。
+
+现在有两条挡着,一条不依赖任何外部工具所以永远会跑
+(`tests/pixels_from_xpra/`)。
+
+### ⚠ tab 被挤掉时,`evicted` 有时会丢
+
+`await Target.closeTarget` 中间会让出控制权,而 Chromium 的 `targetDestroyed`
+**经常比这个响应先到**。先到的话表已经被清干净了,后面那句
+`self._order.remove(victim)` 抛 `ValueError`,于是 `reason="evicted"` 那条事件
+**再也发不出去**。表现有两种:被挤掉的 tab 报成 `closed`,或者一个事件都没有。
+
+这就是之前那条"偶发失败"的测试真正在说的事。现在谁先到都行,记账只做一次。
+
+### 画面换 xpra
+
+```bash
+apt install xpra xvfb python3-pil
+webmuxd new --id work --port 7900 --transport xpra
+webmuxd info                       # 看这台机器上可不可用
+```
+
+**只有一件事变了:像素从哪来。** 输入、光标、tab、只读、原生 UI、日志、token
+完全一样 —— 观看页自己换成 canvas,别的代码一行不动。
+
+它强在按 damage 区域编码,尤其是 `scroll`:滚动时**零字节搬像素**。实测滚一页
+Wikipedia,**57% 的重绘面积是 `scroll` 包干的,一个字节没花**
+([works/12 §9](docs/v2/works/12-xpra-client.md))。
+
+几条实测定下来的形状:
+
+- **`start-desktop` 而不是 seamless。** seamless 下 `<select>` 下拉是一个独立的
+  X 窗口,客户端得自己做窗口合成;desktop 下 X 把它合成进同一个窗口。
+- **浏览器用 `--kiosk` 起,所以画面里没有 bar。** 不是"裁掉",是根本不画 ——
+  连"鼠标 y 要加回 crop_top"那个坑一起不存在了。
+- **输入不走 xpra。** 客户端只往那条连接发 6 种协议包,而代理那头还有一层
+  **白名单**:`button-action` / `key-action` / `pointer-position` / 剪贴板 /
+  文件传输全部丢弃。新出现的包类型**默认被拒**。
+- **客户端是我们自己写的**,316 行(去掉注释)。因为 `xpra-html5` 里
+  **没有解码器** —— 图像走 `createImageBitmap`,视频走 WebCodecs,
+  那 5000 行是窗口管理、剪贴板、音频、jQuery,我们全都不要。
+
+**默认仍然是 screencast**,因为它零依赖。要了 xpra 而机器上没有,
+**报错并说清缺什么,不静默退回** —— 那等于让你以为自己在看 xpra 的画质。
+`--dsf` 和 `--runtime remote` 在这条路上用不了,也是报错而不是悄悄忽略。
+
+全屏持续运动反而是 xpra 的劣势区(实测能到 9 Mbps),那种场景 screencast 更合适。
+
 ## 0.5.6
 
 **画质下限从 5 提到 25,`--dsf` 变成开关。**

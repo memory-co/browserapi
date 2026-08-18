@@ -1,0 +1,439 @@
+"""换一条像素来源 —— 对着 docs/v2/works/11 · 12 校。
+
+**大部分用例不需要真的跑 xpra。** 白名单、编解码、语法、参数拼装都是纯逻辑,
+真起一个 Xvfb + xpra 才能测的那几条单独标出来,装了就跑,没装就说没装。
+"""
+
+import json
+import re
+import shutil
+import struct
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from webmuxd import xpra as xpra_mod
+from webmuxd.view import relay
+
+STATIC = Path(__file__).resolve().parents[2] / "webmuxd" / "view" / "static"
+NODE = shutil.which("node")
+
+try:
+    from xpra.net.rencodeplus.rencodeplus import dumps as rdumps
+except ImportError:                                       # pragma: no cover
+    rdumps = None
+
+
+def frame(body: bytes, *, level: int = 0, index: int = 0, magic: int = 0x50) -> bytes:
+    return struct.pack("!BBBBL", magic, 0x10, level, index, len(body)) + body
+
+
+def packet(obj) -> bytes:
+    """用**真的** rencodeplus 编 —— 手搓的字节只能证明我们自洽。"""
+    if rdumps is None:
+        pytest.skip("本机没装 xpra 的 python 包,编不出真包")
+    return frame(rdumps(obj))
+
+
+# ------------------------------------------------------------------ 上行白名单
+
+@pytest.mark.parametrize("p", [
+    ["hello", {"version": "6.6"}],
+    ["map-window", 4194308, 0, 0, 1024, 768, {}],
+    ["focus", 1, []],
+    ["damage-sequence", 12, 1, 1024, 768, 5, ""],
+    ["ping_echo", 12345, 0, 0, 0, -1],
+    ["disconnect", "bye"],
+])
+def test_协议要的那六个包放行(p):
+    ok, why = relay.screen(packet(p))
+    assert ok, why
+    assert why == p[0]
+
+
+@pytest.mark.parametrize("p", [
+    ["button-action", 1, 1, True, (10, 20), []],
+    ["key-action", 1, "a", True, [], 97, "a", 38, 0],
+    ["pointer-position", 1, (10, 20), [], []],
+    ["wheel-motion", 1, 4, 1.0, (10, 20), []],
+])
+def test_输入包一个都过不去(p):
+    """[03 §1](../../docs/v2/works/03-input.md) 的收口在这条路上的落点。
+
+    观看者能表达的意图只有 CDP `Input` 那四个命令 —— xpra 自带的输入协议
+    要是能过去,这个边界就破了。
+    """
+    ok, why = relay.screen(packet(p))
+    assert not ok
+    assert "不在白名单里" in why
+
+
+@pytest.mark.parametrize("p", [
+    ["clipboard-token", "CLIPBOARD"],
+    ["send-file", "x", 1, b"y"],
+    ["shutdown-server"],
+    ["start-command", "sh", ["sh"], True],
+])
+def test_剪贴板文件传输和执行命令也过不去(p):
+    ok, why = relay.screen(packet(p))
+    assert not ok
+
+
+def test_没见过的包类型默认被拒_这就是白名单和黑名单的差别():
+    ok, why = relay.screen(packet(["some-future-packet-xpra-7", 1]))
+    assert not ok
+    # **不需要我们提前知道它叫什么。** 黑名单会放行它。
+    assert "some-future-packet-xpra-7" in why
+
+
+def test_上行带压缩或者带分块下标都拒():
+    body = rdumps(["hello", {}]) if rdumps else pytest.skip("没有 xpra 包")
+    assert relay.screen(frame(body, level=0x10))[0] is False
+    assert relay.screen(frame(body, level=0x40))[0] is False
+    # 大块二进制是**下行**才有的(像素)。上行没有该分块的东西。
+    assert relay.screen(frame(body, index=7))[0] is False
+
+
+def test_畸形帧不会把代理搞崩_只是被拒():
+    for bad in [b"", b"P", b"P" * 7, frame(b"", magic=0x51),
+                frame(b"\xff\xff\xff"), struct.pack("!BBBBL", 0x50, 0x10, 0, 0, 99) + b"x"]:
+        ok, why = relay.screen(bad)
+        assert ok is False and why
+
+
+def test_超大的上行包拒掉_代理不当内存放大器():
+    huge = frame(b"\xc2" + b"x" * (relay.MAX_UP + 10))
+    assert relay.screen(huge)[0] is False
+
+
+def test_白名单每一条都写了不发会怎样():
+    """这张表是安全边界,**得能读**。"""
+    assert set(relay.ALLOWED) == {
+        "hello", "map-window", "focus", "damage-sequence", "ping_echo", "disconnect"}
+    for k, why in relay.ALLOWED.items():
+        assert len(why) > 4, k
+
+
+def test_包名解析认识定长和变长两种字符串():
+    # 定长:128+len;变长:"<len>:"
+    assert relay.packet_type(bytes([192 + 1, 128 + 5]) + b"hello") == "hello"
+    assert relay.packet_type(bytes([59]) + b"5:hello") == "hello"
+    assert relay.packet_type(b"") is None
+    assert relay.packet_type(bytes([1, 2, 3])) is None
+
+
+# ------------------------------------------------------ xpra 模式下不发 screencast
+
+class _FakeCDP:
+    def __init__(self):
+        self.sent = []
+        self.handlers = {}
+
+    def on(self, event, fn):
+        self.handlers[event] = fn
+
+    async def send(self, method, params=None, session_id=None):
+        self.sent.append(method)
+        return {}
+
+
+class _FakeTab:
+    target_id = "T1"
+
+
+class _FakeTabs:
+    active = "t_1"
+
+    def get(self, _id):
+        return _FakeTab()
+
+
+class _FakeSession:
+    def __init__(self):
+        self.cdp = _FakeCDP()
+        self.tabs = _FakeTabs()
+
+    async def cdp_session_for(self, _tab):
+        return "S1"
+
+
+def _caster(transport):
+    from webmuxd.view.cast import Screencaster
+    return Screencaster(_FakeSession(), transport=transport)
+
+
+async def test_xpra_模式下一条_startScreencast_都不发():
+    """**两条都开着等于同一份画面编码两遍。**"""
+    c = _caster("xpra")
+    c.viewers.add(object())
+    await c.follow("t_1", force=True)
+    assert not any("Screencast" in m for m in c.session.cdp.sent)
+
+
+async def test_但是切_tab_照样_activateTarget():
+    """画面跟着 tab 走,在两条路上是**同一个机制**(works/11 §4)。"""
+    c = _caster("xpra")
+    c.viewers.add(object())
+    await c.follow("t_1", force=True)
+    assert "Target.activateTarget" in c.session.cdp.sent
+
+
+async def test_screencast_模式一切照旧():
+    c = _caster("screencast")
+    c.viewers.add(object())
+    await c.follow("t_1", force=True)
+    assert "Page.startScreencast" in c.session.cdp.sent
+    assert "Target.activateTarget" in c.session.cdp.sent
+
+
+async def test_xpra_下不改视口_尺寸是那个_X_显示说了算():
+    """再发 setDeviceMetricsOverride,页面会被渲染成另一个尺寸而窗口不变。"""
+    c = _caster("xpra")
+    await c.resize(800, 600)
+    assert (c.width, c.height) == (1024, 768)
+    assert not any("Emulation" in m for m in c.session.cdp.sent)
+
+
+def test_状态里报的出来现在走的是哪条():
+    assert _caster("xpra").stats()["transport"] == "xpra"
+    assert _caster("screencast").stats()["transport"] == "screencast"
+
+
+# ------------------------------------------------------------------ 起浏览器
+
+def test_xpra_下的浏览器不带_bar_起():
+    """`--kiosk` 是"没有 crop_top 这回事"的前提(works/12 §10)。"""
+    argv = xpra_mod.build_chrome_argv("/x/chrome", cdp_port=9222, profile="/p",
+                                      url="about:blank", width=1024, height=768)
+    assert "--kiosk" in argv
+    # 这两条按下那 55 像素的提示条,不按下去 kiosk 也白搭
+    assert "--test-type" in argv and "--disable-infobars" in argv
+    # **不是 headless** —— xpra 要截的是真窗口
+    assert not any("headless" in a for a in argv)
+    assert "--remote-debugging-port=9222" in argv
+
+
+def test_root_下才加_no_sandbox_而且是显式传进来的():
+    a = xpra_mod.build_chrome_argv("/x/chrome", cdp_port=1, profile="/p",
+                                   url="u", width=1, height=1, no_sandbox=False)
+    assert "--no-sandbox" not in a
+    b = xpra_mod.build_chrome_argv("/x/chrome", cdp_port=1, profile="/p",
+                                   url="u", width=1, height=1, no_sandbox=True)
+    assert "--no-sandbox" in b
+
+
+def test_只要像素_剪贴板音频文件传输全在启动时关掉():
+    """**关在服务端**,不是靠客户端不去用它(works/11 §5)。"""
+    joined = " ".join(xpra_mod.OFF)
+    for off in ("clipboard", "file-transfer", "printing", "speaker", "webcam"):
+        assert off in joined
+
+
+def test_显示号看_socket_文件不看进程(tmp_path, monkeypatch):
+    import os
+    real = os.path.exists
+    monkeypatch.setattr(os.path, "exists",
+                        lambda p: True if p.endswith(("X80", "X81")) else real(p))
+    assert xpra_mod.free_display(80, 90) == ":82"
+
+
+def test_探不到就说缺什么_不猜(monkeypatch):
+    monkeypatch.setattr(xpra_mod.shutil, "which", lambda n: None)
+    ok, why = xpra_mod.available()
+    assert not ok
+    assert "xpra" in why and "Xvfb" in why
+
+
+# ------------------------------------------------------------------ 客户端的 js
+
+def _script_of(html: Path) -> str:
+    m = re.search(r"<script>(.*)</script>", html.read_text(), re.S)
+    assert m, "观看页里没有 <script>"
+    return m.group(1)
+
+
+JS_FILES = ["xpra.js", "rencode.js"]
+
+
+def test_注释里不许藏着代码():
+    """**0.5.5 真的发生过**:删一个分支时,`} else if (...) {` 被写进了上一行注释,
+    整个 `<script>` 变成语法错,画面页彻底不工作 —— 而且发了两个版本没人发现。
+
+    这一条不依赖 node,永远会跑。
+    """
+    files = [STATIC / "index.html"] + [STATIC / f for f in JS_FILES]
+    for f in files:
+        for i, line in enumerate(f.read_text().splitlines(), 1):
+            s = line.strip()
+            if not s.startswith("//"):
+                continue
+            assert ") {" not in s and "} else" not in s, \
+                f"{f.name}:{i} 注释里像是吞了一行代码:{s}"
+
+
+@pytest.mark.skipif(not NODE, reason="本机没有 node —— 语法这一层只剩上面那条启发式")
+def test_观看页和客户端的_js_能被解析():
+    """`node --check`。**这是上一条测不到的那部分。**"""
+    src = _script_of(STATIC / "index.html")
+    p = Path(subprocess.run(["mktemp", "--suffix=.js"], capture_output=True,
+                            text=True).stdout.strip())
+    try:
+        p.write_text(src)
+        r = subprocess.run([NODE, "--check", str(p)], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    finally:
+        p.unlink(missing_ok=True)
+    for f in JS_FILES:                      # 这两个是 ES module
+        r = subprocess.run([NODE, "--input-type=module", "-e",
+                            f"await import('{STATIC / f}')"],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, f + ": " + r.stderr
+
+
+@pytest.mark.skipif(not NODE or rdumps is None, reason="要 node 和 xpra 的 python 包")
+@pytest.mark.parametrize("obj", [
+    ["hello", {"version": "6.6", "n": 7, "f": False, "neg": -5, "big": 4194308,
+               "l": [1, 2, 3], "nested": {"a": {"b": 1}}}],
+    ["map-window", 4194308, 0, 0, 1024, 768, {}],
+    ["damage-sequence", 99, 1, 1024, 768, 5, ""],
+    ["ping_echo", 12345, 0, 0, 0, -1],
+])
+def test_js_编的包_python_解得开(obj):
+    """**自己写协议客户端之后唯一的风险点。** 两边对不上就是画面不动,
+    而且报错会指向完全不相干的地方。"""
+    from xpra.net.rencodeplus.rencodeplus import loads
+    r = subprocess.run(
+        [NODE, "--input-type=module", "-e",
+         f"const m=await import('{STATIC / 'rencode.js'}');"
+         f"console.log(JSON.stringify(Array.from(m.rencode({json.dumps(obj)}))))"],
+        capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    got = loads(bytes(json.loads(r.stdout)))
+    assert json.loads(json.dumps(got, default=list)) == obj
+    # 顺带:它必须能过我们自己的白名单
+    assert relay.screen(frame(bytes(json.loads(r.stdout))))[0] is True
+
+
+@pytest.mark.skipif(not NODE or rdumps is None, reason="要 node 和 xpra 的 python 包")
+def test_python_编的包_js_解得开():
+    cases = [
+        ("draw", 1, 0, 0, 1024, 768, "webp", b"", 7, 4096, {"quality": 80, "frame": 3}),
+        ("new-window", 4194308, 0, 0, 1024, 768, {"title": "T", "has-alpha": False}, {}),
+        ("hello", {"desktop_size": (1024, 768), "f": 1.5, "neg": -300, "big": 2 ** 40}),
+        ("ping", 1755500000000, 1, 2, 3),
+    ]
+    blobs = json.dumps([list(rdumps(c)) for c in cases])
+    r = subprocess.run(
+        [NODE, "--input-type=module", "-e",
+         f"const m=await import('{STATIC / 'rencode.js'}');"
+         f"const bs={blobs};"
+         "console.log(JSON.stringify(bs.map(b=>m.rdecode(Uint8Array.from(b))),"
+         "(k,v)=>v instanceof Uint8Array?'<bytes>':v))"],
+        capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    got = json.loads(r.stdout)
+    assert got[0][:7] == ["draw", 1, 0, 0, 1024, 768, "webp"]
+    assert got[1][6]["title"] == "T" and got[1][6]["has-alpha"] is False
+    assert got[2][1]["neg"] == -300 and got[2][1]["big"] == 2 ** 40
+    assert got[3] == ["ping", 1755500000000, 1, 2, 3]
+
+
+def test_客户端不报视频编码_所以不用背_webcodecs():
+    """服务端只发客户端报过的(works/12 §8)。这条声明就是"要写多少代码"的开关。"""
+    src = (STATIC / "xpra.js").read_text()
+    assert "full_csc_modes" not in src.split("//")[0] or "不报 full_csc_modes" in src
+    assert "h264" not in re.sub(r"//.*", "", src)
+    assert "VideoDecoder" not in src
+
+
+def test_客户端只写了那六种包的发送代码():
+    """**少写一行发送代码,那边就少一条能过的路。**"""
+    src = re.sub(r"//.*", "", (STATIC / "xpra.js").read_text())
+    sent = set(re.findall(r'_send\(\["([a-z_-]+)"', src))
+    assert sent == set(relay.ALLOWED), sent
+
+
+# ------------------------------------------------------------------ 不静默降级
+
+def test_remote_上没有_xpra_这条路_而且要说清为什么():
+    """**悄悄给一个 screencast 的画面,等于让人以为自己在看 xpra 的画质。**"""
+    from webmuxd.errors import RuntimeUnavailable
+    from webmuxd.runtime.remote import RemoteRuntime
+    with pytest.raises(RuntimeUnavailable) as ei:
+        RemoteRuntime().start("x", port=1, cdp="http://x", transport="xpra")
+    assert "xpra" in ei.value.message
+    assert "CDP" in str(ei.value.details)          # 说清了为什么做不到
+
+
+def test_xpra_装不上时报错要指名道姓(monkeypatch):
+    from webmuxd.errors import RuntimeUnavailable
+    monkeypatch.setattr(xpra_mod.shutil, "which", lambda n: None)
+    with pytest.raises(RuntimeUnavailable) as ei:
+        xpra_mod.start(display=":99", ws_port=1, cdp_port=2, chrome_argv=["x"],
+                       width=1, height=1, work="/tmp/x")
+    # 缺什么、怎么装、以及"不想装可以走哪条"
+    assert "apt install" in str(ei.value.details) or "apt install" in ei.value.message
+    assert "screencast" in str(ei.value.details) + ei.value.message
+
+
+# ------------------------------------------------------------------ rgb 解码
+
+RGB_PROBE = """
+globalThis.ImageData = class {{ constructor(d,w,h){{ this.data=d; this.width=w; this.height=h; }} }};
+const {{ XpraClient }} = await import("{static}/xpra.js");
+const c = new XpraClient("ws://x", {{ width:0, height:0, getContext: () => ({{}}) }}, {{}});
+const out = c._rgb(Uint8Array.from({data}), {w}, {h}, {{rgb_format:"{fmt}"}}, {stride});
+console.log(JSON.stringify(Array.from(out.data)));
+"""
+
+
+def _rgb(data, w, h, fmt, stride):
+    r = subprocess.run([NODE, "--input-type=module", "-e",
+                        RGB_PROBE.format(static=STATIC, data=list(data), w=w, h=h,
+                                         fmt=fmt, stride=stride)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+@pytest.mark.skipif(not NODE, reason="要 node")
+def test_rgb_的_rowstride_来自包的第九格_不是_options():
+    """**拿错了整张图会斜掉。** rowstride 是 `draw[9]`,不在 options 里 ——
+    而且它不等于 `w*4`:服务端会按 4 字节对齐补 padding。
+    """
+    # 2×2 的 RGBX,每行 12 字节(实际只用 8),红 绿 / 蓝 (10,20,30)
+    stride, data = 12, bytearray(24)
+    for i, px in enumerate([(255, 0, 0), (0, 255, 0), (0, 0, 255), (10, 20, 30)]):
+        o = (i // 2) * stride + (i % 2) * 4
+        data[o:o + 3] = bytes(px)
+    got = _rgb(data, 2, 2, "RGBX", stride)
+    assert got == [255, 0, 0, 255, 0, 255, 0, 255,
+                   0, 0, 255, 255, 10, 20, 30, 255]
+
+
+@pytest.mark.skipif(not NODE, reason="要 node")
+def test_通道次序按服务端说的来_不猜():
+    """BGRX 的第一个字节是蓝。猜成 RGB 的话红蓝互换 —— 而这种错**看起来
+    像是"颜色有点怪"**,不像 bug,能活很久。"""
+    got = _rgb(bytes([255, 0, 0, 0, 0, 0, 255, 0]), 2, 1, "BGRX", 8)
+    assert got == [0, 0, 255, 255, 255, 0, 0, 255]
+
+
+@pytest.mark.skipif(not NODE, reason="要 node")
+def test_没有_alpha_的格式要补成不透明():
+    got = _rgb(bytes([1, 2, 3, 0]), 1, 1, "RGBX", 4)
+    assert got[3] == 255
+    got = _rgb(bytes([1, 2, 3, 128]), 1, 1, "RGBA", 4)
+    assert got[3] == 128
+
+
+def test_dsf_在_xpra_上没用_就要报错而不是悄悄吃掉():
+    """**给了却不起作用,比报错难查得多。**"""
+    from webmuxd.errors import RuntimeUnavailable
+    from webmuxd.runtime.process import ProcessRuntime
+    with pytest.raises(RuntimeUnavailable) as ei:
+        # 参数校验在最前面,所以既不会去找浏览器也不会去占端口
+        ProcessRuntime().start("x", port=65000, transport="xpra", dsf=2.0)
+    assert "dsf" in ei.value.message
+    assert "window-size" in str(ei.value.details)         # 说了等价的做法

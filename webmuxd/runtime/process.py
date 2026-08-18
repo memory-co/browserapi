@@ -23,7 +23,7 @@ import subprocess
 import tempfile
 from typing import Any
 
-from webmuxd import browser
+from webmuxd import browser, xpra as xpra_mod
 from webmuxd.runtime.base import (
     Handle, free_port, require_ports, spawn_sessiond, unavailable, wait_http,
     wait_port,
@@ -85,7 +85,19 @@ class ProcessRuntime:
               proxy: str | None = None, data_dir: str | None = None,
               token: str | None = None, bind: str = "127.0.0.1",
               dsf: float = 1.0, view: dict[str, Any] | None = None,
-              **_opts: Any) -> Handle:
+              transport: str = "screencast", **_opts: Any) -> Handle:
+        # **参数先对,再动机器。** 这一条和浏览器、端口都无关,放最前面 ——
+        # 不静默吃掉一个明确给了的参数:dsf 靠的是 `--force-device-scale-factor`
+        # 加上 screencast 的 maxWidth/maxHeight 一起乘
+        # ([02 §4③](../../docs/v2/works/02-frame-protocol.md)),而 xpra 那条路上
+        # 没有 screencast —— 画面尺寸就是那个 X 显示的尺寸。
+        # **给了却不起作用,比报错难查得多。**
+        if transport == "xpra" and dsf and dsf != 1.0:
+            raise unavailable(
+                "process", f"--dsf {dsf} 在 --transport xpra 上没有用",
+                "xpra 截的是那个 X 显示,倍率得由显示尺寸决定 —— "
+                "把 --window-size 开大(比如 2048x1536)是等价的做法;"
+                "或者去掉 --dsf")
         exe = resolve_browser(browser_path)
         require_ports(port)
 
@@ -102,6 +114,12 @@ class ProcessRuntime:
                               "或者自己 apt install 上面这些")
         if not browser.has_cjk_font():
             notes.append(f"{browser.FONT_HINT[1]} —— `{browser.FONT_HINT[0]}`")
+
+        if transport == "xpra":
+            return self._start_xpra(
+                id, exe=exe, port=port, url=url, work=work, cdp_port=cdp_port,
+                proxy=proxy, token=token, bind=bind, view=view or {},
+                notes=notes)
 
         args = [exe, *BASE_ARGS,
                 f"--remote-debugging-port={cdp_port}",
@@ -168,7 +186,73 @@ class ProcessRuntime:
                        "pids": {k: p.pid for k, p in procs.items()},
                        "notes": notes, "_procs": procs})
 
+    # ------------------------------------------------------------------ xpra
+
+    def _start_xpra(self, id: str, *, exe: str, port: int, url: str, work: str,
+                    cdp_port: int, proxy: str | None, token: str | None,
+                    bind: str, view: dict[str, Any],
+                    notes: list[str]) -> Handle:
+        """xpra 那条画面路 —— docs/v2/works/11 · 12。
+
+        和上面那条的差别**只有像素从哪来**,所以这儿只多做两件事:
+        起 xpra(它顺带拉起 Xvfb 和一个**有头的** chrome),
+        然后把上游那个 ws 地址交给 sessiond 去代理。
+        """
+        w = int(view.get("width") or 1024)
+        h = int(view.get("height") or 768)
+        display = xpra_mod.free_display()
+        ws_port = free_port()
+        as_root = hasattr(os, "geteuid") and os.geteuid() == 0
+        chrome_argv = xpra_mod.build_chrome_argv(
+            exe, cdp_port=cdp_port, profile=os.path.join(work, "profile"),
+            url=url, width=w, height=h, proxy=proxy,
+            no_sandbox=as_root or bool(os.environ.get("WEBMUXD_NO_SANDBOX")))
+        if as_root and not os.environ.get("WEBMUXD_NO_SANDBOX"):
+            notes.append("你是 root —— Chromium 在 root 下必须 --no-sandbox 才起得来"
+                         "(crbug 638180),已经替你加上了。**沙箱是关着的**")
+
+        sess = xpra_mod.start(display=display, ws_port=ws_port, cdp_port=cdp_port,
+                              chrome_argv=chrome_argv, width=w, height=h, work=work)
+        # Xvfb + xpra + 有头 chrome,比 headless 那条慢不少 —— 给足时间
+        if not wait_port(cdp_port, 60):
+            why = xpra_mod.tail(sess.log_path)
+            xpra_mod.stop(sess)
+            raise unavailable(
+                self.name, "xpra 起来了但浏览器的 CDP 没监听" + (f":{why}" if why else ""),
+                f"完整日志在 {sess.log_path}")
+        if not wait_port(ws_port, 30):
+            xpra_mod.stop(sess)
+            raise unavailable(self.name, "xpra 的 ws 口没起来",
+                              f"日志在 {sess.log_path}")
+
+        procs: dict[str, subprocess.Popen] = {}
+        procs["sessiond"] = spawn_sessiond(
+            f"http://127.0.0.1:{cdp_port}", port=port, bind=bind,
+            data=os.path.join(work, "data"), token=token,
+            view={**view, "transport": "xpra", "xpra-ws": sess.ws_url})
+        if bind not in ("127.0.0.1", "localhost", "::1"):
+            notes.append(f"画面口绑在 {bind} —— **这台机器网络能到的人,"
+                         f"拿到 token 就能操作这个浏览器**")
+        if not wait_http(f"http://127.0.0.1:{port}/healthz", 30):
+            _kill_all(procs)
+            xpra_mod.stop(sess)
+            raise unavailable(self.name, "sessiond 没起来",
+                              f"日志在 {os.path.join(work, 'sessiond.log')}")
+        return Handle(self.name, id, port,
+                      {"cdp_port": cdp_port, "work": work, "browser": exe,
+                       "bind": bind, "transport": "xpra", "display": display,
+                       "xpra_ws_port": ws_port, "xpra_log": sess.log_path,
+                       "pids": {"sessiond": procs["sessiond"].pid,
+                                "xpra": sess.proc.pid},
+                       "notes": notes, "_procs": procs, "_xpra": sess})
+
     def stop(self, handle: Handle) -> None:
+        # **xpra 先停。** 它 `--exit-with-children`,而且 `xpra stop` 会把
+        # Xvfb 和那个有头 chrome 一起收干净 —— 反过来先杀 sessiond 的话,
+        # 那三个进程会留在机器上。
+        sess = handle.detail.get("_xpra")
+        if sess is not None:
+            xpra_mod.stop(sess)
         procs = handle.detail.get("_procs") or {}
         if procs:
             _kill_all(procs)

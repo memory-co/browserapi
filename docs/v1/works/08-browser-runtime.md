@@ -113,7 +113,7 @@ if (socket->ListenWithAddressAndPort("::1", port, kBackLog) == net::OK)
 
 **A 和 B 是叠着用的,而且分工很清楚:**
 
-- **A 在镜像里。** 我们给两个底座各加了一层 wrapper([docker/](../../../docker/)):
+- **A 在镜像里。** 我们给两个底座各加了一层 wrapper(`docker/`,**v2 已删除**):
   底座自带转发就打开它(jlesage 的 socat),没有就补一个(kasm,用镜像自带的
   `python3`)。它只要求镜像里有个能监听转发的东西,**不要求装我们的代码**。
 - **B 在 runtime 里。** 有了 A,CDP 已经听在容器的 `0.0.0.0` 上;B 让那个
@@ -168,7 +168,7 @@ webmuxd 连上之后自己 `open()` 就是了。**profile 里宁可缺一项,也
 
 这五个问题就是一份 **profile** 的全部内容,而且它已经**做成机器可读的了** ——
 写在镜像的 `webmuxd.*` 标签里,`docker inspect` 就能读到,所以
-**加一个新镜像不用改 webmuxd 的代码**(见 [docker/README](../../../docker/README.md))。
+**加一个新镜像不用改 webmuxd 的代码**(见当时的 `docker/README.md`,**v2 已删除**)。
 
 它是一张**事实表**,不是配置项:
 描述的是"这个镜像长什么样",不是"你想怎么用"。webmuxd 没有配置文件,
@@ -260,7 +260,7 @@ if (bind(internalSocket, ...)) throw SocketException("failed to bind socket", er
 
 (kasm 在 host 网络下还有第二个坎:它的启动脚本死等一张叫 `eth*` 的网卡,
 而宿主机的网卡叫 `ens4` 之类。这个坎**在 wrapper 镜像里补掉了** ——
-底座镜像本身不动,见 [docker/](../../../docker/)。)
+底座镜像本身不动,见当时的 `docker/`,**v2 已删除**。)
 
 **TigerVNC 过得去。** jlesage 给 Xvnc 的参数:
 

@@ -159,6 +159,7 @@ def cmd_new(args: argparse.Namespace) -> int:
                         window_size=window_size, proxy=args.proxy,
                         browser_path=args.browser, cdp=args.cdp,
                         bind=args.bind, dsf=args.dsf,
+                        transport=args.transport,
                         view={"width": int(w), "height": int(h),
                               "format": args.img_format,
                               "quality": args.quality,
@@ -237,8 +238,14 @@ def cmd_info(args: argparse.Namespace) -> int:
     from webmuxd import env
     rows = Registry(name=args.socket_name).list()
     rec = env.load()
+    # **xpra 那条路能不能走,现探。** 和 runtime 一样的姿态:
+    # 键在=探到了,键不在=没探到 —— 不猜、不缓存。
+    from webmuxd import xpra as xpra_mod
+    xpra_ok, xpra_why = xpra_mod.available()
     info = {"version": __import__("webmuxd").__version__, "runtimes": rt.detect(),
             "default_runtime": rt.default(),
+            "transports": {"screencast": True, "xpra": xpra_ok},
+            "xpra_why": "" if xpra_ok else xpra_why,
             "env_record": {"at": rec["at"]} if rec else None,
             "sessions": {"total": len(rows),
                          "ready": sum(1 for r in rows if r["state"] == "ready"),
@@ -248,6 +255,8 @@ def cmd_info(args: argparse.Namespace) -> int:
                     f"runtime   " + ", ".join(
                         f"{k}{'' if v else '(不可用)'}"
                         for k, v in info["runtimes"].items()),
+                    f"画面      screencast(默认)"
+                    + (", xpra" if xpra_ok else f";xpra 不可用 —— {xpra_why}"),
                     f"session   {info['sessions']['ready']} 在跑,"
                     f"{info['sessions']['dead']} 死了",
                     (f"记录      {rec['at']}(webmuxd install 探的)" if rec
@@ -554,6 +563,13 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--bind", default="127.0.0.1",
                    help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
                         "拿到 token 的人就能操作这个浏览器")
+    # **画面从哪来。** 默认 screencast:开箱即用,只要一个浏览器。
+    # xpra 要 Xvfb + xpra + python3-pil,换来的是按区域编码和 `scroll`
+    # (滚动时零字节搬像素,works/12 §9)。**起不来就是起不来,不回退**。
+    n.add_argument("--transport", default="screencast",
+                   choices=["screencast", "xpra"],
+                   help="画面怎么来。screencast(默认)= CDP 截屏,开箱即用;"
+                        "xpra = 按区域编码,滚动更顺,但要 apt install xpra xvfb python3-pil")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
 
     ins = add("install", cmd_install, target=False,

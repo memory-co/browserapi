@@ -18,6 +18,7 @@ from aiohttp import WSMsgType, web
 from webmuxd.core import locate
 from webmuxd.errors import BadRequest, ReadOnly, WebmuxdError
 from webmuxd.serve.session import Session
+from webmuxd.view import relay
 from webmuxd.view.protocol import HEADER_SIZE, UPSTREAM
 from webmuxd.view.viewer import Viewer
 
@@ -55,6 +56,11 @@ def _json(payload: Any, status: int = 200) -> web.Response:
 
 @web.middleware
 async def auth(request: web.Request, handler: Callable[..., Awaitable]) -> web.Response:
+    # 浏览器自己会去要 favicon,而且**不带我们的 query**。它回的是 204 空响应,
+    # 没有任何可保护的东西 —— 挡它只会在日志里留下一条看着吓人的 403。
+    if request.path == "/favicon.ico":
+        request["writable"] = False
+        return await handler(request)
     given = (request.headers.get("Authorization", "")
              .removeprefix("Bearer ").strip()) or request.query.get("t", "")
 
@@ -92,9 +98,11 @@ async def errors(request: web.Request, handler: Callable[..., Awaitable]) -> web
         return _err(BadRequest("请求体不是合法 JSON", code="bad_request"))
 
 
-def build(session: Session) -> web.Application:
+def build(session: Session, *, xpra_ws: str = "") -> web.Application:
     app = web.Application(middlewares=[errors, auth])
     app["session"] = session
+    #: transport=xpra 时,上游那个 xpra 的 ws 地址。空字符串 = 没这条路。
+    app["xpra_ws"] = xpra_ws
     r = app.router
 
     r.add_get("/api/status", h_status)
@@ -140,7 +148,13 @@ def build(session: Session) -> web.Application:
     r.add_get("/api/events", h_events)
     # 画面 —— v2 新增的两条,和 API 同一个口(works/04 §1)
     r.add_get("/api/view", h_view)
+    # xpra 那条画面路。**和 API 同一个口**,而且上行过白名单(works/11 §2.2)
+    r.add_get("/xpra", h_xpra)
+    r.add_get("/static/{name}", h_static)
     r.add_get("/", h_index)
+    # 浏览器每开一次页面都会去要它。不接的话日志里每次多一条 404 ——
+    # **日志里的噪声会盖住真的问题**,这是花一行就能消掉的那种。
+    r.add_get("/favicon.ico", lambda _r: web.Response(status=204))
     r.add_get("/healthz", lambda _r: web.Response(text="ok"))
     return app
 
@@ -405,6 +419,8 @@ async def _pump(ws: web.WebSocketResponse, q: asyncio.Queue,
 # --------------------------------------------------------------------- 画面
 
 _INDEX = Path(__file__).resolve().parent.parent / "view" / "static" / "index.html"
+#: 观看页会去取的静态文件。**白名单,不是目录服务**。
+_STATIC = frozenset({"xpra.js", "rencode.js"})
 
 
 async def h_index(request: web.Request) -> web.Response:
@@ -415,6 +431,31 @@ async def h_index(request: web.Request) -> web.Response:
     这个地址,链路通没通一眼就看出来"。上层要自己画,用的是同一组接口。
     """
     return web.FileResponse(_INDEX, headers={"Cache-Control": "no-store"})
+
+
+async def h_static(request: web.Request) -> web.FileResponse:
+    """观看页要的那几个 js。**只放白名单里的文件名**,不是一个静态目录服务 ——
+    这个进程能读到的东西比一个 web 服务器该暴露的多得多。"""
+    name = request.match_info["name"]
+    if name not in _STATIC:
+        raise BadRequest(f"没有这个文件:{name}", code="not_found")
+    return web.FileResponse(_INDEX.parent / name,
+                            headers={"Cache-Control": "no-store"})
+
+
+async def h_xpra(request: web.Request) -> web.WebSocketResponse:
+    """xpra 那条画面连接 —— 代理到上游,**上行过白名单**(view/relay.py)。
+
+    走我们的口而不是直连 xpra,是为了 [04](../../docs/v2/works/04-one-port.md)
+    那条"一个口",以及 token 要在我们这儿校验一次 —— xpra 自己的鉴权
+    是进程级的,不认我们的只读 token。
+    """
+    upstream = request.app.get("xpra_ws") or ""
+    if not upstream:
+        raise BadRequest("这个 session 不是 xpra 模式,没有这条画面路",
+                         code="not_found",
+                         details={"how": "起的时候加 --transport xpra"})
+    return await relay.pump(request, upstream)
 
 
 async def h_view(request: web.Request) -> web.WebSocketResponse:
@@ -428,6 +469,7 @@ async def h_view(request: web.Request) -> web.WebSocketResponse:
                writable=writable, name=request.query.get("as") or "")
     # **权限只在连接建立时说一次。** 鼠标移动一秒几十个事件,逐个回 403
     # 等于自己 DoS 自己(works/04 §3)。
+    # `stats()` 里已经带了 `transport` —— 别再显式传一遍(会是 TypeError)。
     await v.tell("hello", writable=writable, protocol=HEADER_SIZE,
                  **{k: val for k, val in s.view.stats().items() if k != "viewers"})
     await s.view.add_viewer(v)

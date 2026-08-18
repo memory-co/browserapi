@@ -33,7 +33,16 @@ class RemoteRuntime:
     def start(self, id: str, *, port: int, cdp: str | None = None,
               data_dir: str | None = None, token: str | None = None,
               bind: str = "127.0.0.1", view: dict[str, Any] | None = None,
-              **_opts: Any) -> Handle:
+              transport: str = "screencast", **_opts: Any) -> Handle:
+        # **不静默忽略。** xpra 要截的是那个浏览器所在机器上的 X 显示,
+        # 而 `remote` 的浏览器根本不在这台机器上 —— 我们只有一个 CDP 端点。
+        # 悄悄给一个 screencast 的画面,等于让人以为自己在看 xpra 的画质。
+        if transport != "screencast":
+            raise unavailable(
+                self.name, f"runtime=remote 上没有 {transport} 这条画面路",
+                "xpra 要截浏览器所在机器上的 X 显示,而 remote 的浏览器不在这儿 —— "
+                "我们只有一个 CDP 端点。用默认的 screencast,"
+                "或者在那台机器上直接跑 webmuxd")
         if not cdp:
             raise unavailable(self.name, "runtime=remote 得给 cdp=",
                               "cdp 指向对面那个浏览器的 CDP 端点,"
