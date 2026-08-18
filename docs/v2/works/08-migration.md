@@ -111,34 +111,43 @@ KasmVNC 的抽象 socket 冲突、kasm 的窗口看门狗、Chromium 的 CDP 只
 
 落在这两格里的人继续用 v1,它的文档、镜像、实测记录一个字没删。
 
-## 5. 落地顺序
+## 5. 落地顺序 —— **七步全部做完了**
 
-不是一次性替换,按"每步都能自己跑起来"切:
+不是一次性替换,按"每步都能自己跑起来"切。**这张表现在是回顾,不是计划**:
 
-| | 做什么 | 做完能验证什么 |
-| --- | --- | --- |
-| 1 | `view/` 的帧流:screencast → 28 字节头 → WS → `<img>` | 打开 `/` 能看见页面 |
-| 2 | 输入翻译 + 光标 | 能上手点、能打字(含中文) |
-| 3 | ack 背压 + RTT 自适应 | 慢客户端不拖累别人(照抄 demo 的那一项自测) |
-| 4 | 内置页面的 tab 条 / 地址栏,接 `/api/tabs` | 切 tab、导航,和 API 侧同一份状态 |
-| 5 | 六类原生 UI 的前三条(对话框 / 下载 / 文件选择) | **可宣布可用的门槛**([06 §5](06-no-desktop.md#5-排期不是全都要一次做完)) |
-| 6 | `webmuxd install` + 本机起进程 + `remote` | **不用 docker**、一机多开、云 CDP 自带画面 |
-| 7 | 只读 / 可写 token | `share()` 那个承诺兑现 |
+| | 做什么 | 落在哪 | 守着它的测试 |
+| --- | --- | --- | --- |
+| 1 | `view/` 的帧流:screencast → 28 字节头 → WS → `<img>` | [`view/cast.py`](../../../webmuxd/view/cast.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
+| 2 | 输入翻译 + 光标 | [`view/input.py`](../../../webmuxd/view/input.py) · [`cursor.py`](../../../webmuxd/view/cursor.py) | 同上 |
+| 3 | ack 背压 + RTT 自适应 | [`view/viewer.py`](../../../webmuxd/view/viewer.py) · [`quality.py`](../../../webmuxd/view/quality.py) | 同上 |
+| 4 | 内置页面的 tab 条 / 地址栏 | [`static/index.html`](../../../webmuxd/view/static/index.html) | — |
+| 5 | 六类原生 UI | [`native/`](../../../webmuxd/native/) | [`no_desktop/`](../../../tests/no_desktop/)(10 条) |
+| 6 | `webmuxd install` + 本机起进程 + `remote` | [`cli/install.py`](../../../webmuxd/cli/install.py) · [`runtime/`](../../../webmuxd/runtime/) | [`installing/`](../../../tests/installing/) · [`one_endpoint/`](../../../tests/one_endpoint/) |
+| 7 | 只读 / 可写 token | [`serve/app.py`](../../../webmuxd/serve/app.py) | [`the_http_face/`](../../../tests/the_http_face/) |
 
-1–3 步的参考实现就是 `~/browserbox/demo/`,那 700 行已经跑通并有 17 项自测 ——
+1–3 步的参考实现是 `~/browserbox/demo/`,那 700 行已经跑通并有 17 项自测 ——
 **照抄,不重新设计,也不顺手调参**([02 §0](02-frame-protocol.md#0-这一篇的地位照抄不重新设计))。
 
-## 6. 落地前必须补的实测
+**第 8 步是当初没排的**:换一条像素来源(xpra)。它没有出现在这张表里,
+因为写这篇的时候还不知道有这条路 —— 它是[11](11-xpra.md) · [12](12-xpra-client.md),
+0.7.0 起是默认,落在 [`xpra.py`](../../../webmuxd/xpra.py) ·
+[`view/relay.py`](../../../webmuxd/view/relay.py) ·
+[`static/xpra.js`](../../../webmuxd/view/static/xpra.js),
+测试在 [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/)。
 
-本轮量到的东西散在各篇([01 §6](01-frame-source.md#6-这次量到的) 有汇总),
-以下几条**还没量**,而设计押在它们上面:
+## 6. 落地前必须补的实测 —— 现在的账
 
-| 待验 | 押在哪儿 | 不成立会怎样 |
+本轮量到的东西散在各篇([01 §6](01-frame-source.md#6-这次量到的) 有汇总)。
+**下面这张表是当初列的"押在上面但没量"的东西,逐条对了一遍**:
+
+| 待验 | 状态 | |
 | --- | --- | --- |
-| 多个 target 各自 `Emulation.setDeviceMetricsOverride` 是否互不干扰、帧尺寸跟不跟着变 | [02 §5](02-frame-protocol.md#5-分辨率是-per-tab-的) | `resize` 退回 session 级 |
-| `window.open` 的 target 类型 / `openerId` / 能否 screencast | [05 §4](05-active-tab.md#4-popup-不再是特殊情况) | popup 要单独处理,v1/works/07 复活 |
-| 真实网页(非 data: 页)的帧率与码率 | [01 §4](01-frame-source.md#4-代价老实写) 引的是 demo 在 youtube 上的数字 | 带宽预期要重写 |
-| **screencast vs kasm 的流畅度对比数字**(fps 曲线 / 端到端延迟 / 码率 / CPU,同机同链路同视频) | [01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅) 目前只有主观对比 | 结论方向已经实测过,缺的是**能对外讲的数字** |
-| 六类原生 UI 的 CDP 拦截逐条验证 | [06 §2](06-no-desktop.md#2-六类逐条) | 排期要重排 |
-| **Chrome for Testing 的条款**允不允许 webmuxd 这种用法 | [07 §4.2](07-runtime.md#42-下什么从哪下) | 退回纯 BSD 的 Chromium 构建。**不损失功能**,只是版本索引要自己解决 |
-| `install` 在裸机上到底缺哪些 `.so`(Debian / Ubuntu / Alpine 各一遍) | [07 §4.3](07-runtime.md#43-系统依赖和字体照抄-playwright-的姿态) | `install-deps` 的清单要重写 |
+| `window.open` 的 target 类型 / `openerId` | **✓ 验了** | [`chrome_facts`](../../../tests/chrome_facts/) 实测四种开 tab 的方式**全带 `openerId`**,所以不需要 url 兜底,也不需要 `unknown`([05 §4](05-active-tab.md#4-popup-不再是特殊情况))。带 `windowFeatures` 那条 headless 下测不了,**标着 skip 留在那儿** |
+| 六类原生 UI 的 CDP 拦截逐条验证 | **✓ 验了** | [`no_desktop/`](../../../tests/no_desktop/) 10 条,判据是**页面自己动了**,不是我们收到了事件 |
+| 真实网页的帧率与码率 | **✓ 部分** | xpra 那条量全了([12 §9](12-xpra-client.md#9-量到的数)):滚动 3.71 Mbps、全屏动画 2.86–9.34 Mbps ≈ 20 fps。screencast 那条仍然引的是 demo 的数 |
+| `install` 在裸机上缺哪些 `.so` | **✓ 部分** | 清单落在 [`deps.py`](../../../webmuxd/cli/deps.py),apt / dnf / yum 三份。RHEL 那份是真机上撞出来的,Alpine 还没试 |
+| 多个 target 各自 `setDeviceMetricsOverride` 是否互不干扰 | **✗ 还没量** | 押在 [02 §5](02-frame-protocol.md#5-分辨率是-per-tab-的)。不成立的话 `resize` 要退回 session 级。**没有测试守着** |
+| screencast vs kasm 的流畅度数字 | **✗ 还没量** | 押在 [01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅)。方向实测过(主观),缺的是能对外讲的数 |
+| **Chrome for Testing 的条款**允不允许这种用法 | **✗ 还没查** | 押在 [07 §4.2](07-runtime.md#42-下什么从哪下)。不行就退回纯 BSD 的 Chromium 构建,**不损失功能** |
+
+xpra 那条路自己的待验项另有一份,在 [12 §13](12-xpra-client.md#13-还没验的)。

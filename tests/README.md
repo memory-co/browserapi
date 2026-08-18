@@ -25,6 +25,7 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | [`cli_shell/`](cli_shell/) | **CLI 照着 tmux 长**:退出码是接口、`new` 幂等、文件只是线索活没活要现探、定位失败在终端里列候选 |
 | [`installing/`](installing/) | **只回答两个问题**:下得到那个浏览器吗、依赖齐吗。幂等、下不到就不写那个键、记录不是配置文件 |
 | [`errors_are_a_contract/`](errors_are_a_contract/) | **错误分类指向不同的下一步**:每个线上 code 一个类、不认识的按状态兜底而不是 `KeyError`、半个响应体也能变成异常 |
+| [`the_docs_are_true/`](the_docs_are_true/) | **设计稿说的和代码做的是同一件事**:链接和锚点全指得到、文档里的数字就是代码里的值(帧头 28 字节、ack 额度、画质下限、xpra 上行那 6 个包)。**一条腐烂的结论比没有结论更坏** —— 它看着像依据 |
 | [`chrome_facts/`](chrome_facts/) | **我们对 Chromium 的假设,逐条量过**:四种开 tab 的方式全带 `openerId`、`setDiscoverTargets` 会补已存在的 target。**换大版本先跑这个** |
 | [`the_http_face/`](the_http_face/) | **HTTP 面存在的唯一理由是可独立验证**:形状和 lib 一一对上、不做 lib 没有的事、动作串行遇错即停、忙就 409 不排队 |
 

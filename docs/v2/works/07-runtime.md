@@ -3,6 +3,16 @@
 **一句话**:runtime 这个词收缩到只剩一件事 —— 浏览器从哪来。
 **本机起一个进程,或者你给一个 CDP 端点。容器不在里面。**
 
+> **落地在** [`runtime/`](../../../webmuxd/runtime/) ·
+> [`browser.py`](../../../webmuxd/browser.py) ·
+> [`cli/install.py`](../../../webmuxd/cli/install.py) ·
+> [`cli/deps.py`](../../../webmuxd/cli/deps.py),
+> 测试在 [`tests/one_endpoint/`](../../../tests/one_endpoint/) ·
+> [`tests/installing/`](../../../tests/installing/)。
+>
+> 0.7.0 起 `process` 默认起的是**有头的** chromium(跑在 Xvfb 上,给 xpra 截)——
+> 见 [11 §6](11-xpra.md#6-默认走哪条);`remote` 那条不受影响。
+
 ## 1. 契约只剩一条
 
 ```
@@ -234,14 +244,34 @@ v1 README 的原话是有分寸的:
 **中文全是豆腐块**(demo 实测,任何跑 RBI 的机器都会撞上)。
 
 playwright 的做法是分成 `install` 和 `install-deps`,后者要 root、只支持
-Debian/Ubuntu,别的发行版**只打印缺什么**。照抄这个姿态,理由是它和 v1 的
+Debian/Ubuntu,别的发行版**只打印缺什么**。当时照抄了这个姿态,理由是它和 v1 的
 install 规矩本来就一致:
 
 > **键在 = 探到了,键不在 = 没探到。** 就这一条规矩,没有 `ok: false` 这种带着理由的空壳。
 > —— [v1/cli/install.md §3](../../v1/cli/install.md#3-记录长什么样)
 
-所以:**能装就装,装不了就明说缺哪些包、给出那行 apt 命令,绝不静默**。
+**0.7.0 改了两处,那条"键在=探到了"的规矩一个字没动:**
+
+| | 原来(抄 playwright) | 现在 |
+| --- | --- | --- |
+| 装还是只打印 | `--with-deps` 才装 | **探到缺了就装**,`install` 的职责就是跑之前把环境弄好 |
+| 装不了的时候 | 打印 | **一样打印** —— 只有没 root 时才退化成这样,那时候我们确实做不了 |
+| 支持哪些发行版 | 只有 `apt-get` | **apt / dnf / yum**([`deps.py`](../../../webmuxd/cli/deps.py)) |
+
+翻"装是默认行为"这一条的理由很直接:**探到缺了却不装,等于把活原样退回去**。
+playwright 分成两个命令是因为它面向的是开发机;webmuxd 面向的是"跑之前把这台
+机器弄好",那正是 `install` 存在的全部理由。
+
+多发行版这条是**真机上撞出来的**,而且不是换个前缀那么简单:RHEL 那边
+Xvfb 叫 `xorg-x11-server-Xvfb`、Pillow 叫 `python3-pillow`,chrome 那 15 个
+共享库一个都对不上,**连 xpra 默认用的虚拟显示都不一样**
+([12 §12.3](12-xpra-client.md#123-虚拟显示是打包方定的不是我们定的--探到了也没用))。
+
+不变的两条:**装不了就明说缺哪些包、给出完整的那一行,绝不静默**;
 字体和 `.so` 一样对待 —— 缺 `fonts-noto-cjk` 是一条**警告**,不是"看起来正常"。
+
+新加一条:**装完要重新探一遍**。`apt-get` 返回 0 只说明命令没报错,
+不说明东西真的有了 —— **判据永远是探测结果,不是安装器的退出码**。
 
 ### 4.4 install 的形状:内容换掉,规矩全留
 

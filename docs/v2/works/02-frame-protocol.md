@@ -3,6 +3,17 @@
 **一句话**:一条 WebSocket,下行是「28 字节二进制头 + JPEG 裸字节」,
 上行是 ack 和归一化输入事件。ack 既是背压也是 RTT 探针,RTT 决定画质。
 
+> **范围:这一篇只讲 screencast 那条画面路。** 0.7.0 起默认走 xpra,
+> 它有自己的一套(8 字节头、按区域编码、`damage-sequence` 当 ack)——
+> 见 [12 §2](12-xpra-client.md#2-线上长什么样8-字节头)、[§7](12-xpra-client.md#7-上行不是什么都不发是六个包)。
+> **本篇的上行(输入、resize、tab)两条路完全共用**,只有帧那一半不同。
+>
+> **落地在** [`view/cast.py`](../../../webmuxd/view/cast.py) ·
+> [`viewer.py`](../../../webmuxd/view/viewer.py) ·
+> [`quality.py`](../../../webmuxd/view/quality.py) ·
+> [`protocol.py`](../../../webmuxd/view/protocol.py),
+> 测试在 [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/)。
+
 ## 0. 这一篇的地位:照抄,不重新设计
 
 **图片流这一层原样按 demo 来**(`~/browserbox/demo/`,约 700 行,17 项 e2e 已经跑通)。

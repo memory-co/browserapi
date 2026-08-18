@@ -3,6 +3,16 @@
 **一句话**:客户端的鼠标键盘被归一化成 JSON 发上来,服务端翻译成 CDP 的 `Input.*` 打回远端。
 **这层翻译就是整个安全模型的收口** —— 观看者能对远端做的事,全部被限制在 `Input` 域那几个命令里。
 
+> **两条画面路共用这一篇,一个字都不用改。** xpra 那条**不走它自己的输入协议**,
+> 而且代理那头还有一层白名单挡着([11 §2.1](11-xpra.md#21-输入不走-xpra这是本篇最重要的一条决定))——
+> 于是这个收口是**两层**保证的。
+>
+> **落地在** [`view/input.py`](../../../webmuxd/view/input.py) ·
+> [`cursor.py`](../../../webmuxd/view/cursor.py) ·
+> [`view/relay.py`](../../../webmuxd/view/relay.py)(白名单),
+> 测试在 [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) ·
+> [`tests/pixels_from_xpra/`](../../../tests/pixels_from_xpra/)。
+
 ## 1. 收口在哪
 
 ```

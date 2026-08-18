@@ -3,6 +3,15 @@
 **一句话**:tab 的外挂模式**一字不改** —— tab 表走 API 出来,tab 条由外面画。
 唯一变的是 `active`:它从 sessiond 记的一本账,变成了当前事实。
 
+> **xpra 那条路上这篇仍然成立,但 §2 那个论证换了形式。** 那儿"帧本身就是
+> active 的证据"靠的是"后台 tab 不产帧";xpra 截的是**同一个窗口**,
+> 切 tab 靠 `Target.activateTarget`,画面自然跟着变 ——
+> 结论一样:**没有第二份真相**([11 §4](11-xpra.md#4-tab-和-active))。
+>
+> **落地在** [`core/tabs.py`](../../../webmuxd/core/tabs.py) ·
+> [`view/cast.py`](../../../webmuxd/view/cast.py) 的 `follow()`,
+> 测试在 [`tests/tab_identity/`](../../../tests/tab_identity/)。
+
 ## 1. 不变的部分
 
 v1 [works/04 §3/§4](../../v1/works/04-chrome-ui-externalization.md#3-外面画-tab-条和地址栏需要什么--cdp-给不给)

@@ -3,6 +3,16 @@
 **一句话**:画面和 API 落在同一个 HTTP 端口上。`view_port` 退役,
 `api_port` 改叫 `port`,VNC 的用户名口令换成 webmuxd 自己的 token。
 
+> **加了 xpra 之后仍然是一个口。** xpra 自己的 ws 只绑在回环上,
+> 由 sessiond 反代成 `WS /xpra`,token 在我们这儿校验一次
+> ([11 §2.2](11-xpra.md#22-那条-xpra-连接要不要经过我们))——
+> 人拿到的还是一个地址。
+>
+> **落地在** [`serve/app.py`](../../../webmuxd/serve/app.py) ·
+> [`view/relay.py`](../../../webmuxd/view/relay.py),
+> 测试在 [`tests/one_endpoint/`](../../../tests/one_endpoint/) ·
+> [`tests/the_http_face/`](../../../tests/the_http_face/)。
+
 ## 1. 两个口塌成一个
 
 v1 的 session 有两个口([v1/sdk/session.md §1](../../v1/sdk/session.md#1-一个-session-两个口)):

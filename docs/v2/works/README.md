@@ -3,8 +3,17 @@
 **v1 是 tmux + 一个租来的 ttyd,v2 里 ttyd 那一半是自己写的。**
 
 [v1/works/README](../../v1/works/README.md) 开篇那句"webmuxd ≈ tmux + ttyd"到 v2 才真正成立。
-v1 的画面是 kasm / jlesage 的产品,我们只报 URL;v2 的画面是 CDP 吐出来的 JPEG 帧,
+v1 的画面是 kasm / jlesage 的产品,我们只报 URL;**v2 的画面是我们自己产的** ——
 从编码参数到背压到输入翻译,每一段都在我们手里。
+
+> **读之前先知道一件事:像素有两个来源,而别的一切只有一套。**
+>
+> `01`–`10` 写的是 CDP `Page.startScreencast` 那条(v2 的第一条,也是现在的退路);
+> `11`–`12` 是 xpra 那条,**0.7.0 起它是默认**。
+> 两条之间**唯一的差别是像素从哪来** —— 输入、光标、tab、只读、原生 UI、日志、
+> token 完全共用([11 §5](11-xpra.md#5-xpra-只负责像素别的一律不归它))。
+> 所以 `03`(输入)、`04`(一个口)、`05`(tab)、`06`(原生 UI)这四篇**两条路都算数**;
+> `02`(帧协议)和 `09`(线格式)只讲 screencast 那条。
 
 思路的来源是 [BrowserBox](https://github.com/BrowserBox/BrowserBox) 那套 RBI 架构,
 以及照着它写的一个约 700 行的最小实现(`~/browserbox/demo/`)——
@@ -23,7 +32,7 @@ v1:    ────────────────┘        └───�
 
 | | v1 | v2 |
 | --- | --- | --- |
-| 画面从哪来 | 镜像里的 KasmVNC / TigerVNC | **CDP `Page.startScreencast`** |
+| 画面从哪来 | 镜像里的 KasmVNC / TigerVNC | **自己产**:默认 xpra 按区域编码,退路是 CDP `Page.startScreencast` |
 | 人的输入怎么进去 | VNC 协议,我们不参与 | **CDP `Input.*`,我们翻译** |
 | 对外几个口 | 两个(画面口 + API 口) | **一个** |
 | 画面里有什么 | 整个桌面(含 tab 条、地址栏,要裁掉) | **只有页面内容** |
@@ -44,28 +53,55 @@ v1:    ────────────────┘        └───�
 | [09-wire-format.md](09-wire-format.md) | **一帧逐字节长什么样** —— ttyd 一个字节、我们二十八个,为什么;三家的上行怎么组织;以及**那个缺掉的协议客户端** |
 | [10-install.md](10-install.md) | **playwright 的 install 拆开看** —— 下的是 bin 还是 rpm(两条都有,刻意分开)、标记文件、镜像轮转、依赖怎么探。末尾是该抄什么不该抄什么 |
 | [11-xpra.md](11-xpra.md) | **画面默认走 xpra** —— 但它只负责像素:两条 WS、输入不走它(收口不动)、`--kiosk` 让 bar 根本不出现、原生 UI 照旧归我们 |
-| [12-xpra-client.md](12-xpra-client.md) | **客户端解码,实测** —— xpra-html5 里没有解码器,自写约 500 行;`start-desktop` + `--kiosk`;`scroll` 用零字节干掉 57% 重绘面积 |
+| [12-xpra-client.md](12-xpra-client.md) | **客户端解码,实测** —— xpra-html5 里没有解码器,自写三百来行;`start-desktop` + `--kiosk`;`scroll` 用零字节干掉 57% 重绘面积 |
+
+## 落地在哪
+
+设计稿不是计划书 —— 下面每一行都已经在跑,`tests/` 里有对应的场景守着。
+
+| | 代码 | 测试 |
+| --- | --- | --- |
+| 帧协议 · 两个 ack 环 · 自适应 | [`view/cast.py`](../../../webmuxd/view/cast.py) · [`viewer.py`](../../../webmuxd/view/viewer.py) · [`quality.py`](../../../webmuxd/view/quality.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
+| 输入翻译(安全收口) | [`view/input.py`](../../../webmuxd/view/input.py) · [`cursor.py`](../../../webmuxd/view/cursor.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
+| 一个口 · token · 只读 | [`serve/app.py`](../../../webmuxd/serve/app.py) | [`one_endpoint/`](../../../tests/one_endpoint/) · [`the_http_face/`](../../../tests/the_http_face/) |
+| 六类原生 UI | [`native/`](../../../webmuxd/native/) | [`no_desktop/`](../../../tests/no_desktop/) |
+| runtime(process · remote) | [`runtime/`](../../../webmuxd/runtime/) | [`one_endpoint/`](../../../tests/one_endpoint/) |
+| `webmuxd install` · 系统包 | [`cli/install.py`](../../../webmuxd/cli/install.py) · [`cli/deps.py`](../../../webmuxd/cli/deps.py) | [`installing/`](../../../tests/installing/) |
+| xpra:起 · 代理 · 白名单 | [`xpra.py`](../../../webmuxd/xpra.py) · [`view/relay.py`](../../../webmuxd/view/relay.py) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
+| xpra 客户端(协议 + 解码) | [`static/xpra.js`](../../../webmuxd/view/static/xpra.js) · [`rencode.js`](../../../webmuxd/view/static/rencode.js) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
+| 观看页(两条路共用) | [`static/index.html`](../../../webmuxd/view/static/index.html) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
 
 ## 明确不做
 
 v1 那份[「明确不做」](../../v1/works/README.md#明确不做)全部继承(控制面 / 数据库 / 多租户 /
 内置 LLM / k8s operator),判据仍然是那一句:**tmux 会做这个吗?**
 
-v2 自己新增四条,都是"自己产画面"这个决定的直接推论:
+v2 自己新增四条,都是"自己产画面"这个决定的直接推论。**0.7.0 换了默认之后,
+四条的结论都没变,但其中三条的理由变了** —— 理由变了却不改,文档就开始撒谎:
 
-- ❌ **不做 H.264 / VP8 / WebRTC。** 帧间编码是对的方向,但它是另一个量级的工程
-  (编码器、抖动缓冲、NACK/PLI、SFU),会把这个项目变成流媒体项目。
-  v2 就是 JPEG + 自适应降质,带宽账[明写在 01](01-frame-source.md#4-代价老实写)。
-  **而且实测 JPEG 流在最难的场景(YouTube 看视频)上已经比 VNC 更流畅**
-  ([01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅))—— WebRTC 能换的是带宽,
-  不是流畅度,那笔交易没有想象中划算。图片流这层**先照抄 demo 跑起来**,
-  以后要优化从哪儿动、什么条件下动,列在 [02 §6](02-frame-protocol.md#6-以后可以再优化的)。
-- ❌ **不做音频。** kasm 的镜像有,我们没有。这是 v2 相对 v1 的**净损失**,不装作没有。
-- ❌ **不做桌面。** 窗口管理器、右键菜单、文件管理器 —— headless 里根本没有这些东西,
-  也不打算模拟。要桌面的场景,v1 那条路仍然可用。
-- ❌ **不碰容器。** 不起容器、不认容器、不探 docker,`image=` / `network=` 一起删掉。
-  tmuxd 不会 `docker run` 一个 tmux。要隔离就**把 webmuxd 放进容器里**,
-  那是你的部署决定,不是我们的参数([07 §2](07-runtime.md#2-容器不要了))。
-- ❌ **不保留 VNC 作为开关。** 不做 `view="vnc" | "screencast"`。两套画面路径意味着
-  两套输入路径、两套权限模型、两套 runtime 契约,而它们没有一处能共用。
-  结论只能有一个([01 §5](01-frame-source.md#5-为什么不留一个开关))。
+- ❌ **不做 H.264 / VP8 / WebRTC。**
+  原来的理由是"帧间编码是另一个量级的工程(编码器、抖动缓冲、NACK/PLI、SFU)"。
+  **现在这条理由不成立了** —— xpra 那边编码器是现成的,h264/vp8/vp9 都在。
+  真正的理由换成了一句更准的话:**我们的客户端不报视频编码,所以服务端永远不发。**
+  这不是做不到,是**一个随时可以反悔的选择**:加上 `full_csc_modes` 和一个
+  WebCodecs 分支就有了,协议层不动([12 §8](12-xpra-client.md#8-能力声明就是契约我们解多少由我们说了算))。
+  不急着做的原因是还没量到它值多少 —— 那是 [12 §13](12-xpra-client.md#13-还没验的) 的第一条。
+- ❌ **不做音频。**
+  原来的理由是"kasm 的镜像有,我们没有",算 v2 相对 v1 的净损失。
+  **现在也不成立了** —— xpra 自带音频转发(要 GStreamer),我们是**主动关掉的**
+  ([`xpra.py` 的 `OFF`](../../../webmuxd/xpra.py))。理由换成:它和"画面只负责像素"
+  这条主线无关,而且会把 GStreamer 拖进依赖里。**从"没有"变成了"不要"。**
+- ❌ **不做桌面。**
+  原来的理由是"headless 里根本没有这些东西"。**xpra 那条路上浏览器是有头的**,
+  X 显示是真的,`start-desktop` 里甚至有窗口管理器。所以理由要换:
+  我们用 `--kiosk` 让浏览器铺满整个显示,**画面里永远只有一个窗口**;
+  文件管理器、右键菜单、非浏览器程序仍然没有,也不打算有
+  ([11 §5](11-xpra.md#5-xpra-只负责像素别的一律不归它))。要完整桌面就该用远程桌面,不是用这个。
+- ❌ **不保留 VNC 作为开关。**
+  这一条**理由没变,但要限定范围**。[01 §5](01-frame-source.md#5-为什么不留一个开关)
+  拒绝的是 `view="vnc" | "screencast"` 那个形状,论证是"两套输入路径、两套权限模型、
+  两套 runtime 契约,没有一处能共用"—— **那对 VNC 仍然全对**。
+  而 `--transport screencast|xpra` 不是同一个东西:输入路径和权限模型**完全共用**,
+  只有像素那一段不同,而且**默认只有一个**([11 §6](11-xpra.md#6-默认走哪条))。
+  screencast 是 xpra 装不上时的明确退路,以及 `remote` 上唯一能用的那个 ——
+  不是"两边都行、你挑一个"。
