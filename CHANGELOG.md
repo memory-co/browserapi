@@ -1,5 +1,48 @@
 # 更新日志
 
+## 0.5.1
+
+**`webmuxd install` 自己挑最快的下载源。**
+
+```console
+  下载源        探测中…
+     官方               1.8 MB/s     ✓
+     npmmirror        0.4 MB/s
+     npmmirror cdn    0.3 MB/s
+```
+
+三条讲究:
+
+- **探的是真实那个文件的头 256 KB**,不是首页也不是 ping —— 首页快不代表大文件快,
+  CDN 的回源路径经常不一样
+- **量吞吐,不量 RTT** —— 要下的是 150 MB,握手快 20ms 一文不值
+- **传进来的赢**:显式给了 `--mirror` 或 `WEBMUXD_BROWSER_MIRROR` 就不探了。
+  探测是"这台机器上哪个快"的**事实**,你指定哪个是你的**选择**
+
+全都探不通就退回官方,**让真正的下载去报错** —— 那儿的原因(DNS 不通 / 403 /
+超时)比一句"探测失败"有用。
+
+### 顺手修的两处
+
+- **下载失败的原因不再截断。** 之前截到 30 字符,截在半句上
+  (`<urlopen error [Errno -2] Name`)—— 而原因决定了下一步该做什么。
+- **版本号只剩一处。** 0.5.0 发版时两处各写一份,只改了 `pyproject.toml`,
+  装出来的包 `webmuxd info` 报的是上一版的号,**只有在干净 venv 里装完才看得出来**。
+  现在 `pyproject.toml` 用 `dynamic` 从 `webmuxd/__init__.py` 读。
+
+### 为什么没有阿里云那个源
+
+`https://mirrors.aliyun.com/google-chrome/` 看着正是我们要的,**但它不是**:
+托管的是 Google Chrome 稳定版 / beta 的 `.deb` / `.rpm` **系统包**,不是
+Chrome for Testing 的 zip;而且只有 `current`,历史版本停在 112 那一带 ——
+**没有版本可钉**。
+
+拿它当源等于把「每个 release 钉一个版本、升级前先跑 `chrome_facts`」整个作废,
+而那是选 Chrome for Testing 的**唯一理由**([works/07 §4.1](docs/v2/works/07-runtime.md))。
+
+真想用系统装的 Chrome,那是另一条路:`--browser /usr/bin/google-chrome` ——
+显式、看得见、不假装自己是钉死的那一版。
+
 ## 0.5.0
 
 **画面自己产。** VNC、桌面、docker 整条路砍掉 —— 一个端口,人打开就能看,

@@ -1,6 +1,6 @@
 [project]
 name = "webmuxd"
-version = "0.5.0"
+dynamic = ["version"]
 description = "tmux + ttyd for a browser: a persistent Chromium you can watch and drive"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,6 +33,9 @@ webmuxd = "webmuxd.cli.__main__:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "webmuxd.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["webmuxd*"]
