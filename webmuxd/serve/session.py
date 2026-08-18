@@ -37,7 +37,7 @@ class Session:
 
     def __init__(self, cdp: CDP, *, data_dir: str | Path = "/data",
                  tab_max: int | None = None, human_yield_ms: int = HUMAN_YIELD_MS,
-                 secrets: Any = None) -> None:
+                 secrets: Any = None, view: dict[str, Any] | None = None) -> None:
         self.cdp = cdp
         self.seq = Seq()
         self.log = Log(data_dir, seq=self.seq)
@@ -56,7 +56,7 @@ class Session:
         self._exec: dict[str, Executor] = {}
         self._sessions: dict[str, str] = {}    # tab_id -> CDP sessionId
         #: 画面。v2 里它是我们自己的([works/01](../../docs/v2/works/01-frame-source.md))
-        self.view = Screencaster(self)
+        self.view = Screencaster(self, **(view or {}))
         self._action_lock = asyncio.Lock()
         self.started_at = time.time()
         self.restarts = 0

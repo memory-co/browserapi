@@ -360,3 +360,67 @@ async def test_真链路上回显帧号之后算得出_rtt(live):
         await asyncio.sleep(0.3)
         stats = session.view.stats()["viewers"][0]
         assert stats["rtt_ms"] is not None, "带了帧号就该算得出 RTT"
+
+
+# --------------------------------------------------------- RTT 自适应降质
+
+async def test_链路慢了会降质_而且降的过程进_scrollback(live, monkeypatch):
+    """**这套逻辑本机验不到,除非把阈值挪到本机 RTT 之下。**
+
+    02 §3 一直写着"想验证它必须人为加延迟"—— 换个做法:把阈值搬下来,
+    死区仍然保留(`FAST < SLOW`),就能在本机跑出真实的降级路径。
+    """
+    from webmuxd.view import quality
+    # 压到任何真实 RTT 都必然高于它 —— 进程内的 WS 往返只有零点几毫秒,
+    # 阈值设在 0.5 会卡在边界上,用例就飘了。**死区仍然留着**(FAST < SLOW)。
+    monkeypatch.setattr(quality, "SLOW_MS", 0.0001)
+    monkeypatch.setattr(quality, "FAST_MS", 0.00001)
+    monkeypatch.setattr(quality, "THROTTLE_S", 0.2)
+
+    session, client, _ = live
+    await _open(session, MOVING)
+    seen = []
+    async with client.ws_connect("/api/view") as ws:
+        n = 0
+        with contextlib.suppress(asyncio.TimeoutError):
+            async with asyncio.timeout(20):
+                while n < 40:
+                    m = await ws.receive()
+                    if m.type.name == "BINARY":
+                        n += 1
+                        await ws.send_json({
+                            "type": "ack",
+                            "frameId": parse_header(m.data)["frame_id"]})
+                    elif m.type.name == "TEXT":
+                        d = json.loads(m.data)
+                        if d["type"] == "quality":
+                            seen.append(d["quality"])
+                    if len(seen) >= 3:
+                        break
+
+    assert seen, "链路判为慢了却一直不降质"
+    # **先砍画质,砍到底才抽帧** —— 糊一点的连续画面比清晰的卡顿画面可用得多
+    assert seen == sorted(seen, reverse=True), f"该单调下降,实际 {seen}"
+    assert seen[0] == 60, f"第一步该是 80-20=60,实际 {seen[0]}"
+
+    # **降质要能事后查到**,不能只刷一下状态栏
+    rows = [e for e in session.log.read(limit=50, kind="session")
+            if e.get("event") == "quality_changed"]
+    assert rows, "scrollback 里没有降质记录"
+    assert rows[0]["direction"] == "down" and "rtt_ms" in rows[0]
+
+
+async def test_死区防的是来回震荡():
+    """`FAST < SLOW` 之间那段是**故意留的**。
+
+    没有死区(两个条件能同时成立)的话,一个在阈值附近的链路会一直升降,
+    画质来回变 —— 比一直糊更难受。
+    """
+    from webmuxd.view.quality import Adaptor, FAST_MS, SLOW_MS
+    assert FAST_MS < SLOW_MS, "死区没了,两边会同时成立"
+
+    a = Adaptor(80)
+    mid = (FAST_MS + SLOW_MS) / 2          # 落在死区里
+    for _ in range(10):
+        assert a.feed(mid) is None, "死区里不该动"
+    assert a.quality == 80

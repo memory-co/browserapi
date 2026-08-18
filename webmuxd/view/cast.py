@@ -50,10 +50,18 @@ class Screencaster:
 
     def __init__(self, session: "Session", *, width: int = DEFAULT_W,
                  height: int = DEFAULT_H, fmt: str = DEFAULT_FORMAT,
-                 quality: int = DEFAULT_QUALITY) -> None:
+                 quality: int = DEFAULT_QUALITY, dsf: float = 1.0) -> None:
         self.session = session
         self.width, self.height = width, height
         self.format = fmt
+        #: 渲染倍率。**只用来匹配观看端的 dpr,不是"越大越清晰"**
+        #: ([02 §4③](../../docs/v2/works/02-frame-protocol.md))——dpr=1 的屏上
+        #: dsf=2 实测锐度反而低 18%,还多花 2.6 倍带宽。
+        #:
+        #: 真正让它生效的是**浏览器启动参数** `--force-device-scale-factor`,
+        #: 这儿只是跟着把 maxWidth/maxHeight 乘上去;漏了这一步 Chromium 会把
+        #: 2x 的画面缩回 CSS 尺寸再编码,等于白做。
+        self.dsf = dsf if dsf and dsf > 0 else 1.0
         self.viewers: set[Viewer] = set()
         self.adaptor = Adaptor(quality, lossless=(fmt == "png"))
 
@@ -120,7 +128,8 @@ class Screencaster:
             await self._apply_viewport()
             await self._start_cast(locked=True)
         await self._tell_all("cast", tab=tab_id, w=self.width, h=self.height,
-                             format=self.format, quality=self.adaptor.quality)
+                             format=self.format, quality=self.adaptor.quality,
+                             dsf=self.dsf)
 
     async def _start_cast(self, *, locked: bool = False) -> None:
         if self._sid is None:
@@ -128,8 +137,9 @@ class Screencaster:
         self._cast_id += 1
         params: dict[str, Any] = {
             "format": self.format,
-            "maxWidth": self.width,
-            "maxHeight": self.height,
+            # **跟着乘 dsf**,否则 Chromium 把 2x 画面缩回 CSS 尺寸再编码
+            "maxWidth": int(self.width * self.dsf),
+            "maxHeight": int(self.height * self.dsf),
             "everyNthFrame": self.adaptor.every_nth,
         }
         if self.format != "png":              # png 无损,quality 对它无效
@@ -219,11 +229,22 @@ class Screencaster:
         rtt = await v.on_ack(frame_id)
         if rtt is None:
             return
+        before = self.adaptor.quality
         changed = self.adaptor.feed(rtt)
         if changed is None:
             return
-        log.info("RTT 自适应:quality=%d everyNthFrame=%d",
-                 changed.quality, changed.every_nth)
+        # **进 scrollback,不只是刷一下状态栏。**
+        #
+        # 状态栏只有当前值,而"画质什么时候降的、降之前 RTT 多少"是事后才会问的
+        # 问题 —— 那正是 scrollback 存在的意义(v1/works/03)。用已有的 `session`
+        # 类目:它本来就装 session_started / chrome_restarted 这种系统自己做的事,
+        # 不用为此新开一类。
+        self.session.log.append(
+            "session", event="quality_changed",
+            quality=changed.quality, every_nth=changed.every_nth,
+            rtt_ms=round(rtt), direction="down" if changed.quality < before else "up")
+        log.info("RTT 自适应:quality=%d everyNthFrame=%d(RTT %dms)",
+                 changed.quality, changed.every_nth, rtt)
         async with self._lock:
             if self._on:
                 await self._start_cast(locked=True)
@@ -256,6 +277,7 @@ class Screencaster:
             "on": self._on, "tab": self._tab, "cast_id": self._cast_id,
             "frames": self.frames, "bytes": self.bytes_out,
             "format": self.format, "quality": self.adaptor.quality,
+            "dsf": self.dsf,
             "every_nth": self.adaptor.every_nth,
             "w": self.width, "h": self.height,
             "viewers": [v.stats() for v in self.viewers],

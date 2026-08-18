@@ -84,6 +84,7 @@ class ProcessRuntime:
               window_size: str = "", browser_path: str | None = None,
               proxy: str | None = None, data_dir: str | None = None,
               token: str | None = None, bind: str = "127.0.0.1",
+              dsf: float = 1.0, view: dict[str, Any] | None = None,
               **_opts: Any) -> Handle:
         exe = resolve_browser(browser_path)
         require_ports(port)
@@ -123,6 +124,11 @@ class ProcessRuntime:
                          "想要它就换个非 root 用户跑")
         if window_size:
             args.append(f"--window-size={window_size.replace('x', ',')}")
+        # **只有这条能让 screencast 按 2x 出图。** `Emulation` 里那个
+        # `deviceScaleFactor` 对 screencast 完全无效 —— demo 实测过
+        # ([02 §4③](../../docs/v2/works/02-frame-protocol.md))。
+        if dsf and dsf != 1.0:
+            args.append(f"--force-device-scale-factor={dsf}")
         if proxy:
             args.append(f"--proxy-server={proxy}")
         args.append(url)
@@ -146,7 +152,8 @@ class ProcessRuntime:
 
         procs["sessiond"] = spawn_sessiond(
             f"http://127.0.0.1:{cdp_port}", port=port, bind=bind,
-            data=os.path.join(work, "data"), token=token)
+            data=os.path.join(work, "data"), token=token,
+            view={**(view or {}), "dsf": dsf})
         if bind not in ("127.0.0.1", "localhost", "::1"):
             notes.append(f"画面口绑在 {bind} —— **这台机器网络能到的人,"
                          f"拿到 token 就能操作这个浏览器**")

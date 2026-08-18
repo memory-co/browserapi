@@ -25,7 +25,9 @@ from webmuxd.serve.session import Session
 
 async def _run(args: argparse.Namespace) -> None:
     cdp = await CDP.connect(args.cdp)
-    session = Session(cdp, data_dir=args.data)
+    session = Session(cdp, data_dir=args.data, view={
+        "width": args.width, "height": args.height,
+        "fmt": args.format, "quality": args.quality, "dsf": args.dsf})
     await session.start()
 
     runner = web.AppRunner(build(session))
@@ -62,6 +64,12 @@ def main() -> None:
     p.add_argument("--port", type=int,
                    default=int(os.environ.get("WEBMUXD_PORT", "7900")))
     p.add_argument("--data", default=os.environ.get("WEBMUXD_DATA", "/data"))
+    # 清晰度那三个独立的旋钮([02 §4](../../docs/v2/works/02-frame-protocol.md))
+    p.add_argument("--width", type=int, default=1024)
+    p.add_argument("--height", type=int, default=768)
+    p.add_argument("--format", default="jpeg", choices=["jpeg", "png", "webp"])
+    p.add_argument("--quality", type=int, default=80)
+    p.add_argument("--dsf", type=float, default=1.0)
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     asyncio.run(_run(args))

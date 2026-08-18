@@ -171,11 +171,9 @@
         setSize(m.w, m.h);
         $("s-q").textContent = m.quality;
         targetHex = "";
-      } else if (m.type === "meta") {
-        frameW = m.frame_w; frameH = m.frame_h;
-        $("s-size").textContent = frameW + "×" + frameH;
-        updateZoom();
-      } else if (m.type === "quality") {
+      }
+      // meta 里的 deviceWidth/Height 是 **CSS 尺寸**,dsf>1 时和真实帧尺寸对不上
+      // ——所以帧尺寸和有效缩放都以解码出来的那张图为准(见 img.onload)。 else if (m.type === "quality") {
         $("s-q").textContent = m.quality + (m.every_nth > 1 ? " /" + m.every_nth : "");
       } else if (m.type === "cursor") {
         img.style.cursor = m.cursor;              // 服务端已经过白名单
@@ -189,6 +187,16 @@
     };
   }
   const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+  // **帧的真实尺寸只有解码之后才知道。** CDP 的 metadata 报的是 CSS 尺寸,
+  // dsf=2 时它说 1024×768,而图其实是 2048×1536 —— 拿它算"有效缩放"会差一倍,
+  // 而那一栏正是用来判断该不该调 dsf 的(works/02 §4③)。
+  img.addEventListener("load", () => {
+    if (!img.naturalWidth) return;
+    frameW = img.naturalWidth; frameH = img.naturalHeight;
+    $("s-size").textContent = frameW + "×" + frameH;
+    updateZoom();
+  });
 
   function setSize(w, h) {
     castW = w; castH = h;

@@ -145,7 +145,7 @@ def unavailable(runtime: str, why: str, hint: str) -> RuntimeUnavailable:
 # --------------------------------------------------------------------------
 
 def spawn_sessiond(cdp: str, *, port: int, data: str, bind: str = "127.0.0.1",
-                   token: str | None = None,
+                   token: str | None = None, view: dict[str, Any] | None = None,
                    extra_env: dict[str, str] | None = None) -> subprocess.Popen:
     """起 sessiond,**不等它** —— 等在调用方那儿,因为失败时要连浏览器一起收。
 
@@ -155,8 +155,16 @@ def spawn_sessiond(cdp: str, *, port: int, data: str, bind: str = "127.0.0.1",
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path), **(extra_env or {})}
     if token:
         env["WEBMUXD_TOKEN"] = token
+    # **sessiond 自己的输出也不能扔。** 和浏览器那条(works/07)是同一个教训:
+    # 扔掉之后它崩了、降质了、报警了,外面一概看不见。落到 data 目录旁边。
+    os.makedirs(os.path.dirname(data) or ".", exist_ok=True)
+    log_path = os.path.join(os.path.dirname(data) or ".", "sessiond.log")
+    log_file = open(log_path, "ab", buffering=0)
+    argv = [sys.executable, "-m", "webmuxd.serve", "--cdp", cdp,
+            "--bind", bind, "--port", str(port), "--data", data]
+    for k, v in (view or {}).items():
+        if v is not None:
+            argv += [f"--{k}", str(v)]
     return subprocess.Popen(
-        [sys.executable, "-m", "webmuxd.serve", "--cdp", cdp,
-         "--bind", bind, "--port", str(port), "--data", data],
-        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        argv, env=env, stdout=log_file, stderr=log_file,
         start_new_session=True)

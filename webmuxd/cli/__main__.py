@@ -154,10 +154,14 @@ def cmd_new(args: argparse.Namespace) -> int:
         # 留着的这行正是 `webmuxd kill -t <id>` 找得到东西去清的依据 ——
         # 提前删掉的话,容器还在、登记表里却没它了,kill 只会说 session_not_found。
 
+    w, _, h = window_size.partition("x")
     handle = impl.start(args.id, port=args.port, url=url,
                         window_size=window_size, proxy=args.proxy,
                         browser_path=args.browser, cdp=args.cdp,
-                        bind=args.bind)
+                        bind=args.bind, dsf=args.dsf,
+                        view={"width": int(w), "height": int(h),
+                              "format": args.img_format,
+                              "quality": args.quality})
     reg.put(handle)
     d = handle.detail
     _out(args, {"id": args.id, "port": handle.port,
@@ -532,6 +536,15 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--proxy", default=None)
     # **绑哪个地址**,和全局那个 `-H/--host`(连哪台机器)不是一回事 ——
     # 所以这儿叫 `--bind`,不复用 `--host`。
+    # 清晰度三个独立的旋钮 —— **调错那个不会有任何效果**
+    # ([02 §4](../../docs/v2/works/02-frame-protocol.md))
+    n.add_argument("--quality", type=int, default=80,
+                   help="画质 1-100(png 无损,对它无效)。它同时是自适应升质的上限")
+    n.add_argument("--format", default="jpeg", choices=["jpeg", "png", "webp"],
+                   dest="img_format", help="帧编码。扁平 UI 页面 png 有时反而更小")
+    n.add_argument("--dsf", type=float, default=1.0,
+                   help="渲染倍率,**只用来匹配观看端的 dpr**。Retina 填 2;"
+                        "普通屏填 2 反而更糊还多花 2.6 倍带宽")
     n.add_argument("--bind", default="127.0.0.1",
                    help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
                         "拿到 token 的人就能操作这个浏览器")
