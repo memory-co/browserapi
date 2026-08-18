@@ -23,6 +23,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -34,6 +35,24 @@ PINNED = "152.0.7977.42"
 #: 这个项目本来就同时发 ghcr 和 CNB。
 DEFAULT_MIRROR = "https://storage.googleapis.com/chrome-for-testing-public"
 CN_MIRROR = "https://cdn.npmmirror.com/binaries/chrome-for-testing"
+
+#: 候选源。`install` 会**并发探一遍挑最快的**(§probe_mirrors)。
+#:
+#: 只放**真的托管 Chrome for Testing** 的源。像
+#: `https://mirrors.aliyun.com/google-chrome/` 那种看着相关但其实不是的,
+#: 不能进这张表 —— 它托管的是 Google Chrome 稳定版的 `.deb` / `.rpm` 安装包,
+#: 既不是同一种产物(zip vs 系统包),**也没有版本可钉**(只有 `current`)。
+#: 拿它当镜像等于把 §4.1 那条"每个 release 钉一个版本"作废掉。
+MIRRORS: tuple[tuple[str, str], ...] = (
+    ("官方", DEFAULT_MIRROR),
+    ("npmmirror", CN_MIRROR),
+    ("npmmirror cdn", "https://registry.npmmirror.com/-/binary/chrome-for-testing"),
+)
+
+#: 探测时下多少字节。**量的是吞吐,不是 RTT** —— 一个 ping 快但带宽差的源,
+#: 在下 150 MB 的时候更糟。
+PROBE_BYTES = 256 * 1024
+PROBE_TIMEOUT = 10.0
 
 #: 版本索引,`webmuxd install --latest` 用。
 VERSIONS_URL = ("https://googlechromelabs.github.io/chrome-for-testing/"
@@ -109,6 +128,48 @@ def download_url(version: str = PINNED, mirror: str | None = None) -> str:
 def latest_stable(timeout: float = 10.0) -> str:
     with urllib.request.urlopen(VERSIONS_URL, timeout=timeout) as r:
         return json.load(r)["channels"]["Stable"]["version"]
+
+
+def probe_mirrors(version: str = PINNED, *,
+                  timeout: float = PROBE_TIMEOUT) -> list[tuple[str, str, float | None]]:
+    """并发探所有候选源,返回 `[(名字, base, KB/s 或 None)]`,**快的在前**。
+
+    三条讲究:
+
+    1. **探的是真实那个文件**的头 256 KB,不是首页也不是 ping ——
+       首页快不代表大文件快,CDN 的回源路径经常不一样。
+    2. **量吞吐不量 RTT。** 我们要下的是 150 MB,握手快 20ms 毫无意义。
+    3. **探不通不是错误**,那一格是 `None`,排在最后。全都探不通就返回原序,
+       让真正的下载去报错 —— 那儿的错误信息比"探测失败"有用。
+    """
+    import concurrent.futures as cf
+
+    def one(item: tuple[str, str]) -> tuple[str, str, float | None]:
+        name, base = item
+        url = download_url(version, base)
+        req = urllib.request.Request(url, headers={"Range": f"bytes=0-{PROBE_BYTES - 1}"})
+        t0 = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                n = len(r.read(PROBE_BYTES))
+        except Exception:
+            return name, base, None
+        dt = time.monotonic() - t0
+        if not n or dt <= 0:
+            return name, base, None
+        return name, base, n / 1024 / dt
+
+    with cf.ThreadPoolExecutor(max_workers=len(MIRRORS)) as pool:
+        got = list(pool.map(one, MIRRORS))
+    return sorted(got, key=lambda r: -(r[2] or -1))
+
+
+def fastest_mirror(version: str = PINNED) -> tuple[str, str, float | None]:
+    """挑一个。全都探不通就退回官方 —— **不静默失败,让下载去报错**。"""
+    ranked = probe_mirrors(version)
+    if ranked and ranked[0][2] is not None:
+        return ranked[0]
+    return "官方", DEFAULT_MIRROR, None
 
 
 def install(version: str = PINNED, *, mirror: str | None = None,

@@ -19,6 +19,7 @@ docker 那一问整个消失 —— v2 不再关心机器上有没有它(§2)。
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -56,14 +57,23 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
         say(f"  {'浏览器':<10} {('chrome ' + version + ' 已经下过'):<38} {OK}")
         path = have
     else:
+        # **传进来的赢**:显式给了源就不探 —— 探测是"这台机器上哪个快"的事实,
+        # 而你指定哪个是你的选择(v1/cli/install.md §3 那条规矩)
+        chosen = mirror or os.environ.get("WEBMUXD_BROWSER_MIRROR")
+        if not chosen:
+            chosen = _pick_mirror(version, say)
         try:
             say(f"  {'浏览器':<10} {('下 chrome ' + version + ' …'):<38}")
-            path = browser.install(version, mirror=mirror, force=force,
+            path = browser.install(version, mirror=chosen, force=force,
                                    on_progress=_progress(out))
             say(f"\r  {'浏览器':<10} {('chrome ' + version):<38} {OK}")
         except Exception as e:
             # **不记一个下不到的路径。** 键不在,就是"你得自己填"。
-            say(f"\r  {'浏览器':<10} {('下不到:' + str(e)[:30]):<38} {WARN}")
+            #
+            # 原因**整句打出来,不截断** —— 截在半句上的提示等于没有提示,
+            # 而这儿的原因(DNS 不通 / 403 / 连接超时)决定了下一步该做什么。
+            say(f"\r  {'浏览器':<10} {'下不到':<38} {WARN}")
+            say(f"     {e}")
             sysone = browser.find_system()
             if sysone:
                 say(f"     系统里有一个:{sysone}")
@@ -103,6 +113,26 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
 
 
 # ---------------------------------------------------------------------------
+
+def _pick_mirror(version: str, say) -> str:
+    """探一遍候选源,挑最快的那个。
+
+    **量的是吞吐,不是能不能连上** —— 下 150 MB 的时候,握手快 20ms 一文不值。
+    探不通不是错误,列出来就是了([browser.probe_mirrors](../browser.py))。
+    """
+    say(f"  {'下载源':<10} 探测中…")
+    ranked = browser.probe_mirrors(version)
+    for i, (name, _base, kbps) in enumerate(ranked):
+        speed = f"{kbps / 1024:.1f} MB/s" if kbps else "探不通"
+        mark = OK if i == 0 and kbps else (" " if kbps else WARN)
+        say(f"     {name:<16} {speed:<12} {mark}")
+    if ranked and ranked[0][2] is not None:
+        return ranked[0][1]
+    # 全都探不通 —— 退回官方,**让真正的下载去报错**,那儿的信息更有用
+    say(f"     都探不通,按官方那个试 —— 下面要是失败,换个源:"
+        f"WEBMUXD_BROWSER_MIRROR={browser.CN_MIRROR}")
+    return browser.DEFAULT_MIRROR
+
 
 def _progress(out):
     def cb(done: int, total: int) -> None:

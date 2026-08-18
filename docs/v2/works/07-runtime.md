@@ -156,6 +156,27 @@ https://cdn.npmmirror.com/binaries/chrome-for-testing/<版本>/linux64/chrome-li
 **国内那条必须是一等公民**,不是补丁 —— 这个项目本来就同时发 ghcr 和 CNB。
 用 `WEBMUXD_BROWSER_MIRROR` 换下载源,像 npm 换 registry 一样。
 
+**但不用你去挑:`install` 并发探一遍,自己选最快的那个。**
+
+```console
+  下载源        探测中…
+     官方               1.8 MB/s     ✓
+     npmmirror        0.4 MB/s
+     npmmirror cdn    0.3 MB/s
+```
+
+三条讲究:
+
+- **探的是真实那个文件的头 256 KB**,不是首页也不是 ping —— 首页快不代表大文件快,
+  CDN 的回源路径经常不一样
+- **量吞吐,不量 RTT** —— 我们要下的是 150 MB,握手快 20ms 一文不值
+- **传进来的赢**:显式给了 `--mirror` 或 `WEBMUXD_BROWSER_MIRROR` 就不探了。
+  探测是"这台机器上哪个快"的**事实**,而你指定哪个是你的**选择** ——
+  和 [v1/cli/install.md](../../v1/cli/install.md) 那条"它不是配置文件"是同一条规矩
+
+全都探不通就退回官方,**让真正的下载去报错** —— 那儿的原因(DNS 不通 / 403 /
+超时)比一句"探测失败"有用得多,而且要**整句打出来不截断**。
+
 两个附带的决定:
 
 **① 下完整的 `chrome`,不下 `chrome-headless-shell`。** 后者小很多,但它是老 headless
@@ -183,6 +204,24 @@ v1 README 的原话是有分寸的:
 > 但**赌注比原先小**:codec 不再是理由之后,退到纯 BSD 的 Chromium 构建
 > 不损失任何功能,只是版本索引要自己解决(snapshots 按 commit position 编号,
 > 老构建会被清理)。
+
+### 有一个看着像镜像但不是的
+
+`https://mirrors.aliyun.com/google-chrome/` 看起来正是我们要的东西,**但它不是**:
+
+| | CfT(我们要的) | 阿里云那个 |
+| --- | --- | --- |
+| 产物 | `chrome-linux64.zip` | `.deb` / `.rpm` **系统包** |
+| 是什么 | Chrome for Testing | Google Chrome **稳定版 / beta** |
+| 版本 | 每个都在,能钉 | 只有 `current`,历史版本停在 112 那一带 |
+
+**关键是最后一行:它没有版本可钉。** 拿它当源等于把 §4.1 那条
+"每个 release 钉一个版本、升级前先跑 `chrome_facts`"整个作废掉 ——
+而那是选 Chrome for Testing 的**唯一理由**。
+
+所以候选源那张表里**只放真的托管 CfT 的**,`tests/installing` 有一条专门守着它。
+真想用系统装的 Chrome,那是另一条路:`--browser /usr/bin/google-chrome`,
+显式、看得见、不假装自己是钉死的那一版。
 
 ### 4.3 系统依赖和字体,照抄 playwright 的姿态
 

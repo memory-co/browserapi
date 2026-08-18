@@ -153,3 +153,72 @@ def test_记录过期了要说去重跑_install(record_file, monkeypatch):
 
 def test_那句提示里点名了命令():
     assert "webmuxd install" in env.stale_hint("chromium 在 /x")
+
+
+# ------------------------------------------------------------------ 挑下载源
+
+def test_候选源里只放真的托管_chrome_for_testing_的():
+    """**看着相关不等于能用。**
+
+    `mirrors.aliyun.com/google-chrome/` 是个真实存在的坑:它托管的是 Google
+    Chrome 稳定版的 `.deb` / `.rpm` **系统包**,不是 Chrome for Testing 的 zip;
+    而且只有 `current`,**没有版本可钉** —— 拿它当镜像等于把"每个 release 钉一个
+    版本"那条作废掉([works/07 §4.1](../../docs/v2/works/07-runtime.md))。
+    """
+    bases = [b for _n, b in browser.MIRRORS]
+    assert browser.DEFAULT_MIRROR in bases
+    for b in bases:
+        assert "chrome-for-testing" in b, f"{b} 不是 CfT 的源"
+    assert not any("aliyun" in b for b in bases)
+
+
+def test_探测按吞吐排序_探不通的排最后(monkeypatch):
+    """探不通不是错误,是**那一格没有数** —— 排最后,别让它顶掉能用的。"""
+    speeds = {"官方": None, "npmmirror": 900.0, "npmmirror cdn": 120.0}
+
+    def fake_map(fn, items):
+        return [(n, b, speeds[n]) for n, b in items]
+
+    class Pool:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def map(self, fn, items): return fake_map(fn, items)
+
+    monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor",
+                        lambda **kw: Pool())
+    ranked = browser.probe_mirrors()
+    assert [n for n, _b, _s in ranked] == ["npmmirror", "npmmirror cdn", "官方"]
+    assert browser.fastest_mirror()[0] == "npmmirror"
+
+
+def test_全都探不通就退回官方_不静默失败(monkeypatch):
+    class Pool:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def map(self, fn, items): return [(n, b, None) for n, b in items]
+
+    monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor",
+                        lambda **kw: Pool())
+    name, base, kbps = browser.fastest_mirror()
+    assert base == browser.DEFAULT_MIRROR and kbps is None
+
+
+def test_显式指定源就不探_传进来的赢(record_file, fake_download, monkeypatch):
+    """探测是"这台机器上哪个快"的事实;**你指定哪个是你的选择**。"""
+    probed = []
+    monkeypatch.setattr("webmuxd.browser.probe_mirrors",
+                        lambda *a, **k: probed.append(1) or [])
+    install(out=io.StringIO(), force=True, mirror="https://mine.example/cft")
+    assert not probed, "显式给了源还去探"
+
+    monkeypatch.setenv("WEBMUXD_BROWSER_MIRROR", "https://env.example/cft")
+    install(out=io.StringIO(), force=True)
+    assert not probed, "环境变量给了源还去探"
+
+
+def test_下不到时把原因整句打出来_不截断(record_file, fake_download):
+    """截在半句上的提示等于没有提示 —— 而原因决定了下一步该做什么。"""
+    fake_download["fail"] = True
+    out = io.StringIO()
+    install(out=out, mirror="https://mine.example/cft")
+    assert "到不了下载源" in out.getvalue(), out.getvalue()

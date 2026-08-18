@@ -20,8 +20,19 @@ $ webmuxd install
 ```
 
 **版本是钉死的** —— 每个 release 钉一个,机器之间完全一致
-([works/07 §4.1](docs/v2/works/07-runtime.md))。下不到就**不写那个键**,
-并且把国内那个源告诉你:
+([works/07 §4.1](docs/v2/works/07-runtime.md))。
+
+**下载源不用你挑** —— `install` 会并发探一遍(下真实那个文件的头 256 KB,
+量的是吞吐不是 ping),自己选最快的:
+
+```console
+  下载源        探测中…
+     官方               1.8 MB/s     ✓
+     npmmirror        0.4 MB/s
+     npmmirror cdn    0.3 MB/s
+```
+
+要指定就指定,**传进来的赢**,指定了就不探了:
 
 ```bash
 WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing webmuxd install

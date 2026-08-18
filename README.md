@@ -129,7 +129,10 @@ sess.share(writable=True)           # 可操作 —— 能碰你所有登录态
 [works/07](docs/v2/works/07-runtime.md)。
 
 **版本是钉死的**:每个 release 钉一个 Chrome for Testing 版本,升级前先跑
-`tests/chrome_facts/`(「我们对 CDP 的假设逐条量过」)。换下载源:
+`tests/chrome_facts/`(「我们对 CDP 的假设逐条量过」)。
+
+**下载源自动挑最快的** —— `install` 并发探候选源,量的是真实文件的吞吐,
+不是 ping。要自己指定也行,**传进来的赢**:
 
 ```bash
 WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing webmuxd install
