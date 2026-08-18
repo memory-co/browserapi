@@ -1,5 +1,52 @@
 # 更新日志
 
+## 0.5.3
+
+**root 下起不来,而且报错还不告诉你为什么。**
+
+```
+✗ runtime_unavailable: 浏览器起来了但 CDP 没监听
+  手工跑一遍看报什么:/root/.cache/webmuxd/…/chrome --headless=new …
+```
+
+自己跑一遍才看到真正的原因:
+
+```
+ERROR:zygote_host_impl_linux.cc:102] Running as root without --no-sandbox
+is not supported. See https://crbug.com/638180.
+```
+
+两处都改了。
+
+### ① root 下自动 `--no-sandbox`,并且说出来
+
+**这不是选择题** —— Chromium 在 root 下没有开着沙箱还能跑的配置。而且我们自己
+推荐的隔离路子(把 webmuxd 装进容器,[works/07 §2](docs/v2/works/07-runtime.md))
+默认就是 root:一律拒绝的话,我们推荐的做法自己走不通。
+
+v1 的姿态是"默认不加 `--no-sandbox`",**这一条推翻了它** ——
+但"不静默关掉安全特性"留着,它变成一条必须打印的警告:
+
+```
+⚠ 你是 root —— Chromium 在 root 下必须 --no-sandbox 才起得来(crbug 638180),
+  已经替你加上了。**沙箱是关着的**;想要它就换个非 root 用户跑
+```
+
+### ② 起不来时,把浏览器自己那句话带出来
+
+之前浏览器的 stderr 是 `DEVNULL` —— 于是只能让人"手工跑一遍看报什么",
+**等于把排查工作原样退回去,而答案本来就在我们手里**。
+
+现在 stderr 落到 `<work>/chrome.log`,失败时把最后几行塞进报错,
+并且**去掉 Chromium 那一坨 `[pid:pid:时间:ERROR:文件:行]` 前缀** ——
+它对使用者没有任何意义,留着只会把真正那句话挤出屏幕:
+
+```
+✗ runtime_unavailable: 浏览器起来了但 CDP 没监听:Running as root without
+  --no-sandbox is not supported. See https://crbug.com/638180.
+  完整日志在 /tmp/webmuxd-work-…/chrome.log
+```
+
 ## 0.5.2
 
 **修一个升级就撞的崩溃:登记表里的旧行会把第一条命令带崩。**

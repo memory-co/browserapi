@@ -171,3 +171,61 @@ def test_v1_的参数名不静默吞掉():
         with pytest.raises(Exception) as ei:
             web.session(id="x", **{old: 1})
         assert old in str(ei.value)
+
+
+# ------------------------------------------------- 起不来的时候要说清为什么
+
+def test_浏览器起不来时把它自己那句话带出来(tmp_path):
+    """**别让人"手工跑一遍看报什么"** —— 那等于把排查工作原样退回去。
+
+    0.5.2 之前 chrome 的 stderr 是 DEVNULL,而起不来的原因(root 没关沙箱、
+    缺共享库、profile 写不了)全写在里面。
+    """
+    fake = tmp_path / "fakechrome"
+    fake.write_text(
+        "#!/bin/sh\n"
+        "echo '[206402:206402:0818/205945.649553:ERROR:content/browser/zygote_host/"
+        "zygote_host_impl_linux.cc:102] Running as root without --no-sandbox is not "
+        "supported. See https://crbug.com/638180.' >&2\n"
+        "exit 1\n")
+    fake.chmod(0o755)
+
+    with pytest.raises(RuntimeUnavailable) as ei:
+        ProcessRuntime().start("x", port=_free(), browser_path=str(fake),
+                               data_dir=str(tmp_path / "work"))
+    msg = str(ei.value)
+    assert "no-sandbox" in msg, f"浏览器自己那句话没带出来:{msg}"
+    # 那一坨 [pid:pid:时间:ERROR:文件:行] 前缀对使用者没意义,会把真正的话挤出屏幕
+    assert "zygote_host_impl_linux.cc" not in msg
+    assert "chrome.log" in ei.value.details["hint"], "完整日志在哪也得说"
+
+
+def test_root_下自动关沙箱_并且说出来(monkeypatch, tmp_path):
+    """**root + 沙箱没有能跑的配置**(crbug 638180)—— 报错让人自己去查,
+    等于把一个无解的选择丢回去。而我们自己推荐的隔离路子(webmuxd 装进容器)
+    默认就是 root。所以自动加上,**但要说出来**。
+    """
+    import os as _os
+    from webmuxd.runtime import process as proc_mod
+
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, args, **kw):
+            seen["args"] = args
+            self.pid = 1
+
+        def poll(self): return None
+        def send_signal(self, s): pass
+        def wait(self, timeout=None): return 0
+        def kill(self): pass
+
+    monkeypatch.setattr(_os, "geteuid", lambda: 0)
+    monkeypatch.setattr(proc_mod.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(proc_mod, "wait_port", lambda *a, **k: False)
+    monkeypatch.delenv("WEBMUXD_NO_SANDBOX", raising=False)
+
+    with pytest.raises(RuntimeUnavailable):
+        ProcessRuntime().start("x", port=_free(), browser_path="/bin/true",
+                               data_dir=str(tmp_path))
+    assert "--no-sandbox" in seen["args"], "root 下不加的话根本起不来"

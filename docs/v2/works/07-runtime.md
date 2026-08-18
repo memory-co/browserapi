@@ -290,6 +290,56 @@ v1 的 `process` runtime 有两个尴尬([works/08 §6.1](../../v1/works/08-brow
 两个都消掉了:画面来自 CDP,浏览器来自 `install`。于是它从"开发和 CI 凑合用的那个"
 变成了**唯一的本地跑法** —— 不是"默认",是没有别的。
 
+### root 下自动关沙箱 —— 这条推翻了 v1 的姿态
+
+v1 [works/08 §5.1](../../v1/works/08-browser-runtime.md) 记着 BrowserBox 那个数组
+直接叫 `MISC_STABILITY_RELATED_FLAGS_THAT_REDUCE_SECURITY`(装着 `--no-sandbox`),
+默认不启用;我们照抄了那个姿态:**默认不加,需要时 `WEBMUXD_NO_SANDBOX=1`**。
+
+**v2 改了:检测到 root 就自动加,并且说出来。** 两个理由:
+
+**① root + 沙箱没有能跑的配置。** Chromium 硬拒绝:
+
+```
+ERROR:zygote_host_impl_linux.cc:102] Running as root without --no-sandbox
+is not supported. See https://crbug.com/638180.
+```
+
+这不是"你可以选"的事。报错让人自己去查,等于**把一个无解的选择丢回去** ——
+而且那个开关的名字他不可能猜到。
+
+**② 我们自己推荐的隔离路子默认就是 root。** §2 说"要隔离就把 webmuxd 放进容器",
+而那三行 Dockerfile 跑出来就是 root。如果 root 一律拒绝,等于我们推荐的做法
+自己走不通。
+
+**但"不静默关掉安全特性"这条留着** —— 它变成一条必须打印的警告:
+
+```
+⚠ 你是 root —— Chromium 在 root 下必须 --no-sandbox 才起得来(crbug 638180),
+  已经替你加上了。**沙箱是关着的**;想要它就换个非 root 用户跑
+```
+
+### 起不来的时候,把浏览器自己那句话带出来
+
+0.5.2 之前,浏览器的 stderr 是 `DEVNULL`,于是起不来时我们只能说
+「手工跑一遍看报什么」—— **等于把排查工作原样退回去**,而答案本来就在我们手里。
+
+现在 stderr 落到 `<work>/chrome.log`,失败时把最后几行**去掉前缀**塞进报错:
+
+```
+✗ runtime_unavailable: 浏览器起来了但 CDP 没监听:Running as root without
+  --no-sandbox is not supported. See https://crbug.com/638180.
+  完整日志在 /tmp/webmuxd-x-…/chrome.log
+```
+
+去前缀那步不能省。Chromium 每行都长这样:
+
+```
+[206402:206402:0818/205945.649553:ERROR:content/browser/zygote_host/zygote_host_impl_linux.cc:102] 真正的话
+```
+
+**前面那一坨对使用者没有任何意义,留着只会把真正那句话挤出屏幕。**
+
 ### 一个 session 一个浏览器
 
 | | |

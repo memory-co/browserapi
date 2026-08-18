@@ -104,23 +104,44 @@ class ProcessRuntime:
         args = [exe, *BASE_ARGS,
                 f"--remote-debugging-port={cdp_port}",
                 f"--user-data-dir={os.path.join(work, 'profile')}"]
-        if os.environ.get("WEBMUXD_NO_SANDBOX"):
+        # **root 下沙箱起不来,这不是选择题。**
+        #
+        # Chromium 硬拒绝:`Running as root without --no-sandbox is not supported`
+        # (crbug 638180)。所以 root + 沙箱**没有能跑的配置** —— 报错让人自己去
+        # 查,等于把一个无解的选择丢回去。
+        #
+        # 而且我们自己推荐的隔离路子(把 webmuxd 装进容器,[works/07 §2])
+        # 默认就是 root。所以这儿自动加上,**但要说出来**:
+        # 关掉的是安全特性,不能悄悄关。
+        as_root = hasattr(os, "geteuid") and os.geteuid() == 0
+        if as_root or os.environ.get("WEBMUXD_NO_SANDBOX"):
             args.append("--no-sandbox")
+        if as_root and not os.environ.get("WEBMUXD_NO_SANDBOX"):
+            notes.append("你是 root —— Chromium 在 root 下必须 --no-sandbox 才起得来"
+                         "(crbug 638180),已经替你加上了。**沙箱是关着的**;"
+                         "想要它就换个非 root 用户跑")
         if window_size:
             args.append(f"--window-size={window_size.replace('x', ',')}")
         if proxy:
             args.append(f"--proxy-server={proxy}")
         args.append(url)
 
+        # **浏览器的 stderr 不能扔。** 它起不来的原因就写在里面(root 没关沙箱、
+        # 缺共享库、profile 目录不能写……),扔掉之后我们只能让人"手工跑一遍看
+        # 报什么" —— 那等于把排查工作原样退回去。0.5.2 之前就是这样。
+        log_path = os.path.join(work, "chrome.log")
         procs: dict[str, subprocess.Popen] = {}
-        procs["browser"] = subprocess.Popen(
-            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
+        with open(log_path, "wb") as log:
+            procs["browser"] = subprocess.Popen(
+                args, stdout=subprocess.DEVNULL, stderr=log,
+                start_new_session=True)
         if not wait_port(cdp_port, 30):
+            why = _tail(log_path)
             _kill_all(procs)
-            raise unavailable(self.name, "浏览器起来了但 CDP 没监听",
-                              f"手工跑一遍看报什么:{exe} --headless=new "
-                              f"--remote-debugging-port={cdp_port}")
+            raise unavailable(
+                self.name,
+                "浏览器起来了但 CDP 没监听" + (f":{why}" if why else ""),
+                f"完整日志在 {log_path};手工跑一遍:{' '.join(args[:3])} …")
 
         procs["sessiond"] = spawn_sessiond(
             f"http://127.0.0.1:{cdp_port}", port=port,
@@ -157,6 +178,27 @@ class ProcessRuntime:
             return True
         except OSError:
             return False
+
+
+def _tail(path: str, lines: int = 4) -> str:
+    """把浏览器最后几行 stderr 拿出来,**去掉那些没用的前缀**。
+
+    Chromium 的每一行都长这样:
+    `[206402:206402:0818/205945.649553:ERROR:.../zygote_host_impl_linux.cc:102] 真正的话`
+    —— 前面那一坨对使用者没有任何意义,留着只会把真正那句话挤出屏幕。
+    """
+    import re
+    try:
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    out = []
+    for line in text.splitlines():
+        line = re.sub(r"^\[[\d:./]+:(ERROR|WARNING|INFO|FATAL):[^\]]*\]\s*", "", line).strip()
+        if line and not line.startswith("["):
+            out.append(line)
+    return "\n     ".join(out[-lines:])
 
 
 def _kill_all(procs: dict) -> None:
