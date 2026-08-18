@@ -476,3 +476,15 @@ def test_那个解释器里没有_PIL_才报缺_而且要说在哪装(tmp_path, 
     ok, why = xpra_mod.available()
     assert not ok and "PIL" in why
     assert str(nopil) in why, "得说清是哪个解释器缺它"
+
+
+def test_窗口比显示多要两格_否则右下会有一条黑边():
+    """实测:`--window-size=1024,768` 在 1024×768 的显示上拿到的是 **1023×767**,
+    右边和下边各留一列纯黑(那是 X 根窗口露出来了,像素值实测 (0,0,0))。
+
+    多要两格之后 Chrome 拿到的正好是 1026×770,超出显示的部分被裁掉,
+    **画面铺满**。代价写在明处:页面视口是 1026×770,右下各 2 像素在可见区域外。
+    """
+    argv = xpra_mod.build_chrome_argv("/x/chrome", cdp_port=1, profile="/p",
+                                      url="u", width=1024, height=768)
+    assert "--window-size=1026,770" in argv

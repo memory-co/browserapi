@@ -143,7 +143,11 @@ def build_chrome_argv(exe: str, *, cdp_port: int, profile: str, url: str,
             f"--remote-debugging-port={cdp_port}",
             f"--user-data-dir={profile}",
             # 窗口尺寸给满,kiosk 下它就是整个显示
-            "--window-position=0,0", f"--window-size={width},{height}"]
+            "--window-position=0,0",
+            # **多要 2 像素。** 实测 `--window-size=1024,768` 在 1024×768 的显示上
+            # 拿到的是 **1023×767** —— 右边和下边各留一列纯黑(那是 X 根窗口)。
+            # 多要两格,超出的部分被显示裁掉,画面正好铺满。
+            f"--window-size={width + 2},{height + 2}"]
     if no_sandbox:
         argv.append("--no-sandbox")
     if proxy:
