@@ -209,12 +209,14 @@ class Screencaster:
 
         for v in list(self.viewers):
             with contextlib.suppress(Exception):
-                await v.offer(frame)
+                await v.offer(frame, self._frame_id)
 
     # ------------------------------------------------------------------ ack
 
-    async def on_viewer_ack(self, v: Viewer) -> None:
-        rtt = await v.on_ack()
+    async def on_viewer_ack(self, v: Viewer, frame_id: int | None = None) -> None:
+        """`frame_id` 是客户端回显的帧号。**对不上就只恢复额度、不算 RTT**
+        ([09 §6.3](../../docs/v2/works/09-wire-format.md))。"""
+        rtt = await v.on_ack(frame_id)
         if rtt is None:
             return
         changed = self.adaptor.feed(rtt)

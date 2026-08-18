@@ -273,3 +273,90 @@ def test_光标值必须过白名单():
     # 远端页面不可信:url(...) 原样透传等于让它指使客户端去拉任意 URL(03 §5)
     assert cursor_probe.sanitize("url(https://evil.example/x.png), auto") == "default"
     assert cursor_probe.sanitize("") == "default"
+
+
+# ------------------------------------------------------------- ack 按帧号记账
+
+def _stub_viewer():
+    sent: list[bytes] = []
+
+    async def send_bytes(b: bytes) -> None:
+        sent.append(b)
+
+    async def send_json(_o: dict) -> None:
+        pass
+
+    from webmuxd.view.viewer import Viewer
+    return Viewer(send_bytes, send_json, writable=True), sent
+
+
+async def test_漏一个_ack_不会让后面的_rtt_全错位():
+    """**按帧号查表,不是弹最旧的那个时间戳。**
+
+    弹最旧的写法在漏掉一个 ack 之后会永久错位:之后每个 RTT 都算成上一帧的,
+    而且不会自愈([09 §6.3](../../docs/v2/works/09-wire-format.md))。
+    """
+    v, sent = _stub_viewer()
+    await v.offer(b"f1", 1)
+    await v.offer(b"f2", 2)
+    assert len(sent) == 2 and v.credit == 0
+
+    # 客户端只回了第 2 帧的 ack —— 第 1 帧的那个漏了(比如解码失败)
+    rtt2 = await v.on_ack(2)
+    assert rtt2 is not None
+
+    await v.offer(b"f3", 3)
+    rtt3 = await v.on_ack(3)
+    assert rtt3 is not None, "第 3 帧该算得出 RTT"
+    # 关键:第 1 帧那条记录还挂着,但**没有被错当成第 3 帧的**
+    assert 1 in v._sent_at, "漏掉的那条不该被别人顶掉"
+
+
+async def test_未知帧号的_ack_照样恢复额度():
+    """这就是"3 秒补一个 ack"能解开死锁的原因(09 §6.4)。
+
+    心跳补的那一发,帧号多半已经 ack 过了 —— **算不出 RTT 无所谓,
+    额度必须回来**,否则丢一帧就是永久卡死。
+    """
+    v, sent = _stub_viewer()
+    await v.offer(b"f1", 1)
+    await v.offer(b"f2", 2)
+    assert v.credit == 0, "额度用光了"
+
+    rtt = await v.on_ack(99999)          # 谁都不认识的号
+    assert rtt is None, "对不上就别算 RTT,不能污染窗口"
+    assert v.credit == 1, "额度必须无条件恢复 —— 这是防死锁那一条"
+
+    await v.offer(b"f3", 3)
+    assert len(sent) == 3, "额度回来了就该能继续发"
+
+
+async def test_没额度时缓冲留最新那帧_并且帧号跟着走():
+    v, sent = _stub_viewer()
+    await v.offer(b"f1", 1)
+    await v.offer(b"f2", 2)              # 额度用光
+    for i in (3, 4, 5):
+        await v.offer(f"f{i}".encode(), i)
+
+    await v.on_ack(1)
+    assert sent[-1] == b"f5", "缓冲里该只取最新那帧"
+    # 而且它的帧号要记对,否则下一个 ack 又对不上
+    assert 5 in v._sent_at and 3 not in v._sent_at
+
+
+async def test_真链路上回显帧号之后算得出_rtt(live):
+    session, client, _ = live
+    await _open(session, MOVING)
+    async with client.ws_connect("/api/view") as ws:
+        # _frames 里的 ack 是裸的 {"type":"ack"} —— 这里手动带上帧号
+        got = 0
+        async with asyncio.timeout(15):
+            while got < 3:
+                m = await ws.receive()
+                if m.type.name == "BINARY":
+                    got += 1
+                    await ws.send_json({"type": "ack",
+                                        "frameId": parse_header(m.data)["frame_id"]})
+        await asyncio.sleep(0.3)
+        stats = session.view.stats()["viewers"][0]
+        assert stats["rtt_ms"] is not None, "带了帧号就该算得出 RTT"

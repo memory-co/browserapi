@@ -452,7 +452,8 @@ async def _view_msg(s: Session, v: Viewer, m: dict) -> None:
     if kind not in UPSTREAM:
         return                                  # 白名单,不是黑名单
     if kind == "ack":
-        await s.view.on_viewer_ack(v)
+        fid = m.get("frameId")
+        await s.view.on_viewer_ack(v, int(fid) if isinstance(fid, (int, float)) else None)
         return
     if not v.writable:
         return                                  # **服务端丢弃**,静默

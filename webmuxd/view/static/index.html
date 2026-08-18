@@ -121,7 +121,7 @@
   // ---------------------------------------------------------------- 帧
   // 28 字节头 + 图片裸字节(works/02 §1)。castSessionId / targetId 对不上就丢 ——
   // 切 tab 的瞬间管道里还有旧 tab 的帧,不丢会闪一下。
-  let castId = 0, targetHex = "";
+  let castId = 0, targetHex = "", lastFrameId = 0, ackTimer = null;
   const hex = (dv, off) => {
     let s = "";
     for (let i = 0; i < 4; i++) s += dv.getUint32(off + i * 4, true).toString(16).padStart(8, "0");
@@ -130,17 +130,27 @@
 
   function onFrame(buf) {
     const dv = new DataView(buf);
-    const cast = dv.getUint32(0, true), target = hex(dv, 8);
+    const cast = dv.getUint32(0, true), fid = dv.getUint32(4, true), target = hex(dv, 8);
     if (castId && cast < castId) return;          // 旧的一轮,丢
     castId = cast;
     if (targetHex && target !== targetHex) return;
+    lastFrameId = fid;
     frames++; bytes += buf.byteLength;
     const blob = new Blob([new Uint8Array(buf, 28)], { type: "image/jpeg" });
     const next = URL.createObjectURL(blob);
     if (url) URL.revokeObjectURL(url);
     url = next;
     img.src = url;
-    send({ type: "ack" });                        // 环 B —— 背压就靠它
+    ackNow(fid);                                  // 环 B —— 背压就靠它
+  }
+
+  // ack 立即发、带帧号、不搭车(works/09 §6.3)——它是 RTT 探针,一排队就测不准。
+  // 另外每收一帧重置一个 3 秒心跳:某一帧要是丢在路上,客户端永远等不到、
+  // 也就永远不 ack,服务端额度耗尽就是永久卡死。补一发就自愈了(§6.4)。
+  function ackNow(fid) {
+    send({ type: "ack", frameId: fid });
+    clearTimeout(ackTimer);
+    ackTimer = setTimeout(() => ackNow(lastFrameId), 3000);
   }
 
   // ---------------------------------------------------------------- 连接
@@ -172,6 +182,7 @@
       }
     };
     ws.onclose = () => {
+      clearTimeout(ackTimer);
       $("s-conn").textContent = "断开,重连中…"; $("s-conn").className = "bad";
       img.classList.add("dead");
       setTimeout(connect, 1000);
