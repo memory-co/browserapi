@@ -437,3 +437,42 @@ def test_dsf_在_xpra_上没用_就要报错而不是悄悄吃掉():
         ProcessRuntime().start("x", port=65000, transport="xpra", dsf=2.0)
     assert "dsf" in ei.value.message
     assert "window-size" in str(ei.value.details)         # 说了等价的做法
+
+
+# ------------------------------------------------- 探的是"跑 xpra 的那个 python"
+
+def test_探_PIL_要探跑_xpra_的那个解释器_不是我们自己的(tmp_path):
+    """**webmuxd 很可能装在 venv 里,而 `xpra` 是带 shebang 的系统脚本。**
+
+    拿我们自己的 `import PIL` 判断,两个方向都会错:venv 里没有而系统有
+    (拦下一个本来能跑的模式),或者反过来(说能跑,起的时候才炸)。
+    """
+    fake = tmp_path / "xpra"
+    fake.write_text("#!/opt/weird/python3.11\nprint('x')\n")
+    fake.chmod(0o755)
+    assert xpra_mod.xpra_python(str(fake)) == "/opt/weird/python3.11"
+
+    # `#!/usr/bin/env python3` 这种形式,真正的解释器是第二个词
+    fake.write_text("#!/usr/bin/env python3.12\n")
+    assert xpra_mod.xpra_python(str(fake)) == "python3.12"
+
+
+def test_读不出_shebang_就说不知道_而不是猜(tmp_path):
+    """**不知道就不要拿一个猜的答案去挡人。**"""
+    binary = tmp_path / "xpra"
+    binary.write_bytes(b"\x7fELF\x02\x01\x01\x00")
+    assert xpra_mod.xpra_python(str(binary)) is None
+    assert xpra_mod.xpra_python(str(tmp_path / "不存在")) is None
+
+
+def test_那个解释器里没有_PIL_才报缺_而且要说在哪装(tmp_path, monkeypatch):
+    fake = tmp_path / "xpra"
+    fake.write_text("#!" + str(tmp_path / "nopil") + "\n")
+    nopil = tmp_path / "nopil"
+    nopil.write_text("#!/bin/sh\nexit 1\n")          # 任何 import 都失败
+    nopil.chmod(0o755)
+    monkeypatch.setattr(xpra_mod.shutil, "which",
+                        lambda n: str(fake) if n == "xpra" else "/usr/bin/" + n)
+    ok, why = xpra_mod.available()
+    assert not ok and "PIL" in why
+    assert str(nopil) in why, "得说清是哪个解释器缺它"

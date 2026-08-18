@@ -65,20 +65,56 @@ class XpraSession:
         return f"ws://127.0.0.1:{self.ws_port}/"
 
 
+def xpra_python(exe: str | None = None) -> str | None:
+    """**跑 xpra 的是哪个 python。**
+
+    这不是学究气:`xpra` 是个带 shebang 的脚本,用的是系统的解释器,
+    而 webmuxd 很可能装在一个 venv 里。拿我们自己的 `import PIL` 去判断,
+    **两个方向都会错** —— venv 里没有而系统有(拦下一个本来能跑的模式),
+    或者反过来(说能跑,起的时候才炸)。
+
+    读不出 shebang(比如它是个二进制)就返回 `None`,由调用方决定 ——
+    **不知道就说不知道,不要拿一个猜的答案去挡人**。
+    """
+    exe = exe or shutil.which("xpra")
+    if not exe:
+        return None
+    try:
+        with open(exe, "rb") as f:
+            first = f.readline(256)
+    except OSError:
+        return None
+    if not first.startswith(b"#!"):
+        return None
+    parts = first[2:].decode("utf-8", "replace").strip().split()
+    if not parts:
+        return None
+    # `#!/usr/bin/env python3` 这种形式,真正的解释器在第二个词
+    return parts[1] if parts[0].endswith("env") and len(parts) > 1 else parts[0]
+
+
 def available() -> tuple[bool, str]:
-    """**探到才叫有。** 三样缺一样都起不来,而且报错要指名道姓。"""
+    """**探到才叫有。** 缺一样都起不来,而且报错要指名道姓。"""
     missing = []
-    if not shutil.which("xpra"):
+    exe = shutil.which("xpra")
+    if not exe:
         missing.append("xpra")
     if not shutil.which("Xvfb"):
         missing.append("Xvfb(xorg 的虚拟显示,包名一般是 xvfb)")
-    try:
-        import PIL  # noqa: F401
-    except ImportError:
-        # `start-desktop` 要它,`start` 不要 —— 而我们只用 start-desktop(§6)。
-        # 这条实测过:不装就是 `xpra-server is not installed: No module named 'PIL'`,
-        # 而且那句话**完全不指方向**。
-        missing.append("python3-pil(start-desktop 模式要它,pip install pillow)")
+
+    # `start-desktop` 要 PIL,`start` 不要 —— 而我们只用 start-desktop(§6)。
+    # 实测过:不装就是 `xpra-server is not installed: No module named 'PIL'`,
+    # 而那句话**完全不指方向**。
+    py = xpra_python(exe) if exe else None
+    if py:
+        try:
+            ok = subprocess.run([py, "-c", "import PIL"], capture_output=True,
+                                timeout=10).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = True                 # 探不动就别挡路,让真错误自己出来
+        if not ok:
+            missing.append(f"PIL(start-desktop 要它;{py} 上装:"
+                           f"apt install python3-pil)")
     if missing:
         return False, "缺:" + "、".join(missing)
     return True, ""

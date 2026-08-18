@@ -41,7 +41,10 @@ version = { attr = "webmuxd.__version__" }
 include = ["webmuxd*"]
 
 [tool.setuptools.package-data]
-"webmuxd.view" = ["static/*.html"]
+# **`static/*`,不是 `static/*.html`。** 0.6.0 加了两个 .js(xpra 客户端),
+# 按后缀列的话它们不会进 wheel —— 而这种漏**只在干净安装上才现形**:
+# 开发机上跑的是源码目录,一切正常。写成通配,以后加 css/svg 也不会再漏一次。
+"webmuxd.view" = ["static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
