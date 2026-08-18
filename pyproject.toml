@@ -1,12 +1,12 @@
 [project]
 name = "webmuxd"
-version = "0.4.4"
+version = "0.5.0"
 description = "tmux + ttyd for a browser: a persistent Chromium you can watch and drive"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Twwy", email = "twwy.zh@gmail.com" }]
-keywords = ["browser", "automation", "chromium", "cdp", "vnc", "agent", "kasm"]
+keywords = ["browser", "automation", "chromium", "cdp", "screencast", "rbi", "agent"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

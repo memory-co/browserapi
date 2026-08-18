@@ -1,5 +1,61 @@
 # 更新日志
 
+## 0.5.0
+
+**画面自己产。** VNC、桌面、docker 整条路砍掉 —— 一个端口,人打开就能看,
+代码打同一个口。设计稿在 [`docs/v2/works`](docs/v2/works/)。
+
+```bash
+pip install webmuxd
+webmuxd install                     # 下一个钉死版本的浏览器,不要 docker
+webmuxd new --id work --port 7900   # 一个口
+```
+
+### 变了什么
+
+| | 0.4 | 0.5 |
+| --- | --- | --- |
+| 画面从哪来 | 镜像里的 KasmVNC / TigerVNC | **CDP 的 `Page.startScreencast`,我们自己产** |
+| 人的输入 | VNC 协议,我们不参与 | **CDP `Input.*`,我们翻译** |
+| 对外几个口 | 两个(`--api-port` + `--view-port`) | **一个(`--port`)** |
+| 浏览器从哪来 | 4.4 GB 的桌面镜像 | **`webmuxd install` 下一个**,钉死版本 |
+| 要不要 docker | 要 | **不要**。项目里再没有一个 Dockerfile |
+| 一台机器几个 | kasmweb 只能一个 | **想几个几个** |
+| 画面里有什么 | 整个桌面,得裁掉 tab 条 | **只有页面内容** |
+
+**破坏性改动**,旧名不会被静默吞掉,会直说:
+
+- `api_port=` / `view_port=` → **`port=`**;CLI 的 `--view-port` 退役
+- `image=` / `--image`、`network=`、`runtime="container"` → **删**。要隔离就把
+  webmuxd 放进容器里跑,那是你的部署决定,不是我们的参数
+- `view_login` / `view_password` → **删**,换成 token
+- `~/.webmuxd.json` 格式 1 → 2(老记录读不动就当没有,重新探)
+
+### 新增
+
+- **`webmuxd/view/`** —— 28 字节帧头、ack 背压、RTT 自适应降质、输入翻译
+  (含 IME 和粘贴)、光标同步、一个内置观看页面
+- **`webmuxd/native/`** —— headless 里不渲染的六类原生 UI 用 CDP 收回来:
+  JS 对话框、下载、文件选择、权限、Basic 认证、PDF。**不替你决定、有超时、
+  超时写日志**
+- **`webmuxd/browser.py`** —— Chrome for Testing 下载器,每个 release 钉一个版本;
+  `WEBMUXD_BROWSER_MIRROR` 换源(国内用 npmmirror)
+- **只读分享第一次是真的** —— 只读是**服务端丢弃输入**,不是前端把按钮变灰
+
+### 一个字没动的
+
+定位、观测、日志、tab 表、错误模型、`act()` 不抛异常 —— 它们和画面从哪来无关,
+所以 `core/` 一行没改。详见 [works/08](docs/v2/works/08-migration.md)。
+
+### 老实说,它没有什么
+
+- **没有隔离**,页面跑在你自己机器上。要隔离:把 webmuxd 装进容器,
+  或者 `runtime="remote"` 连一个别处的浏览器
+- **没有声音**。视频能放,但是静音的
+- **带宽不省**,滚动时能到 10 Mbps(静止是 0)。但实测流畅度**反而比 VNC 好** ——
+  全屏运动正是区域重传的负收益区
+- **没有桌面**。要完整桌面就该用远程桌面,不是用这个
+
 ## 0.4.4
 
 **收掉 0.4.3 露出来的一道缝:登记表丢了,东西还在,却没人管得了。**

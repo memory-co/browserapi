@@ -33,7 +33,9 @@ from webmuxd.errors import (  # noqa: F401
     SessionNotFound,
 )
 
-__version__ = "0.4.4"
+#: **和 pyproject.toml 保持一致。** 0.5.0 发版前忘了改这里,装出来的包
+#: `webmuxd info` 会报上一版的号 —— 两处都得动。
+__version__ = "0.5.0"
 __all__ = ["__version__", "Webmuxd", "Session", "Tab", "ActResult",
            "Observation", "Element"] + [
     "WebmuxdError", "ActionError", "PlatformError", "UsageError",
