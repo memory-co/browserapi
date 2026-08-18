@@ -1,7 +1,7 @@
 """`Webmuxd` —— 管理实例(docs/v1/sdk/manager.md)。
 
-**`Webmuxd()` 是个空壳。** 构造它不起容器、不占端口、不跑任何浏览器 ——
-它只是"我要开始管 session 了"。**每 `session()` 一个新 id 才起一个 kasm。**
+**`Webmuxd()` 是个空壳。** 构造它不占端口、不跑任何浏览器 ——
+它只是"我要开始管 session 了"。**每 `session()` 一个新 id 才起一个浏览器。**
 """
 
 from __future__ import annotations

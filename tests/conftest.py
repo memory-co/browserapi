@@ -1,24 +1,25 @@
-"""测试跑在容器内 —— Chromium 的 Host 头校验挡掉容器外的 CDP 访问
-(docs/v1/works/01-container.md §3 实测)。所以这里直接在同容器起 Chromium。
+"""共享 fixture —— 一个真的 headless Chromium,session 级。
 
-    docker run --rm -v "$PWD":/src webmuxd-dev pytest
+    webmuxd install && pytest -q
+
+浏览器优先用 `webmuxd install` 下的那个**钉死版本**,没有就退到系统里那个。
+这样"换 Chromium 大版本先跑 chrome_facts"才是可执行的
+(docs/v2/works/07 §4.1)。
 """
 
 import asyncio
 import contextlib
 import os
-import shutil
 import socket
 import subprocess
 import time
 
 import pytest
 
+from webmuxd import browser
 from webmuxd.core.cdp import CDP
 
-CHROMIUM = next(
-    (p for p in ("chromium-browser", "chromium", "chrome") if shutil.which(p)), None
-)
+CHROMIUM = browser.find() or browser.find_system()
 
 
 def _free_port() -> int:
@@ -31,7 +32,7 @@ def _free_port() -> int:
 def chromium_endpoint():
     """起一个 Chromium,返回 http://127.0.0.1:<port>。"""
     if not CHROMIUM:
-        pytest.skip("容器里没有 chromium —— 用 webmuxd-dev 镜像跑")
+        pytest.skip("本机没有浏览器 —— 跑 `webmuxd install` 下一个")
 
     port = _free_port()
     proc = subprocess.Popen(

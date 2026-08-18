@@ -6,7 +6,8 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 这一条会同时用到 CDP、tab 表和事件流。
 
 跑的是**真的 Chromium**,不 mock:这个项目的全部价值就在它和浏览器的交界处,
-换成假的等于什么都没测。两个镜像场景更进一步,真的 `docker run`。
+换成假的等于什么都没测。浏览器用的是 `webmuxd install` 下的那个**钉死版本** ——
+所以"换 Chromium 大版本先跑 `chrome_facts`"是可执行的,不是一句口号。
 
 ## 场景一览
 
@@ -30,20 +31,20 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 
 - `conftest.py` —— `chromium_endpoint`(一个真的 headless Chromium,session 级)、
   CDP 连接、临时数据目录
-> v2 把容器整条去掉了,所以 `image_kasmweb/` `image_jlesage/` `image_conftest.py`
-> 一起删了 —— 它们测的是给 kasm / jlesage 加的那层 wrapper,而 v2 不用镜像
-> ([works/07 §2](../docs/v2/works/07-runtime.md))。git 历史里还在。
+> v2 把容器整条去掉了([works/07 §2](../docs/v2/works/07-runtime.md)),所以那两个
+> 镜像场景和它们的 `image_conftest.py` 一起删了 —— 它们测的是 wrapper 镜像,
+> 而现在没有镜像。git 历史里还在。
 
 ## 跑
 
 ```bash
-docker run --rm -v "$PWD":/src webmuxd-dev pytest -q       # 全部
-docker run --rm -v "$PWD":/src webmuxd-dev pytest -q tests/pointing_at_things
+webmuxd install            # 一次就够 —— 测试用的就是它下的那个浏览器
+pytest -q
+pytest -q tests/pointing_at_things
 ```
 
-**不再需要在宿主机上单跑任何场景** —— v2 不 `docker run`,所有场景都在同一个
-环境里跑得起来。`one_endpoint` 和 `pixels_on_a_wire` 要一个真浏览器,
-没有就跳过(不是失败)。
+**没有"要在宿主机上单跑"的场景了** —— 全部在同一个环境里跑得起来。
+要浏览器的那几个场景没有浏览器就跳过,不是失败。
 
 ## 加新场景
 

@@ -154,7 +154,8 @@ print(sess.view_url)   # 画面还是我们产的,连的是他们的浏览器
 ## 跑测试
 
 ```bash
-docker run --rm -v "$PWD":/src webmuxd-dev pytest -q
+pytest -q
 ```
 
-大部分测试是**真的开着 chromium 跑的**,不是 mock,所以慢(约 5 分钟)。
+用的就是 `webmuxd install` 下的那个浏览器。大部分测试是**真的开着它跑的**,
+不是 mock,所以慢(约 5 分钟)。

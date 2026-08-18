@@ -1,5 +1,13 @@
 # webmuxd v1 · 规格
 
+> **存档。** 这是这个项目上一个形状 —— 画面来自 VNC 镜像、要 docker、
+> 一个 session 两个端口。现在的形状在 [`docs/v2`](../v2/),那边那些
+> "为什么翻转"的论证一直在引这里,所以这份留着,一个字没改。
+>
+> 两件事要知道:**`sdk` / `api` / `cli` 里定位、观测、日志、tab 表那几块 v2
+> 一个字没动**,仍然有效;而 `works` 里提到的 `docker/` 目录(kasm 和 jlesage
+> 的两个 wrapper 镜像)**在 v2 里删掉了**,git 历史里还在。
+
 **再往上一层** —— webmuxd 和 tmuxd 共同属于的那个东西,规范定在 [shellbase](https://github.com/memory-co/shellbase):
 
 - [new-interface.md](https://github.com/memory-co/shellbase/blob/main/docs/v1/new-interface.md) —— **为什么**是这个形状:HTTP 上的一扇窗 + 一个能控它的把手

@@ -149,8 +149,8 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
   原生 UI(对话框、下载、文件选择、权限、Basic 认证)是**用 CDP 一条条收回来的**,
   见 [works/06](docs/v2/works/06-no-desktop.md)。
 
-这几条哪条你都不能接受,**[v1](docs/v1/) 那条路还在** —— 它用 kasm / jlesage 的
-VNC 镜像,有完整桌面和音频,代价是要 docker、一台机器一个、画面里得裁掉 tab 条。
+这几条不是"还没做",是**这条路线的性质** —— 画面是从浏览器的合成器直接出来的,
+所以它只有页面,没有桌面,也没有声音。要完整桌面就该用远程桌面,不是用这个。
 
 ## 依赖
 
@@ -166,8 +166,8 @@ VNC 镜像,有完整桌面和音频,代价是要 docker、一台机器一个、�
 ## 开发
 
 ```bash
-docker build -t webmuxd-dev docker/dev/
-docker run --rm -v "$PWD":/src webmuxd-dev pytest -q
+webmuxd install       # 测试用的就是它下的那个浏览器
+pytest -q
 ```
 
 测试跑的是**真的 Chromium**,不 mock —— 这个项目的全部价值就在它和浏览器的交界处,
@@ -181,8 +181,7 @@ docker run --rm -v "$PWD":/src webmuxd-dev pytest -q
 | --- | --- |
 | [QUICKSTART.md](QUICKSTART.md) | 完整跑一遍 |
 | [`docs/v2/works`](docs/v2/works/) | **为什么这么做** —— 设计稿和实测记录 |
-| [`docs/v1`](docs/v1/) | v1 的规格(sdk / api / cli)。**定位、观测、日志、tab 表这几块 v2 一个字没动**,所以那三个目录仍然有效;画面和 runtime 那两块以 v2 为准 |
-| [v1 → v2 变了什么](docs/v2/works/08-migration.md) | 一张表 |
+| [`docs/v1`](docs/v1/) | 存档。这个项目上一个形状(VNC 镜像那条路)的设计稿和规格 —— `docs/v2` 里那些"为什么翻转"的论证一直在引它 |
 
 ## 许可
 
@@ -192,6 +191,3 @@ webmuxd 把 [Chromium](https://www.chromium.org/) 当外部程序驱动,**不改
 不重新发行它** —— `webmuxd install` 是让你自己从 Google 的
 [Chrome for Testing](https://developer.chrome.com/blog/chrome-for-testing) 下,
 和 playwright / puppeteer 同一个姿态。
-
-v1 的画面那一半用过 [kasmweb](https://hub.docker.com/r/kasmweb/chromium) 和
-[jlesage](https://hub.docker.com/r/jlesage/chromium) 的镜像,同样是只在上面加一薄层。

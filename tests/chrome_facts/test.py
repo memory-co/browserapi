@@ -167,7 +167,7 @@ async def _window_count(cdp) -> int:
 
 @pytest.mark.skip(
     reason="headless 下测不了:带 windowFeatures 的 window.open 根本不产生 target,"
-           "headless 也没有真正的窗口概念。这条要在 headful 的 kasmweb/chromium 上验 —— "
+           "headless 也没有真正的窗口概念。这条要在 headful 的浏览器上验 —— "
            "works/07 §5 已按此标注。"
 )
 async def test_stripping_window_features_makes_a_tab_not_a_window(cdp, page):
