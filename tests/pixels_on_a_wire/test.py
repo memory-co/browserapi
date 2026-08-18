@@ -424,3 +424,36 @@ async def test_死区防的是来回震荡():
     for _ in range(10):
         assert a.feed(mid) is None, "死区里不该动"
     assert a.quality == 80
+
+
+async def test_画质有下限_到底了改抽帧():
+    """**q5 是马赛克,根本没法用。**
+
+    降质的意义是"糊一点但还能操作",不是"糊到看不清" —— 而 20 → 5 是个断崖。
+    默认下限 25 有出处:BrowserBox 自己在 Tor 模式下就压到 25
+    ([01 §4](../../docs/v2/works/01-frame-source.md))。
+    """
+    from webmuxd.view.quality import Adaptor, QUALITY_FLOOR
+    assert QUALITY_FLOOR == 25
+
+    a = Adaptor(80)
+    path = [80]
+    for _ in range(8):
+        a._last_down = 0
+        a._down()
+        if a.quality != path[-1]:
+            path.append(a.quality)
+    assert path == [80, 60, 40, 25], path
+    assert a.every_nth > 1, "画质到底了就该改抽帧,不能停在那儿不动"
+
+
+async def test_下限可配_而且不能高过上限():
+    from webmuxd.view.quality import Adaptor
+    a = Adaptor(80, floor=40)
+    for _ in range(6):
+        a._last_down = 0
+        a._down()
+    assert a.quality == 40
+
+    # 下限高过上限的话它会在两头之间反复横跳 —— 夹住
+    assert Adaptor(50, floor=90).floor == 50

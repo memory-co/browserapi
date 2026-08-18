@@ -50,7 +50,8 @@ class Screencaster:
 
     def __init__(self, session: "Session", *, width: int = DEFAULT_W,
                  height: int = DEFAULT_H, fmt: str = DEFAULT_FORMAT,
-                 quality: int = DEFAULT_QUALITY, dsf: float = 1.0) -> None:
+                 quality: int = DEFAULT_QUALITY, dsf: float = 1.0,
+                 min_quality: int = 25) -> None:
         self.session = session
         self.width, self.height = width, height
         self.format = fmt
@@ -63,7 +64,8 @@ class Screencaster:
         #: 2x 的画面缩回 CSS 尺寸再编码,等于白做。
         self.dsf = dsf if dsf and dsf > 0 else 1.0
         self.viewers: set[Viewer] = set()
-        self.adaptor = Adaptor(quality, lossless=(fmt == "png"))
+        self.adaptor = Adaptor(quality, lossless=(fmt == "png"),
+                               floor=min_quality)
 
         self._tab: str | None = None          # 正在截的 tab
         self._sid: str | None = None          # 它的 CDP sessionId

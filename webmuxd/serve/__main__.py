@@ -27,7 +27,8 @@ async def _run(args: argparse.Namespace) -> None:
     cdp = await CDP.connect(args.cdp)
     session = Session(cdp, data_dir=args.data, view={
         "width": args.width, "height": args.height,
-        "fmt": args.format, "quality": args.quality, "dsf": args.dsf})
+        "fmt": args.format, "quality": args.quality, "dsf": args.dsf,
+        "min_quality": args.min_quality})
     await session.start()
 
     runner = web.AppRunner(build(session))
@@ -69,6 +70,7 @@ def main() -> None:
     p.add_argument("--height", type=int, default=768)
     p.add_argument("--format", default="jpeg", choices=["jpeg", "png", "webp"])
     p.add_argument("--quality", type=int, default=80)
+    p.add_argument("--min-quality", type=int, default=25, dest="min_quality")
     p.add_argument("--dsf", type=float, default=1.0)
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

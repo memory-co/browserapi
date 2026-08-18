@@ -22,7 +22,15 @@ SLOW_MS = 725.0         # 超过就降
 FAST_MS = 600.0         # 低于就升
 THROTTLE_S = 8.0        # 两个方向各自的冷却
 QUALITY_STEP = 20
-QUALITY_FLOOR = 5
+#: 降到底是多少。
+#:
+#: BrowserBox 那边是 5,我们一开始照抄了 —— **但 q5 是马赛克,根本没法用**,
+#: 而且 20 → 5 是个断崖。降质的意义是"糊一点但还能操作",不是"糊到看不清"。
+#:
+#: 25 不是拍的:BrowserBox 自己在 Tor 模式下就把下限压到 25
+#: ([01 §4](../../docs/v2/works/01-frame-source.md))—— 那是它认为的"还能用"的底。
+#: 到底了就改抽帧,那才是链路真撑不住时该退的方向。
+QUALITY_FLOOR = 25
 NTH_CAP = 8
 WINDOW = 8              # 滑动窗口取几个样本
 
@@ -43,8 +51,11 @@ class Adaptor:
     `lossless=True`(png)时 `quality` 不动,只抽帧。
     """
 
-    def __init__(self, quality: int = 80, *, lossless: bool = False) -> None:
+    def __init__(self, quality: int = 80, *, lossless: bool = False,
+                 floor: int = QUALITY_FLOOR) -> None:
         self.ceiling = quality
+        #: 下限不能高过上限 —— 那样它会在两头之间反复横跳
+        self.floor = max(1, min(int(floor), quality))
         self.quality = quality
         self.every_nth = 1
         self.lossless = lossless
@@ -81,8 +92,8 @@ class Adaptor:
 
     def _down(self) -> bool:
         """**先砍画质,砍到底再抽帧。**"""
-        if not self.lossless and self.quality > QUALITY_FLOOR:
-            self.quality = max(QUALITY_FLOOR, self.quality - QUALITY_STEP)
+        if not self.lossless and self.quality > self.floor:
+            self.quality = max(self.floor, self.quality - QUALITY_STEP)
             return True
         if self.every_nth < NTH_CAP:
             self.every_nth += 1

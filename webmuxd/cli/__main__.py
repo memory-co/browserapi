@@ -161,7 +161,8 @@ def cmd_new(args: argparse.Namespace) -> int:
                         bind=args.bind, dsf=args.dsf,
                         view={"width": int(w), "height": int(h),
                               "format": args.img_format,
-                              "quality": args.quality})
+                              "quality": args.quality,
+                              "min-quality": args.min_quality})
     reg.put(handle)
     d = handle.detail
     _out(args, {"id": args.id, "port": handle.port,
@@ -542,9 +543,14 @@ def _parser() -> argparse.ArgumentParser:
                    help="画质 1-100(png 无损,对它无效)。它同时是自适应升质的上限")
     n.add_argument("--format", default="jpeg", choices=["jpeg", "png", "webp"],
                    dest="img_format", help="帧编码。扁平 UI 页面 png 有时反而更小")
-    n.add_argument("--dsf", type=float, default=1.0,
-                   help="渲染倍率,**只用来匹配观看端的 dpr**。Retina 填 2;"
-                        "普通屏填 2 反而更糊还多花 2.6 倍带宽")
+    n.add_argument("--min-quality", type=int, default=25, dest="min_quality",
+                   help="自适应最多降到多少。默认 25 —— 再低就是马赛克,"
+                        "到底了改抽帧,那才是链路真撑不住时该退的方向")
+    # **默认关。** 不给就是 1(不加 --force-device-scale-factor);
+    # 光写 `--dsf` 就是 2(Retina 那种最常见的情况);要 1.5 就 `--dsf 1.5`。
+    n.add_argument("--dsf", type=float, nargs="?", const=2.0, default=1.0,
+                   help="渲染倍率。**默认关**,只在观看端是高 DPI 屏时才开 —— "
+                        "光写 --dsf 就是 2。普通屏上开了反而更糊,还多花 2.6 倍带宽")
     n.add_argument("--bind", default="127.0.0.1",
                    help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
                         "拿到 token 的人就能操作这个浏览器")
