@@ -83,7 +83,8 @@ class ProcessRuntime:
     def start(self, id: str, *, port: int, url: str = "about:blank",
               window_size: str = "", browser_path: str | None = None,
               proxy: str | None = None, data_dir: str | None = None,
-              token: str | None = None, **_opts: Any) -> Handle:
+              token: str | None = None, bind: str = "127.0.0.1",
+              **_opts: Any) -> Handle:
         exe = resolve_browser(browser_path)
         require_ports(port)
 
@@ -144,8 +145,11 @@ class ProcessRuntime:
                 f"完整日志在 {log_path};手工跑一遍:{' '.join(args[:3])} …")
 
         procs["sessiond"] = spawn_sessiond(
-            f"http://127.0.0.1:{cdp_port}", port=port,
+            f"http://127.0.0.1:{cdp_port}", port=port, bind=bind,
             data=os.path.join(work, "data"), token=token)
+        if bind not in ("127.0.0.1", "localhost", "::1"):
+            notes.append(f"画面口绑在 {bind} —— **这台机器网络能到的人,"
+                         f"拿到 token 就能操作这个浏览器**")
         if not wait_http(f"http://127.0.0.1:{port}/healthz", 30):
             _kill_all(procs)
             raise unavailable(self.name, "sessiond 没起来",
@@ -153,6 +157,7 @@ class ProcessRuntime:
 
         return Handle(self.name, id, port,
                       {"cdp_port": cdp_port, "work": work, "browser": exe,
+                       "bind": bind,
                        "pids": {k: p.pid for k, p in procs.items()},
                        "notes": notes, "_procs": procs})
 

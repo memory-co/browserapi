@@ -144,7 +144,7 @@ def unavailable(runtime: str, why: str, hint: str) -> RuntimeUnavailable:
 # 区别只在那个端点是我们起的还是你给的。
 # --------------------------------------------------------------------------
 
-def spawn_sessiond(cdp: str, *, port: int, data: str, host: str = "127.0.0.1",
+def spawn_sessiond(cdp: str, *, port: int, data: str, bind: str = "127.0.0.1",
                    token: str | None = None,
                    extra_env: dict[str, str] | None = None) -> subprocess.Popen:
     """起 sessiond,**不等它** —— 等在调用方那儿,因为失败时要连浏览器一起收。
@@ -157,6 +157,6 @@ def spawn_sessiond(cdp: str, *, port: int, data: str, host: str = "127.0.0.1",
         env["WEBMUXD_TOKEN"] = token
     return subprocess.Popen(
         [sys.executable, "-m", "webmuxd.serve", "--cdp", cdp,
-         "--host", host, "--port", str(port), "--data", data],
+         "--bind", bind, "--port", str(port), "--data", data],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True)

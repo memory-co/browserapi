@@ -32,7 +32,7 @@ class RemoteRuntime:
 
     def start(self, id: str, *, port: int, cdp: str | None = None,
               data_dir: str | None = None, token: str | None = None,
-              **_opts: Any) -> Handle:
+              bind: str = "127.0.0.1", **_opts: Any) -> Handle:
         if not cdp:
             raise unavailable(self.name, "runtime=remote 得给 cdp=",
                               "cdp 指向对面那个浏览器的 CDP 端点,"
@@ -47,8 +47,8 @@ class RemoteRuntime:
 
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
-        proc = spawn_sessiond(cdp, port=port, data=os.path.join(work, "data"),
-                              token=token)
+        proc = spawn_sessiond(cdp, port=port, bind=bind,
+                              data=os.path.join(work, "data"), token=token)
         if not wait_http(f"http://127.0.0.1:{port}/healthz", 30):
             proc.terminate()
             raise unavailable(self.name, "sessiond 没起来",

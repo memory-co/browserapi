@@ -156,7 +156,8 @@ def cmd_new(args: argparse.Namespace) -> int:
 
     handle = impl.start(args.id, port=args.port, url=url,
                         window_size=window_size, proxy=args.proxy,
-                        browser_path=args.browser, cdp=args.cdp)
+                        browser_path=args.browser, cdp=args.cdp,
+                        bind=args.bind)
     reg.put(handle)
     d = handle.detail
     _out(args, {"id": args.id, "port": handle.port,
@@ -529,6 +530,11 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--window-size", "-v", "--viewport", default=None,
                    dest="window_size", help="画面尺寸,例 1280x800")
     n.add_argument("--proxy", default=None)
+    # **绑哪个地址**,和全局那个 `-H/--host`(连哪台机器)不是一回事 ——
+    # 所以这儿叫 `--bind`,不复用 `--host`。
+    n.add_argument("--bind", default="127.0.0.1",
+                   help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
+                        "拿到 token 的人就能操作这个浏览器")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
 
     ins = add("install", cmd_install, target=False,

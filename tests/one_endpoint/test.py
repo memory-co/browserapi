@@ -229,3 +229,53 @@ def test_root_下自动关沙箱_并且说出来(monkeypatch, tmp_path):
         ProcessRuntime().start("x", port=_free(), browser_path="/bin/true",
                                data_dir=str(tmp_path))
     assert "--no-sandbox" in seen["args"], "root 下不加的话根本起不来"
+
+
+# ------------------------------------------------------------- 绑哪个地址
+
+def test_默认只绑回环():
+    """**默认不该是"谁能连上谁就能用这个浏览器"。**
+
+    v1 的 sessiond 默认 `0.0.0.0`,那时候它跑在容器里 —— 那个 0.0.0.0 是
+    **容器内的**,外面还有 `docker -p` 决定暴不暴露。v2 没有容器了,
+    前提变了,默认值必须跟着变([works/07](../../docs/v2/works/07-runtime.md))。
+    """
+    import argparse
+    import inspect
+
+    from webmuxd.serve import __main__ as serve_main
+    src = inspect.getsource(serve_main.main)
+    assert '"--bind"' in src, "统一叫 --bind,不叫 --host"
+    assert '"0.0.0.0"' not in src.split("--bind")[1].split("\n")[0], \
+        "默认还是 0.0.0.0"
+
+    # 老名字留作别名,不然 works/07 里那条命令会突然报 unrecognized
+    p = argparse.ArgumentParser()
+    p.add_argument("--bind", "--host", dest="bind", default="127.0.0.1")
+    assert p.parse_args([]).bind == "127.0.0.1"
+    assert p.parse_args(["--host", "0.0.0.0"]).bind == "0.0.0.0"
+
+
+def test_绑非回环要留一条警告(tmp_path, monkeypatch):
+    """对外开放是**你的决定**,但不能悄悄发生。"""
+    from webmuxd.runtime import process as proc_mod
+
+    class FakePopen:
+        def __init__(self, args, **kw): self.pid = 1
+        def poll(self): return None
+        def send_signal(self, s): pass
+        def wait(self, timeout=None): return 0
+        def kill(self): pass
+
+    monkeypatch.setattr(proc_mod.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(proc_mod, "wait_port", lambda *a, **k: True)
+    monkeypatch.setattr(proc_mod, "wait_http", lambda *a, **k: True)
+    monkeypatch.setattr(proc_mod, "spawn_sessiond", lambda *a, **k: FakePopen([]))
+
+    h = ProcessRuntime().start("x", port=_free(), browser_path="/bin/true",
+                               data_dir=str(tmp_path), bind="0.0.0.0")
+    assert any("0.0.0.0" in n for n in h.detail["notes"]), h.detail["notes"]
+
+    h2 = ProcessRuntime().start("y", port=_free(), browser_path="/bin/true",
+                                data_dir=str(tmp_path / "2"))
+    assert not any("0.0.0.0" in n for n in h2.detail["notes"]), "默认不该报警"
