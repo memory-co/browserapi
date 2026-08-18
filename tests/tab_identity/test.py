@@ -1,6 +1,7 @@
 """tab 表 —— 对着 docs/v1/api/tabs.md 和 works/06 校,跑在真 Chromium 上。"""
 
 import asyncio
+import time
 
 import pytest
 
@@ -27,6 +28,20 @@ async def table(cdp):
 
 def _types(t) -> list[str]:
     return [ty for ty, _ in t.events]
+
+
+async def _until(pred, timeout: float = 3.0):
+    """等一个条件成立,**别用固定的 sleep**。
+
+    挤 tab 要等 `Target.closeTarget` 走一个来回,机器忙的时候 0.1 秒不够 ——
+    那样测出来的是"这台机器今天快不快",不是"逻辑对不对"。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        await asyncio.sleep(0.01)
+    return pred()
 
 
 
@@ -167,7 +182,7 @@ async def test_eviction_takes_the_least_recently_used(cdp):
     events.clear()
 
     d = await t.open("data:text/html,d")       # 第五个 → 挤掉最旧的 keeper
-    await asyncio.sleep(0.1)
+    await _until(lambda: any(ty == "tab.closed" for ty, _ in events))
 
     evicted = [p for ty, p in events if ty == "tab.closed" and p["reason"] == "evicted"]
     assert len(evicted) == 1, f"挤多了或没挤:{evicted}"
@@ -192,12 +207,57 @@ async def test_eviction_never_takes_the_active_or_a_busy_tab(cdp):
     events.clear()
 
     fresh = await t.open("data:text/html,fresh")   # 超了 → 只能挤 keeper 或 middle
-    await asyncio.sleep(0.1)
+    await _until(lambda: any(ty == "tab.closed" for ty, _ in events))
 
     assert old_busy.id in t, "挤掉了正在跑动作的 tab —— 那个动作会变成一半"
     assert fresh.id in t and t.active == fresh.id, "挤掉了刚建的或当前激活的"
     evicted = [p["id"] for ty, p in events if ty == "tab.closed" and p["reason"] == "evicted"]
     assert evicted == [keeper], f"受害者应该是最旧的非忙非激活那个,实际 {evicted}"
+
+
+@pytest.mark.asyncio
+async def test_挤掉时事件先到也不能丢掉_evicted(cdp):
+    """**这条是一个真的竞态的回归测试。**
+
+    `await Target.closeTarget` 中间会让出控制权,而 Chromium 的
+    `targetDestroyed` 事件**经常比这个响应先到**。先到的话表已经被清干净了,
+    后面那句 `self._order.remove(victim)` 会 `ValueError`,
+    于是 `reason="evicted"` 那条事件**再也发不出去** —— 表现有两种:
+    被挤掉的 tab 报成 `closed`,或者一个事件都没有。
+
+    这里把"事件先到"变成确定的:在 `closeTarget` 真正发出去之前,
+    先手工喂一条 `targetDestroyed` 进去。
+    """
+    events: list[tuple[str, dict]] = []
+    t = TabTable(cdp, emit=lambda ty, p: events.append((ty, p)), tab_max=1)
+    await t.start()
+    await asyncio.sleep(0.3)
+    keeper = await _reset_to_one(t)
+    keeper_target = t.get(keeper).target_id
+
+    real_send = t._cdp.send
+
+    async def send_but_event_first(method, params=None, **kw):
+        if method == "Target.closeTarget":
+            # 事件抢在响应前面 —— 这就是线上偶发的那个顺序
+            t._on_destroyed({"targetId": params["targetId"]}, None)
+        return await real_send(method, params, **kw)
+
+    t._cdp.send = send_but_event_first
+    events.clear()
+    try:
+        await t.open("data:text/html,b")          # 超了 → keeper 被挤
+        await _until(lambda: keeper not in t)
+    finally:
+        t._cdp.send = real_send
+
+    closed = [p for ty, p in events if ty == "tab.closed" and p["id"] == keeper]
+    assert len(closed) == 1, f"事件丢了或者发了两遍:{closed}"
+    assert closed[0]["reason"] == "evicted", "事件先到时被报成了 closed"
+    with pytest.raises(TabGone) as ei:
+        t.get(keeper)
+    assert ei.value.reason == "evicted"
+    assert keeper_target not in t._evicting, "标记没清干净"
 
 
 @pytest.mark.asyncio
@@ -209,7 +269,7 @@ async def test_evicted_tab_reports_evicted_not_closed(cdp):
     keeper = await _reset_to_one(t)
 
     b = await t.open("data:text/html,b")   # b 变 active → keeper 被挤
-    await asyncio.sleep(0.1)
+    await _until(lambda: keeper not in t)
 
     with pytest.raises(TabGone) as ei:
         t.get(keeper)

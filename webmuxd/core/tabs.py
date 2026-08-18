@@ -109,6 +109,9 @@ class TabTable:
         #: 我们自己发起的 createTarget,用来把 reason 判成 api。
         self._expect_api: set[str] = set()
         self._busy: set[str] = set()
+        #: 正在被挤掉的 target。**`await closeTarget` 期间事件会先到** ——
+        #: 见 `_evict_if_needed`。
+        self._evicting: set[str] = set()
         self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------ 读
@@ -167,9 +170,14 @@ class TabTable:
         asyncio.create_task(self._adopt(info))
 
     def _on_destroyed(self, params: dict, _sid: str | None) -> None:
-        tab_id = self._by_target.get(params.get("targetId", ""))
+        target = params.get("targetId", "")
+        tab_id = self._by_target.get(target)
         if tab_id:
-            self._forget(tab_id, reason="closed")
+            # **是我们挤的,还是它自己没了 —— 这两件事对使用者是不同的**
+            # (api/tabs.md §3)。`_evicting` 是唯一分得清的地方:
+            # 这条事件可能比 `closeTarget` 的响应先到,那时候还没人说过"evicted"。
+            reason = "evicted" if target in self._evicting else "closed"
+            self._forget(tab_id, reason=reason)
 
     def _on_info(self, params: dict, _sid: str | None) -> None:
         info = params.get("targetInfo", {})
@@ -353,15 +361,25 @@ class TabTable:
                 return
             tab = self._by_id[victim]
             final_url = tab.url
-            with suppress(CDPError):
-                await self._cdp.send("Target.closeTarget", {"targetId": tab.target_id})
-            self._by_id.pop(victim, None)
-            self._by_target.pop(tab.target_id, None)
-            self._order.remove(victim)
-            self._retired[victim] = {"reason": "evicted", "final_url": final_url}
-            # 被挤掉不是任何人的意图,所以 reason 必须说清楚
-            self._emit("tab.closed", {"id": victim, "active": self._active,
-                                      "reason": "evicted", "final_url": final_url})
+            # **先标记,再 await。**
+            #
+            # `Target.closeTarget` 的 await 中间会让出控制权,而 Chromium 的
+            # `targetDestroyed` 事件**经常比这个响应先到**。先到的话
+            # `_on_destroyed` 已经把这个 tab 清干净了,于是原来写在下面的
+            # `self._order.remove(victim)` 会 `ValueError: x not in list`,
+            # **紧跟其后那句 `reason="evicted"` 的事件就再也发不出去** ——
+            # 表现为"被挤掉的 tab 报成了 closed",或者干脆一个事件都没有。
+            #
+            # 所以:谁先到都行,记账只做一次,reason 一定是 evicted。
+            self._evicting.add(tab.target_id)
+            try:
+                with suppress(CDPError):
+                    await self._cdp.send("Target.closeTarget",
+                                         {"targetId": tab.target_id})
+                # 事件没先到才轮到我们收尾。`_forget` 本身是幂等的。
+                self._forget(victim, reason="evicted")
+            finally:
+                self._evicting.discard(tab.target_id)
             log.info("挤掉 %s(%s)—— 超了 %d 个上限", victim, final_url, self._tab_max)
 
     def _pick_victim(self, protect: str | None = None) -> str | None:
