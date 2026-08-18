@@ -1,5 +1,26 @@
 # 更新日志
 
+## 0.6.1
+
+**xpra 在 RHEL 系的机器上起不来 —— 虚拟显示是发行版的打包方选的,不是我们。**
+
+真机上(阿里云,xpra 6.5.2)第一次跑就挂在 `failed to locate Xorg binary to run`。
+原因:xpra 用哪个虚拟显示写在它自己的 `/etc/xpra/conf.d/55_server_x11.conf` 里,
+**Debian 那边默认 `Xvfb`,RHEL 那边默认 `xpra_Xdummy`(要整个 Xorg)**。
+
+最难受的是它**绕过了我们的探测**:`which("Xvfb")` 明明探到了,xpra 转头去用
+Xdummy,然后挂在完全另一个地方。**探的东西和用的东西必须是同一个。**
+
+现在用 `--xvfb=Xvfb …` 显式指定,不看发行版配置。缺 Xvfb 时两个家族的包名都会说:
+
+```
+缺:Xvfb(Debian/Ubuntu:xvfb;RHEL/CentOS/Alibaba:xorg-x11-server-Xvfb)
+```
+
+另外那次报错的头一句是"xpra 起来了但浏览器的 CDP 没监听" —— 把人往浏览器的方向指,
+而问题在 X 那一层。现在会先看 xpra 进程还在不在,分别说"xpra 自己退了 ——
+多半是虚拟显示没起来"和"xpra 在跑,但浏览器的 CDP 没监听"。
+
 ## 0.6.0
 
 **画面可以走 xpra 了。而且修了两个真 bug —— 其中一个让 0.5.5 / 0.5.6 的观看页

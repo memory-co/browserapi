@@ -164,7 +164,8 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 滚动和局部更新多的场景,可以让 xpra 出帧:
 
 ```bash
-apt install xpra xvfb python3-pil          # 只有这条路需要
+apt install xpra xvfb python3-pil                     # Debian / Ubuntu
+# yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里云
 webmuxd new --id work --port 7900 --transport xpra
 webmuxd info                               # 看这台机器上它可不可用
 ```

@@ -216,14 +216,22 @@ class ProcessRuntime:
         # Xvfb + xpra + 有头 chrome,比 headless 那条慢不少 —— 给足时间
         if not wait_port(cdp_port, 60):
             why = xpra_mod.tail(sess.log_path)
+            # **先看 xpra 自己还在不在。**
+            #
+            # 原来这儿一律说"xpra 起来了但浏览器的 CDP 没监听",而真实情况
+            # 常常是虚拟显示压根没起来、xpra 自己就退了 —— 那句话把人往
+            # 浏览器的方向指,而问题在 X 那一层。**头一句话指错方向,
+            # 后面的日志再全也白搭。**
+            died = sess.proc.poll() is not None
+            head = ("xpra 自己退了 —— 多半是虚拟显示没起来" if died
+                    else "xpra 在跑,但浏览器的 CDP 没监听")
             xpra_mod.stop(sess)
-            raise unavailable(
-                self.name, "xpra 起来了但浏览器的 CDP 没监听" + (f":{why}" if why else ""),
-                f"完整日志在 {sess.log_path}")
+            raise unavailable(self.name, head + (f":{why}" if why else ""),
+                              f"完整日志在 {sess.log_path}")
         if not wait_port(ws_port, 30):
             xpra_mod.stop(sess)
             raise unavailable(self.name, "xpra 的 ws 口没起来",
-                              f"日志在 {sess.log_path}")
+                              f"日志在 {sess.log_path};{xpra_mod.tail(sess.log_path)}")
 
         procs: dict[str, subprocess.Popen] = {}
         procs["sessiond"] = spawn_sessiond(

@@ -150,7 +150,8 @@ screencast 每帧都是整屏重发,滚动时该发多少发多少。
 在意滚动的话换一条像素来源:
 
 ```bash
-apt install xpra xvfb python3-pil
+apt install xpra xvfb python3-pil                     # Debian / Ubuntu
+# yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里云
 webmuxd new --id work --port 7900 --transport xpra
 webmuxd info                       # 先看这台机器上可不可用
 ```

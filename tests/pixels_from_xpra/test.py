@@ -488,3 +488,59 @@ def test_窗口比显示多要两格_否则右下会有一条黑边():
     argv = xpra_mod.build_chrome_argv("/x/chrome", cdp_port=1, profile="/p",
                                       url="u", width=1024, height=768)
     assert "--window-size=1026,770" in argv
+
+
+# ------------------------------------------------- 虚拟显示由我们指定,不看发行版
+
+def test_虚拟显示钉死_Xvfb_不看发行版的配置(tmp_path, monkeypatch):
+    """**同一份 xpra,vfb 是打包方定的。**
+
+    Debian 那边默认 `Xvfb`,RHEL 那边默认 `xpra_Xdummy`(Xorg + dummy 驱动),
+    而 Xdummy 要装 Xorg —— 云主机上基本没有,真机上报的是
+    `failed to locate Xorg binary to run` + `vfb failed to start`。
+
+    更坏的是这**绕过探测**:`which("Xvfb")` 明明探到了,xpra 转头去用 Xdummy。
+    **探的东西和用的东西必须是同一个**,所以自己指定。
+    """
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, argv, **kw):
+            seen["argv"] = argv
+            self.pid = 1
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(xpra_mod.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(xpra_mod, "available", lambda: (True, ""))
+    xpra_mod.start(display=":99", ws_port=1, cdp_port=2, chrome_argv=["/x/chrome", "u"],
+                   width=1024, height=768, work=str(tmp_path))
+
+    xvfb = [a for a in seen["argv"] if a.startswith("--xvfb=")]
+    assert xvfb, "没有指定 vfb —— 那就是把选择权交回给发行版了"
+    assert xvfb[0].startswith("--xvfb=Xvfb "), xvfb[0]
+    assert "Xdummy" not in xvfb[0] and "Xorg" not in xvfb[0]
+    # 真实尺寸由 resize-display 定,屏幕开大是给 RandR 留余地
+    assert f"--resize-display=1024x768" in seen["argv"]
+
+
+def test_缺_Xvfb_时两个发行版家族的包名都要说(monkeypatch):
+    """只说一个的话,另一边的人得自己去猜。"""
+    monkeypatch.setattr(xpra_mod.shutil, "which",
+                        lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
+    ok, why = xpra_mod.available()
+    assert not ok
+    assert "xvfb" in why and "xorg-x11-server-Xvfb" in why
+
+
+def test_起不来时先说清是哪一层没起来():
+    """**头一句话指错方向,后面的日志再全也白搭。**
+
+    真机上看到的是"xpra 起来了但浏览器的 CDP 没监听",而实际是虚拟显示没起来、
+    xpra 自己就退了 —— 那句话把人往浏览器的方向指,问题在 X 那一层。
+    """
+    src = (Path(__file__).resolve().parents[2] / "webmuxd" / "runtime" /
+           "process.py").read_text()
+    assert "sess.proc.poll() is not None" in src, "没有区分 xpra 死没死"
+    assert "xpra 自己退了" in src and "虚拟显示" in src

@@ -325,7 +325,39 @@ if not c.boolget("steal", True) and self.server._server_sources:
 症状极具误导性:WebSocket 升级返回 101(日志里看着一切正常),然后立刻关。
 一开始我以为是 xpra 拒了我们。
 
-### 12.3 顺带发现:观看页已经坏了两个版本
+### 12.3 虚拟显示是打包方定的,不是我们定的 —— 探到了也没用
+
+真机上(阿里云,RHEL 系,xpra 6.5.2)第一次跑就挂:
+
+```
+failed to locate Xorg binary to run
+Xvfb command has terminated! xpra cannot continue
+ full command: "xpra_Xdummy -novtswitch … -config '${XORG_CONFIG_PREFIX}/root/xorg.conf' …"
+```
+
+**同一份 xpra,虚拟显示由发行版的打包方选**,写在
+`/etc/xpra/conf.d/55_server_x11.conf` 的 `xvfb =` 那一行:
+
+| | 默认的 vfb | 要什么 |
+| --- | --- | --- |
+| Debian / Ubuntu | `Xvfb` | `xvfb` 包 |
+| RHEL / CentOS / 阿里云 | **`xpra_Xdummy`** | **整个 Xorg** —— 云主机上基本没有 |
+
+最难受的一点是它**绕过了我们的探测**:`shutil.which("Xvfb")` 明明探到了,
+xpra 转头去用 Xdummy,然后挂在完全另一个地方。
+
+> **探的东西和用的东西必须是同一个。** 探测只有在"我们探的那个就是接下来要跑的
+> 那个"时才成立;中间隔着一层别人的配置,探测就变成了一句安慰话。
+
+所以改成 `--xvfb=Xvfb …` 显式指定,不看发行版配置 —— 这和
+[07 §4.1](07-runtime.md) 把浏览器版本钉死是同一条:**跑的是哪一个,得由我们说了算。**
+
+顺带,那次报错的头一句是"xpra 起来了但浏览器的 CDP 没监听",把人往浏览器的方向指,
+而问题在 X 那一层。现在会先看 xpra 进程还在不在,分别说"xpra 自己退了 ——
+多半是虚拟显示没起来"和"xpra 在跑,但浏览器的 CDP 没监听"。
+**头一句话指错方向,后面的日志再全也白搭。**
+
+### 12.4 顺带发现:观看页已经坏了两个版本
 
 写这一篇时给观看页加了一条 `node --check`,**当场发现 0.5.5 和 0.5.6 发出去的
 `index.html` 整个 `<script>` 是语法错的** —— 删一个分支时,

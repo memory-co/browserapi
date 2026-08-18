@@ -29,6 +29,24 @@ from typing import Any
 
 from webmuxd.runtime.base import unavailable
 
+#: **虚拟显示由我们指定,不看发行版的配置。**
+#:
+#: xpra 用哪个 vfb 写在它自己的 `/etc/xpra/conf.d/55_server_x11.conf` 里,
+#: **是打包方定的**:Debian 那边默认 `Xvfb`,RHEL 那边默认 `xpra_Xdummy`
+#: (Xorg + dummy 驱动)。于是同一条命令在两台机器上跑的是两个不同的 X server,
+#: 而 Xdummy 要装 Xorg —— 云主机上基本没有,报错是:
+#:
+#:     failed to locate Xorg binary to run
+#:     Xvfb command has terminated! xpra cannot continue
+#:
+#: 更坏的是这**绕过了我们的探测**:`shutil.which("Xvfb")` 明明探到了,
+#: xpra 转头去用 Xdummy,然后挂在别处。**探的东西和用的东西必须是同一个。**
+#:
+#: 所以钉死 Xvfb。屏幕开大是给 RandR 留余地,真实尺寸由 `--resize-display` 定。
+XVFB = ("Xvfb -screen 0 8192x4096x24 +extension GLX +extension RANDR "
+        "+extension RENDER +extension Composite -extension DOUBLE-BUFFER "
+        "-nolisten tcp -noreset -auth $XAUTHORITY")
+
 #: 起 xpra 时固定关掉的一堆。**我们只要像素**([11 §5](../docs/v2/works/11-xpra.md))——
 #: 剪贴板、音频、通知、文件传输、打印全走我们自己的 API,不走 xpra。
 OFF = (
@@ -100,7 +118,10 @@ def available() -> tuple[bool, str]:
     if not exe:
         missing.append("xpra")
     if not shutil.which("Xvfb"):
-        missing.append("Xvfb(xorg 的虚拟显示,包名一般是 xvfb)")
+        # 两个发行版家族的包名不一样,**都写出来** —— 只说一个的话
+        # 另一边的人得自己去猜。
+        missing.append("Xvfb(Debian/Ubuntu:xvfb;"
+                       "RHEL/CentOS/Alibaba:xorg-x11-server-Xvfb)")
 
     # `start-desktop` 要 PIL,`start` 不要 —— 而我们只用 start-desktop(§6)。
     # 实测过:不装就是 `xpra-server is not installed: No module named 'PIL'`,
@@ -171,6 +192,7 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
         raise unavailable(
             "xpra", f"起不来 xpra:{why}",
             "Debian/Ubuntu:apt install xpra xvfb python3-pil;"
+            "RHEL/CentOS/Alibaba:yum install xpra xorg-x11-server-Xvfb python3-pillow;"
             "或者去掉 --transport xpra 用默认的 screencast")
 
     socket_dir = os.path.join("/tmp", f"webmuxd-xpra{display.lstrip(':')}")
@@ -184,6 +206,7 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
         f"--bind-ws=127.0.0.1:{ws_port}",
         "--html=off",                    # 它自带的客户端我们不要,我们自己写
         "--daemon=no",                   # **要它当我们的子进程活着**
+        f"--xvfb={XVFB}",                # **不看发行版配置**,见 XVFB
         f"--resize-display={width}x{height}",
         "--sharing=yes",                 # 一个观看者一条上游连接
         "--exit-with-children=yes",      # chrome 没了 xpra 也就没意义了
@@ -193,7 +216,7 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
     with open(log_path, "ab", buffering=0) as log:
         proc = subprocess.Popen(argv, stdout=log, stderr=log,
                                 start_new_session=True)
-    return XpraSession(proc=proc, display=display, ws_port=ws_port,
+    return XpraSession(proc=proc, display=display, ws_port=ws_port,   # noqa: E501
                        cdp_port=cdp_port, socket_dir=socket_dir,
                        log_path=log_path,
                        detail={"display": display, "xpra_ws_port": ws_port})
