@@ -222,3 +222,34 @@ def test_下不到时把原因整句打出来_不截断(record_file, fake_downlo
     out = io.StringIO()
     install(out=out, mirror="https://mine.example/cft")
     assert "到不了下载源" in out.getvalue(), out.getvalue()
+
+
+# --------------------------------------------------- 装完了才算装完了
+
+def test_解压到一半不算装好了(tmp_path, monkeypatch):
+    """**"那个 exe 在"不等于"装完了"。**
+
+    解压到一半被打断,`chrome` 可能已经落盘、也已经 chmod 过,而别的文件全缺。
+    没有标记文件的话 `find()` 会说装好了,然后我们去跑一个残缺的浏览器
+    ([works/10 §4.2](../../docs/v2/works/10-install.md))。
+    """
+    monkeypatch.setenv("WEBMUXD_BROWSERS_PATH", str(tmp_path))
+    exe = browser.binary_path()
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+
+    assert browser.find() is None, "只有一个 exe 就当装好了 —— 那是半个安装"
+
+    browser.marker_path().write_text(browser.PINNED)
+    assert browser.find() == str(exe), "标记在了就该认"
+
+
+def test_标记是最后一步写的(tmp_path, monkeypatch):
+    """顺序错了这条守卫就白设 —— 标记必须在**所有**文件都就位之后才落盘。"""
+    import inspect
+    src = inspect.getsource(browser.install)
+    assert src.index("marker_path") > src.index("extractall"), \
+        "标记写在解压之前 —— 那它就证明不了任何事"
+    assert src.index("marker_path") > src.index("exe.chmod"), \
+        "标记写在 chmod 之前"

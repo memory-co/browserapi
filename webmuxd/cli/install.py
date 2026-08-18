@@ -57,6 +57,10 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
         say(f"  {'浏览器':<10} {('chrome ' + version + ' 已经下过'):<38} {OK}")
         path = have
     else:
+        # 目录在、标记不在 —— 要么是上次装到一半,要么是 0.5.1 之前装的
+        # (那时候还没有标记这回事)。**重下 150 MB 不能不吭声。**
+        if not force and browser.install_dir(version).exists():
+            say(f"  {'浏览器':<10} {'装了一半或是旧版本装的,重下一次':<34} {WARN}")
         # **传进来的赢**:显式给了源就不探 —— 探测是"这台机器上哪个快"的事实,
         # 而你指定哪个是你的选择(v1/cli/install.md §3 那条规矩)
         chosen = mirror or os.environ.get("WEBMUXD_BROWSER_MIRROR")

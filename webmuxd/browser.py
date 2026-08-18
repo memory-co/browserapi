@@ -99,8 +99,23 @@ def binary_path(version: str = PINNED) -> Path:
     return d / "chrome-linux64" / "chrome"
 
 
+#: 装完了才写的标记。**"那个 exe 在"不等于"装完了"** ——
+#: 解压到一半被 Ctrl-C、磁盘满、进程被 OOM 杀掉,目录里都会留下一堆看着挺像的
+#: 文件,而 `chrome` 恰好可能已经落盘并且已经 chmod 过。实测过:目录里只有一个
+#: `chrome`、别的全缺,旧的 `find()` 照样说装好了。
+#:
+#: 抄的是 playwright 的 `INSTALLATION_COMPLETE`([works/10 §4.2](../docs/v2/works/10-install.md))。
+MARKER = "INSTALLATION_COMPLETE"
+
+
+def marker_path(version: str = PINNED) -> Path:
+    return install_dir(version) / MARKER
+
+
 def find(version: str = PINNED) -> str | None:
-    """下过就返回路径,没下过返回 None。**不去猜系统里那个。**"""
+    """下过**而且下完了**才返回路径,否则 None。**不去猜系统里那个。**"""
+    if not marker_path(version).exists():
+        return None
     p = binary_path(version)
     return str(p) if p.exists() and os.access(p, os.X_OK) else None
 
@@ -190,6 +205,7 @@ def install(version: str = PINNED, *, mirror: str | None = None,
 
     url = download_url(version, mirror)
     tmp = dest / ".chrome.zip.part"
+    ok = False
     try:
         with urllib.request.urlopen(url, timeout=60) as r:
             total = int(r.headers.get("Content-Length") or 0)
@@ -202,8 +218,12 @@ def install(version: str = PINNED, *, mirror: str | None = None,
                         on_progress(done, total)
         with zipfile.ZipFile(tmp) as z:
             z.extractall(dest)
+        ok = True
     finally:
         tmp.unlink(missing_ok=True)
+        if not ok:
+            # **失败就删干净**,别留半个目录给下一次去猜(works/10 §4.3)
+            shutil.rmtree(dest, ignore_errors=True)
 
     exe = binary_path(version)
     if not exe.exists():
@@ -214,6 +234,9 @@ def install(version: str = PINNED, *, mirror: str | None = None,
         if p.is_file() and (p.suffix == "" or p.name.endswith(".sh")):
             p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+    # **最后一步才写标记。** 前面任何一步被打断,这个文件就不在,
+    # 下一次 `find()` 会如实说"没装好"。
+    marker_path(version).write_text(version)
     return str(exe)
 
 
