@@ -65,6 +65,16 @@ KIOSK_ARGS = (
     "--test-type", "--disable-infobars",
     "--no-first-run", "--no-default-browser-check",
     "--disable-session-crashed-bubble",
+    # **软件 GL,显式指定。**
+    #
+    # 这台 Xvfb 上没有 GLX/DRI,而有头的 Chrome 不像 headless 那样会自己退到
+    # SwiftShader —— 实测它直接把 WebGL 整个关掉(`SystemInfo.getInfo` 报
+    # `webgl: disabled_off`)。**headless 那条有 WebGL,xpra 这条没有**,
+    # 换默认的时候差点把这个功能弄丢。
+    #
+    # 而且 `--disable-gpu` **救不回来**:有头下它关得更彻底,WebGL 照样是 false。
+    # 实测能用的只有下面这一组([11 §7](../docs/v2/works/11-xpra.md))。
+    "--use-gl=angle", "--use-angle=swiftshader",
 )
 
 

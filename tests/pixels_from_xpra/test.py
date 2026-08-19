@@ -719,3 +719,17 @@ def test_默认那条路上_绑非回环也要留一条警告(monkeypatch, tmp_p
     h2 = ProcessRuntime().start("y", port=65022, browser_path="/bin/true",
                                 data_dir=str(tmp_path / "2"))
     assert not any("0.0.0.0" in n for n in h2.detail["notes"]), "默认不该报警"
+
+
+def test_有头下要显式指定软件_GL_否则_WebGL_整个是关的():
+    """**换默认时差点弄丢的功能。**
+
+    headless 会自己退到 SwiftShader,有头不会 —— 实测 `SystemInfo.getInfo`
+    报 `webgl: disabled_off`。而且 `--disable-gpu` **救不回来**,
+    有头下它关得更彻底(实测三种组合,只有下面这一组能用)。
+    """
+    argv = xpra_mod.build_chrome_argv("/x/chrome", cdp_port=1, profile="/p",
+                                      url="u", width=1024, height=768)
+    assert "--use-gl=angle" in argv and "--use-angle=swiftshader" in argv
+    # 这个是陷阱:看着像"关掉 GPU 走软件",实际是把 WebGL 一起关了
+    assert "--disable-gpu" not in argv

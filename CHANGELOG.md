@@ -1,5 +1,21 @@
 # 更新日志
 
+## 0.7.1
+
+**xpra 那条路上 WebGL 是关的 —— 换默认的时候差点把它弄丢。**
+
+有头的 Chrome 不像 headless 那样会自己退到 SwiftShader:Xvfb 上没有 GLX/DRI,
+它直接把 WebGL 整个关掉(`SystemInfo.getInfo` 报 `webgl: disabled_off`)。
+也就是说 0.7.0 把默认换成 xpra 之后,**WebGL 页面是白的**。
+
+反直觉的一点:`--disable-gpu` **救不回来**,有头下它关得更彻底。
+实测三种组合,只有 `--use-gl=angle --use-angle=swiftshader` 能把它救回来。
+
+这个是写设计稿时量出来的,不是有人报的 —— 所以顺带补了
+[works/11 §0](docs/v2/works/11-xpra.md):xpra / Xvfb / Xorg 各是什么、
+四个虚拟显示选项怎么选、以及**要探哪些东西**(含两个还没探的缺口:
+服务端的图像编码器、xpra 的协议版本)。
+
 ## 0.7.0
 
 **画面默认走 xpra,依赖由 `webmuxd install` 装干净。**
