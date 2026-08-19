@@ -66,14 +66,36 @@ BINDING = "__webmuxd"
 HUMAN_INPUT_JS = """
 (() => {
   if (window.__webmuxdInputShim) return;
+  // **控件的身份是它的标签,不是它的内容。**
+  //
+  // 原来这儿是 `innerText || value` —— 而 `value` 在密码框上就是明文密码,
+  // 它会被写进 log.jsonl,`webmuxd log` 打得出来、`log/bundle` 打包带得走。
+  // log.py 的注释写着"明文不该走到这儿",但那条掩码只管 API 那条路,
+  // 人从画面进来的这条绕过去了。**实测过,确实漏。**
+  //
+  // 所以表单控件一律不取 value:要的是"他点了哪个控件",
+  // 而那由 aria-label / label / placeholder / name 说了算。
+  const FORM = { input: 1, textarea: 1, select: 1 };
+  const label = (el) => {
+    if (!el || !el.getAttribute) return '';
+    const aria = el.getAttribute('aria-label');
+    if (aria) return aria;
+    if (el.labels && el.labels.length && el.labels[0].innerText)
+      return el.labels[0].innerText;
+    const ph = el.getAttribute('placeholder');
+    if (ph) return ph;
+    const nm = el.getAttribute('name') || el.id;
+    if (nm) return nm;
+    if (FORM[(el.tagName || '').toLowerCase()]) return '';   // **不要 value**
+    return el.innerText || '';
+  };
   const send = (kind, e) => {
     try {
       __webmuxd(JSON.stringify({
         kind, x: e.clientX | 0, y: e.clientY | 0,
         role: (e.target && (e.target.getAttribute('role') ||
                e.target.tagName || '')).toLowerCase(),
-        name: (e.target && (e.target.innerText || e.target.value || ''))
-              .toString().trim().slice(0, 40),
+        name: label(e.target).toString().trim().slice(0, 40),
         at: Date.now()
       }));
     } catch (err) {}

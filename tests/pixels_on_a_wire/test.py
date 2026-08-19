@@ -457,3 +457,51 @@ async def test_下限可配_而且不能高过上限():
 
     # 下限高过上限的话它会在两头之间反复横跳 —— 夹住
     assert Adaptor(50, floor=90).floor == 50
+
+
+SECRET_FORM = ("data:text/html;charset=utf-8,"
+               "<label for=p>Password</label>"
+               "<input type=password id=p name=passwd placeholder=Enter>")
+
+
+async def test_人的动作进日志_但密码不进(live):
+    """**实测漏过。**
+
+    页面里那个输入探针原来报的是 `innerText || value`,而 `value` 在密码框上
+    就是明文密码 —— 它会被写进 `log.jsonl`,`webmuxd log` 打得出来、
+    `log/bundle` 打包带得走。[log.py](../../webmuxd/core/log.py) 的注释写着
+    "明文不该走到这儿",但那条掩码只管 API 那条路,**人从画面进来的这条绕过去了**。
+
+    控件的身份是它的**标签**,不是它的内容。
+    """
+    session, client, probe = live
+    tab = await _open(session, SECRET_FORM)
+    sid = (await probe.send("Target.attachToTarget",
+                            {"targetId": tab.target_id, "flatten": True}))["sessionId"]
+    await probe.send("Runtime.evaluate",
+                     {"expression": "document.getElementById('p').value='hunter2SECRET'"},
+                     session_id=sid)
+    await asyncio.sleep(0.6)                 # 躲开"这是我们刚发的那一下"那个窗口
+
+    async with client.ws_connect("/api/view") as ws:
+        await ws.send_json({"type": "mouse", "event": "down", "x": 80, "y": 12,
+                            "button": 0, "buttons": 1, "clicks": 1})
+        await ws.send_json({"type": "mouse", "event": "up", "x": 80, "y": 12,
+                            "button": 0, "buttons": 0, "clicks": 1})
+        await asyncio.sleep(0.6)
+        await ws.send_json({"type": "key", "event": "down", "key": "X", "code": "KeyX"})
+        await asyncio.sleep(1.0)
+
+    entries = session.log.read(limit=60, user="human")
+    assert entries, "人的动作一条都没进日志 —— 那条流就只剩 API 干过的事了"
+    blob = json.dumps(entries, ensure_ascii=False)
+    assert "hunter2SECRET" not in blob, f"密码明文进日志了:{blob[:300]}"
+
+
+def test_探针不许去读表单控件的_value():
+    """不依赖跑浏览器的那一半 —— **永远会跑**。"""
+    from webmuxd.core import shim
+    js = shim.HUMAN_INPUT_JS
+    assert "e.target.value" not in js and "el.value" not in js, \
+        "输入探针又去读 value 了 —— 密码框上那就是明文"
+    assert "aria-label" in js and "placeholder" in js, "得从标签取控件身份"
