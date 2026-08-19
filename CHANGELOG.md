@@ -379,7 +379,7 @@ KeyError: 'port'
 
 ### 另外两个 bug,是拆 playwright 的 install 时照出来的
 
-写 [works/10](docs/v2/works/10-install.md)(把 playwright 的安装机制逐条拆开)
+写 works/10(当时的 works/10,已并进 d)(把 playwright 的安装机制逐条拆开)
 的时候对着自己的代码核,发现两处:
 
 - **解压到一半会看起来像装好了。** 实测:目录里只放一个已 chmod 的 `chrome`、

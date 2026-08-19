@@ -51,6 +51,7 @@ v1:    ────────────────┘        └───�
 
 | 文件 | 内容 |
 | --- | --- |
+| [d-install.md](d-install.md) | **install:下载,不动你的环境** —— 这件事比 playwright 难在哪(多出一整套别人的软件);东西分三类:我们下载的 / 我们装进自己 python 的 / **只能你来装的**;为什么 Xvfb 下载不了(它自己就依赖 34 个库);字体反而可以纯用户态放 |
 | [c-pixels.md](c-pixels.md) | **像素从哪来:两条腿** —— CDP 的 JPEG 和 xpra 的区域图**本来就是同一种东西**,所以"像素从哪来"是个干净的接缝:接缝之上只有一套,之下可以有两条腿。附:Xvfb/xpra/Xorg 各是什么、要探什么、以后还能插什么进来 |
 | [b-input.md](b-input.md) | **输入翻译,以及它换来的东西** —— 观看者能表达的意图被限制在 `Input` 域那四个命令里;键盘要发真实 `keyDown` 不是 `insertText`;**IME 反而比 VNC 短**(组字不出本地);光标既不在像素也不在协议里 |
 | [a-architecture.md](a-architecture.md) | **架构基础定位** —— 从前到后走一遍整条链路:Chromium ◀CDP▶ sessiond ◀WS▶ 客户端。CDP 是 RPC 不是流(画面和输入都得主动要);sessiond 是唯一有状态的那个;客户端的位置换了(**ttyd 省下了协议,我们省下了渲染**) |
@@ -63,15 +64,17 @@ v1:    ────────────────┘        └───�
 | --- | --- |
 | [01-frame-source.md](01-frame-source.md) | **画面自己产** —— 判据为什么翻转,VNC 整条砍掉,代价老实写 |
 | [02-frame-protocol.md](02-frame-protocol.md) | 帧怎么发 —— **原样照抄 demo**,写的是"抄的时候哪几处不能想当然改" |
+| [d-install.md](d-install.md) | **install:下载,不动你的环境** —— 这件事比 playwright 难在哪(多出一整套别人的软件);东西分三类:我们下载的 / 我们装进自己 python 的 / **只能你来装的**;为什么 Xvfb 下载不了(它自己就依赖 34 个库);字体反而可以纯用户态放 |
 | [c-pixels.md](c-pixels.md) | **像素从哪来:两条腿** —— CDP 的 JPEG 和 xpra 的区域图**本来就是同一种东西**,所以"像素从哪来"是个干净的接缝:接缝之上只有一套,之下可以有两条腿。附:Xvfb/xpra/Xorg 各是什么、要探什么、以后还能插什么进来 |
 | [b-input.md](b-input.md) | 输入翻译**是**安全收口;IME、剪贴板、光标同步 |
+| [d-install.md](d-install.md) | **install:下载,不动你的环境** —— 这件事比 playwright 难在哪(多出一整套别人的软件);东西分三类:我们下载的 / 我们装进自己 python 的 / **只能你来装的**;为什么 Xvfb 下载不了(它自己就依赖 34 个库);字体反而可以纯用户态放 |
 | [c-pixels.md](c-pixels.md) | **像素从哪来:两条腿** —— CDP 的 JPEG 和 xpra 的区域图**本来就是同一种东西**,所以"像素从哪来"是个干净的接缝:接缝之上只有一套,之下可以有两条腿。附:Xvfb/xpra/Xorg 各是什么、要探什么、以后还能插什么进来 |
 | [b-input.md](b-input.md) | 一个口:session 形状、token、只读分享 |
 | [05-active-tab.md](05-active-tab.md) | tab 外挂模式一字不改;`active` 从两份真相合成一份 |
 | [06-no-desktop.md](06-no-desktop.md) | 没有桌面之后:六类原生 UI 用 CDP 收回来 —— **v2 唯一的真实工作量** |
 | [07-runtime.md](07-runtime.md) | 浏览器从哪来:**容器不要了**、`webmuxd install` 下一个(照着 playwright)、本机起一个进程 |
 | [09-wire-format.md](09-wire-format.md) | **一帧逐字节长什么样** —— ttyd 一个字节、我们二十八个,为什么;三家的上行怎么组织;以及**那个缺掉的协议客户端** |
-| [10-install.md](10-install.md) | **playwright 的 install 拆开看** —— 下的是 bin 还是 rpm(两条都有,刻意分开)、标记文件、镜像轮转、依赖怎么探。末尾是该抄什么不该抄什么 |
+| [d-install.md](d-install.md) | **install:下载,不动你的环境** —— 这件事比 playwright 难在哪(多出一整套别人的软件);东西分三类:我们下载的 / 我们装进自己 python 的 / **只能你来装的**;为什么 Xvfb 下载不了(它自己就依赖 34 个库);字体反而可以纯用户态放 |
 | [c-pixels.md](c-pixels.md) | **画面默认走 xpra** —— 但它只负责像素:两条 WS、输入不走它(收口不动)、`--kiosk` 让 bar 根本不出现、原生 UI 照旧归我们 |
 | [13-agent-surface.md](13-agent-surface.md) | **给 agent 的操作面 + 一条行为流** —— 横向看了七家云浏览器;`open` 为什么不在动词表里;人和 agent 在同一条流里且带 `user`(**这条是白拿的,给 CDP 直通的平台做不到**);人一碰 agent 自动让路 vs 他们的显式交接 |
 | [12-xpra-client.md](12-xpra-client.md) | **客户端解码,实测** —— xpra-html5 里没有解码器,自写三百来行;`start-desktop` + `--kiosk`;`scroll` 用零字节干掉 57% 重绘面积 |
