@@ -480,7 +480,7 @@ webmuxd new --id work --port 7900   # 一个口
 ### 一个字没动的
 
 定位、观测、日志、tab 表、错误模型、`act()` 不抛异常 —— 它们和画面从哪来无关,
-所以 `core/` 一行没改。详见 [works/08](docs/v2/works/08-migration.md)。
+所以 `core/` 一行没改。详见 works/08(当时的 works/08,已删)。
 
 ### 老实说,它没有什么
 

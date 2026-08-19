@@ -67,7 +67,6 @@ v1:    ────────────────┘        └───�
 | [05-active-tab.md](05-active-tab.md) | tab 外挂模式一字不改;`active` 从两份真相合成一份 |
 | [06-no-desktop.md](06-no-desktop.md) | 没有桌面之后:六类原生 UI 用 CDP 收回来 —— **v2 唯一的真实工作量** |
 | [07-runtime.md](07-runtime.md) | 浏览器从哪来:**容器不要了**、`webmuxd install` 下一个(照着 playwright)、本机起一个进程 |
-| [08-migration.md](08-migration.md) | v1 → v2:什么变了、什么一个字没动 |
 | [09-wire-format.md](09-wire-format.md) | **一帧逐字节长什么样** —— ttyd 一个字节、我们二十八个,为什么;三家的上行怎么组织;以及**那个缺掉的协议客户端** |
 | [10-install.md](10-install.md) | **playwright 的 install 拆开看** —— 下的是 bin 还是 rpm(两条都有,刻意分开)、标记文件、镜像轮转、依赖怎么探。末尾是该抄什么不该抄什么 |
 | [11-xpra.md](11-xpra.md) | **画面默认走 xpra** —— 但它只负责像素:两条 WS、输入不走它(收口不动)、`--kiosk` 让 bar 根本不出现、原生 UI 照旧归我们 |
