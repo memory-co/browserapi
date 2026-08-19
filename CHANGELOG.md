@@ -35,7 +35,7 @@
 实测三种组合,只有 `--use-gl=angle --use-angle=swiftshader` 能把它救回来。
 
 这个是写设计稿时量出来的,不是有人报的 —— 所以顺带补了
-[works/11 §0](docs/v2/works/11-xpra.md):xpra / Xvfb / Xorg 各是什么、
+[works/11 §0](docs/v2/works/c-pixels.md):xpra / Xvfb / Xorg 各是什么、
 四个虚拟显示选项怎么选、以及**要探哪些东西**(含两个还没探的缺口:
 服务端的图像编码器、xpra 的协议版本)。
 

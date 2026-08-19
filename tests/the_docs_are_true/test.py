@@ -72,8 +72,15 @@ def test_锚点指得到(rel):
 
 # --------------------------------------------------------------- 数字要对得上
 
-def _doc(name: str) -> str:
-    return (ROOT / "docs/v2/works" / name).read_text()
+def _doc(*names: str) -> str:
+    """把 v2 的设计稿拼起来找。
+
+    **不钉死文件名。** 这一套正在重写(编号换字母、几篇合并成一篇),
+    钉死文件名的话每改一次结构就要改一次测试 —— 而这些用例要守的是
+    "这个数字还是不是那个数字",不是"它写在哪个文件里"。
+    """
+    return "\n".join(p.read_text() for p in
+                      sorted((ROOT / "docs/v2/works").glob("*.md")))
 
 
 def test_帧头是二十八个字节_文档里写的也是():

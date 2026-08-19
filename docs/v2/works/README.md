@@ -11,7 +11,7 @@ v1 的画面是 kasm / jlesage 的产品,我们只报 URL;**v2 的画面是我�
 > `01`–`10` 写的是 CDP `Page.startScreencast` 那条(v2 的第一条,也是现在的退路);
 > `11`–`12` 是 xpra 那条,**0.7.0 起它是默认**。
 > 两条之间**唯一的差别是像素从哪来** —— 输入、光标、tab、只读、原生 UI、日志、
-> token 完全共用([11 §5](11-xpra.md#5-xpra-只负责像素别的一律不归它))。
+> token 完全共用([11 §5](c-pixels.md#2-接缝切在哪))。
 > 所以 `03`(输入)、`04`(一个口)、`05`(tab)、`06`(原生 UI)这四篇**两条路都算数**;
 > `02`(帧协议)和 `09`(线格式)只讲 screencast 那条。
 
@@ -51,6 +51,7 @@ v1:    ────────────────┘        └───�
 
 | 文件 | 内容 |
 | --- | --- |
+| [c-pixels.md](c-pixels.md) | **像素从哪来:两条腿** —— CDP 的 JPEG 和 xpra 的区域图**本来就是同一种东西**,所以"像素从哪来"是个干净的接缝:接缝之上只有一套,之下可以有两条腿。附:Xvfb/xpra/Xorg 各是什么、要探什么、以后还能插什么进来 |
 | [b-input.md](b-input.md) | **输入翻译,以及它换来的东西** —— 观看者能表达的意图被限制在 `Input` 域那四个命令里;键盘要发真实 `keyDown` 不是 `insertText`;**IME 反而比 VNC 短**(组字不出本地);光标既不在像素也不在协议里 |
 | [a-architecture.md](a-architecture.md) | **架构基础定位** —— 从前到后走一遍整条链路:Chromium ◀CDP▶ sessiond ◀WS▶ 客户端。CDP 是 RPC 不是流(画面和输入都得主动要);sessiond 是唯一有状态的那个;客户端的位置换了(**ttyd 省下了协议,我们省下了渲染**) |
 
@@ -62,14 +63,16 @@ v1:    ────────────────┘        └───�
 | --- | --- |
 | [01-frame-source.md](01-frame-source.md) | **画面自己产** —— 判据为什么翻转,VNC 整条砍掉,代价老实写 |
 | [02-frame-protocol.md](02-frame-protocol.md) | 帧怎么发 —— **原样照抄 demo**,写的是"抄的时候哪几处不能想当然改" |
+| [c-pixels.md](c-pixels.md) | **像素从哪来:两条腿** —— CDP 的 JPEG 和 xpra 的区域图**本来就是同一种东西**,所以"像素从哪来"是个干净的接缝:接缝之上只有一套,之下可以有两条腿。附:Xvfb/xpra/Xorg 各是什么、要探什么、以后还能插什么进来 |
 | [b-input.md](b-input.md) | 输入翻译**是**安全收口;IME、剪贴板、光标同步 |
+| [c-pixels.md](c-pixels.md) | **像素从哪来:两条腿** —— CDP 的 JPEG 和 xpra 的区域图**本来就是同一种东西**,所以"像素从哪来"是个干净的接缝:接缝之上只有一套,之下可以有两条腿。附:Xvfb/xpra/Xorg 各是什么、要探什么、以后还能插什么进来 |
 | [b-input.md](b-input.md) | 一个口:session 形状、token、只读分享 |
 | [05-active-tab.md](05-active-tab.md) | tab 外挂模式一字不改;`active` 从两份真相合成一份 |
 | [06-no-desktop.md](06-no-desktop.md) | 没有桌面之后:六类原生 UI 用 CDP 收回来 —— **v2 唯一的真实工作量** |
 | [07-runtime.md](07-runtime.md) | 浏览器从哪来:**容器不要了**、`webmuxd install` 下一个(照着 playwright)、本机起一个进程 |
 | [09-wire-format.md](09-wire-format.md) | **一帧逐字节长什么样** —— ttyd 一个字节、我们二十八个,为什么;三家的上行怎么组织;以及**那个缺掉的协议客户端** |
 | [10-install.md](10-install.md) | **playwright 的 install 拆开看** —— 下的是 bin 还是 rpm(两条都有,刻意分开)、标记文件、镜像轮转、依赖怎么探。末尾是该抄什么不该抄什么 |
-| [11-xpra.md](11-xpra.md) | **画面默认走 xpra** —— 但它只负责像素:两条 WS、输入不走它(收口不动)、`--kiosk` 让 bar 根本不出现、原生 UI 照旧归我们 |
+| [c-pixels.md](c-pixels.md) | **画面默认走 xpra** —— 但它只负责像素:两条 WS、输入不走它(收口不动)、`--kiosk` 让 bar 根本不出现、原生 UI 照旧归我们 |
 | [13-agent-surface.md](13-agent-surface.md) | **给 agent 的操作面 + 一条行为流** —— 横向看了七家云浏览器;`open` 为什么不在动词表里;人和 agent 在同一条流里且带 `user`(**这条是白拿的,给 CDP 直通的平台做不到**);人一碰 agent 自动让路 vs 他们的显式交接 |
 | [12-xpra-client.md](12-xpra-client.md) | **客户端解码,实测** —— xpra-html5 里没有解码器,自写三百来行;`start-desktop` + `--kiosk`;`scroll` 用零字节干掉 57% 重绘面积 |
 
@@ -114,12 +117,12 @@ v2 自己新增四条,都是"自己产画面"这个决定的直接推论。**0.7
   X 显示是真的,`start-desktop` 里甚至有窗口管理器。所以理由要换:
   我们用 `--kiosk` 让浏览器铺满整个显示,**画面里永远只有一个窗口**;
   文件管理器、右键菜单、非浏览器程序仍然没有,也不打算有
-  ([11 §5](11-xpra.md#5-xpra-只负责像素别的一律不归它))。要完整桌面就该用远程桌面,不是用这个。
+  ([11 §5](c-pixels.md#2-接缝切在哪))。要完整桌面就该用远程桌面,不是用这个。
 - ❌ **不保留 VNC 作为开关。**
   这一条**理由没变,但要限定范围**。[01 §5](01-frame-source.md#5-为什么不留一个开关)
   拒绝的是 `view="vnc" | "screencast"` 那个形状,论证是"两套输入路径、两套权限模型、
   两套 runtime 契约,没有一处能共用"—— **那对 VNC 仍然全对**。
   而 `--transport screencast|xpra` 不是同一个东西:输入路径和权限模型**完全共用**,
-  只有像素那一段不同,而且**默认只有一个**([11 §6](11-xpra.md#6-默认走哪条))。
+  只有像素那一段不同,而且**默认只有一个**([11 §6](c-pixels.md#8-默认走哪条))。
   screencast 是 xpra 装不上时的明确退路,以及 `remote` 上唯一能用的那个 ——
   不是"两边都行、你挑一个"。

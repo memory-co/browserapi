@@ -92,7 +92,7 @@ webmuxd kill     -t work
   ([docs/v2/works/01](docs/v2/works/01-frame-source.md))。
   像素默认由 xpra 出(按区域编码,滚动时零字节搬像素),装不上时退到
   CDP 截屏那条 —— **两条路换的只有像素从哪来**,输入、只读、tab、原生 UI
-  一模一样([works/11](docs/v2/works/11-xpra.md))。
+  一模一样([works/11](docs/v2/works/c-pixels.md))。
 - **按人看得见的字操作。** `click("提交订单")`,不写选择器。分档匹配(精确 → 子串 →
   忽略大小写),**有歧义就给候选,绝不替你挑一个** —— 挑错了你永远不会知道。
 - **"看见"= 元素表 + 标注截图。** `observe()` 一次给全,直接喂多模态模型;

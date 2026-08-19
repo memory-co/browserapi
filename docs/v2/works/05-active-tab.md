@@ -6,7 +6,7 @@
 > **xpra 那条路上这篇仍然成立,但 §2 那个论证换了形式。** 那儿"帧本身就是
 > active 的证据"靠的是"后台 tab 不产帧";xpra 截的是**同一个窗口**,
 > 切 tab 靠 `Target.activateTarget`,画面自然跟着变 ——
-> 结论一样:**没有第二份真相**([11 §4](11-xpra.md#4-tab-和-active))。
+> 结论一样:**没有第二份真相**([11 §4](c-pixels.md#2-接缝切在哪))。
 >
 > **落地在** [`core/tabs.py`](../../../webmuxd/core/tabs.py) ·
 > [`view/cast.py`](../../../webmuxd/view/cast.py) 的 `follow()`,
