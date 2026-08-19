@@ -166,7 +166,7 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 
 默认走 **xpra**:它按 damage 区域编码,尤其是滚动 —— `scroll` 包**零字节搬像素**。
 实测滚一页 Wikipedia,**57% 的重绘面积一个字节没花**
-([works/12 §9](docs/v2/works/12-xpra-client.md))。
+([works/12 §9](docs/v2/works/c-pixels.md))。
 
 ```bash
 webmuxd install                                          # 有 root 就把它装上

@@ -5,7 +5,7 @@
 
 > **范围:这一篇只讲 screencast 那条画面路。** 0.7.0 起默认走 xpra,
 > 它有自己的一套(8 字节头、按区域编码、`damage-sequence` 当 ack)——
-> 见 [12 §2](12-xpra-client.md#2-线上长什么样8-字节头)、[§7](12-xpra-client.md#7-上行不是什么都不发是六个包)。
+> 见 [12 §2](c-pixels.md#4-关键两条路产出的是同一种东西)、[§7](c-pixels.md#71-输入不走-xpra)。
 > **本篇的上行(输入、resize、tab)两条路完全共用**,只有帧那一半不同。
 >
 > **落地在** [`view/cast.py`](../../../webmuxd/view/cast.py) ·

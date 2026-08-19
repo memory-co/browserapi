@@ -122,14 +122,18 @@ def test_xpra_上行那几个包_文档和白名单是同一份():
     doc = _doc("12-xpra-client.md")
     for name in relay.ALLOWED:
         assert f"`{name}`" in doc, f"白名单里有 {name},但 12 §7 那张表里没有"
-    # **数字也得对得上。** 写这条测试的时候就逮到一处:表里 6 个,
-    # 正文却还写着"代理只放行这 5 个包类型" —— 白名单是安全边界,
+    # **个数也不能自相矛盾。** 写这条测试时就逮到一处:表里 6 个,
+    # 正文却还写着"只放行这 5 个包类型" —— 白名单是安全边界,
     # 正文和表对不上,读的人不知道该信哪个。
+    #
+    # 只查矛盾,不查措辞:文档在重写,"六个"和"6 个"都可能出现。
     n = len(relay.ALLOWED)
-    wrong = [m.group(0) for m in re.finditer(r"这 (\d+) 个包类型", doc)
-             if m.group(1) != str(n)]
+    cn = "零一二三四五六七八九十"[n] if n < 11 else str(n)
+    wrong = [m.group(0) for m in re.finditer(r"上行([\d一二三四五六七八九十]+)个包", doc)
+             if m.group(1) not in (str(n), cn)]
+    wrong += [m.group(0) for m in re.finditer(r"放行这\s*([\d一二三四五六七八九十]+)\s*个",
+                                             doc) if m.group(1) not in (str(n), cn)]
     assert not wrong, f"正文里的个数和白名单({n} 个)对不上:{wrong}"
-    assert f"这 {n} 个包类型" in doc
 
 
 def test_xpra_的头是八个字节():

@@ -52,7 +52,7 @@ webmuxd new --id work --port 7900 --transport screencast # 原来那条
 
 0.6.x 的默认是 screencast,理由写的是"它零依赖"。**翻的理由不是偏好,是数**:
 滚动时 xpra 的 `scroll` 包**零字节**干掉了 57% 的重绘面积,而 screencast
-滚动是整屏重发([works/12 §9](docs/v2/works/12-xpra-client.md))。
+滚动是整屏重发([works/12 §9](docs/v2/works/c-pixels.md))。
 **默认值该给的是好的那个,不是好装的那个** —— "好装"那一半交给 `install`。
 
 **起不来就报错,不静默退回。** 静默退回等于让你以为自己在看 xpra 的画质:
@@ -157,7 +157,7 @@ webmuxd info                       # 看这台机器上可不可用
 
 它强在按 damage 区域编码,尤其是 `scroll`:滚动时**零字节搬像素**。实测滚一页
 Wikipedia,**57% 的重绘面积是 `scroll` 包干的,一个字节没花**
-([works/12 §9](docs/v2/works/12-xpra-client.md))。
+([works/12 §9](docs/v2/works/c-pixels.md))。
 
 几条实测定下来的形状:
 
@@ -180,7 +180,7 @@ Wikipedia,**57% 的重绘面积是 `scroll` 包干的,一个字节没花**
 
 一处细节:`--window-size=1024,768` 在 1024×768 的显示上实际只拿到 1023×767,
 右下各露出一列纯黑。现在多要两格让它铺满 —— 代价是页面视口成了 1026×770,
-右下各 2 像素在可见区域外([works/12 §10](docs/v2/works/12-xpra-client.md))。
+右下各 2 像素在可见区域外([works/12 §10](docs/v2/works/c-pixels.md))。
 
 ## 0.5.6
 

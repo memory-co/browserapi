@@ -151,7 +151,7 @@ webmuxd new --id work --port 7900 --min-quality 40  # 链路差时最多降到 4
 
 默认走的 xpra 按 damage 区域编码,滚动时用 `scroll` 包**零字节搬像素** ——
 实测滚一页 Wikipedia,57% 的重绘面积没花一个字节
-([works/12 §9](docs/v2/works/12-xpra-client.md))。所以先看状态栏:
+([works/12 §9](docs/v2/works/c-pixels.md))。所以先看状态栏:
 
 | 状态栏「画质」那格 | 走的是 | |
 | --- | --- | --- |
