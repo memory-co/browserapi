@@ -189,9 +189,14 @@ export class XpraClient {
       case "startup-complete":
         this.on.status("ready");
         return;
-      // 明确不管的:光标我们自己同步(works/03 §5)、tab 走 /api/tabs、
-      // 通知和铃声我们不要。**列出来而不是 default 吞掉** —— 这样新出现的
-      // 包类型会掉进下面那个计数里,是可见的。
+      // **明确不管的。** 列出来而不是让 default 吞掉 —— 这样新出现的包类型
+      // 会掉进下面那个计数里,是可见的。
+      //
+      // `cursor` 值得单说:xpra 这条通道**是活的**,实测悬停在链接和空白之间
+      // 切换时它会按变化推送光标图像(24×24 PNG + 热点)。不用它是个决定,
+      // 不是漏了 —— 它只存在于这一条来源上,采用它等于同一个行为有两套实现,
+      // 而 CDP 探针那条无论如何都得留着(screencast 没有别的选择)。
+      // 理由见 docs/v2/works/c-pixels.md §5.1。
       case "encodings": case "cursor": case "window-metadata":
       case "window-icon": case "lost-window": case "setting-change":
       case "desktop_size": case "bell": case "eos": case "raise-window":
