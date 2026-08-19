@@ -134,7 +134,7 @@ Input.dispatchMouseEvent(点 OK 按钮) → 没有 javascriptDialogClosed
 ```
 
 原因是那个按钮属于**浏览器进程画的 UI**,而 `Input.*` 打的是渲染进程。
-加上 [11 §2.1](c-pixels.md#51-输入不走-xpra) 定了输入不走 xpra ——
+加上 [11 §2.1](c-pixels.md#71-输入不走-xpra) 定了输入不走 xpra ——
 **我们允许的任何输入路径都关不掉它**,只有 `Page.handleJavaScriptDialog` 能。
 
 三条推论:
@@ -143,7 +143,7 @@ Input.dispatchMouseEvent(点 OK 按钮) → 没有 javascriptDialogClosed
    这一整篇的结论没变,但理由从"不画就看不见"升级成了"**不画就点不动**"。
 2. **卡片必须盖住整个视口**(不透明的 scrim),否则画面上会同时出现两个对话框,
    而其中一个是死的。screencast 那条路上无所谓,xpra 这条路上是硬要求 ——
-   所以[两条路一套行为](c-pixels.md#2-接缝切在哪),`#modal` 就做成不透明的。
+   所以[两条路一套行为](c-pixels.md#5-接缝切在哪),`#modal` 就做成不透明的。
 3. 文件选择框那条更明显:那个 X 显示里**根本没有文件管理器**,
    原生框弹出来也没法用,还是得 `DOM.setFileInputFiles`。
 

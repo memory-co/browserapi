@@ -11,7 +11,7 @@
 > [`tests/installing/`](../../../tests/installing/)。
 >
 > 0.7.0 起 `process` 默认起的是**有头的** chromium(跑在 Xvfb 上,给 xpra 截)——
-> 见 [11 §6](c-pixels.md#8-默认走哪条);`remote` 那条不受影响。
+> 见 [11 §6](c-pixels.md#10-默认走哪条);`remote` 那条不受影响。
 
 ## 1. 契约只剩一条
 
