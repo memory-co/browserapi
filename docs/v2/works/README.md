@@ -51,9 +51,9 @@ v1:    ────────────────┘        └───�
 
 | 文件 | 内容 |
 | --- | --- |
-| [a-frame-vs-tmux-ttyd.md](a-frame-vs-tmux-ttyd.md) | **整体定位** —— 两边都是**一条 WebSocket**,形状几乎逐条对应;**唯一的差别是载荷里装的是语义还是像素**,而这一个差别级联出 v2 的全部工作量 |
+| [a-architecture.md](a-architecture.md) | **架构基础定位** —— 从前到后走一遍整条链路:Chromium ◀CDP▶ sessiond ◀WS▶ 客户端。CDP 是 RPC 不是流(画面和输入都得主动要);sessiond 是唯一有状态的那个;客户端的位置换了(**ttyd 省下了协议,我们省下了渲染**) |
 
-完整路线图见 [a §5](a-frame-vs-tmux-ttyd.md#5-这条差别往下决定了什么):
+完整路线图见 [a §8](a-architecture.md#8-往下写什么):
 b 画面从哪来 · c 输入与收口 · d 一个口 · e tab 与 active ·
 f 终端里不存在的东西 · g 浏览器从哪来 · h 换一种像素来源 · i agent 操作面与行为流。
 
