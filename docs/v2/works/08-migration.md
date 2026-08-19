@@ -19,12 +19,12 @@ print(sess.view_url)          # 带 token,和 API 同一个口
 
 | 字段 / 参数 | v2 | 说明 |
 | --- | --- | --- |
-| `api_port` | → **`port`** | 只剩一个口([04](04-one-port.md)) |
+| `api_port` | → **`port`** | 只剩一个口([04](b-input.md)) |
 | `view_port` | **删** | |
 | `view_login` / `view_password` | **删** | VNC 的规矩,不是我们的。换成 token |
 | `view_url` | 保留,含义变了 | 现在指向我们自己的页面 |
 | `sess.viewport()` 里的 `crop_top` | **删** | 帧里没有浏览器 UI 可裁([01 §2](01-frame-source.md#2-一整篇设计随之作废)) |
-| `share(writable=, ttl=)` | **签名不变**,但只读第一次是真的 | [04 §3](04-one-port.md#3-读和写是两个-token) |
+| `share(writable=, ttl=)` | **签名不变**,但只读第一次是真的 | [04 §3](b-input.md#1-收口在哪) |
 | `image=` / `--image` | **删** —— 连同 `runtime="container"`、`network=`、镜像的 `webmuxd.*` 标签机制、`discover()` 一起 | [07 §2](07-runtime.md#2-容器不要了) |
 | `browser=` | **新** —— 指定用哪个浏览器二进制。不传就用 `install` 下的那个 | [07 §4.4](07-runtime.md#44-install-的形状内容换掉规矩全留) |
 | `runtime=` | 三分法塌成两种:**本机起一个**(默认)或 `remote` | [07 §1](07-runtime.md#1-契约只剩一条) |

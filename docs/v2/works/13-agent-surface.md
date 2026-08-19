@@ -87,12 +87,12 @@ tab 表而不是某个页面([05](05-active-tab.md))。这个切分是对的,但
 | **Hyperbrowser** | 建 session 时就返回 `liveUrl`,token 12 小时过期 | `viewOnlyLiveView: true` |
 | **Cloudflare** | `Cloudflare.getLiveView` → `devtoolsFrontendUrl` | — |
 | **Kernel** | 每个 session 一个 live view,可嵌 iframe | — |
-| **我们** | 和 API 同一个口(`/`),token 签在 URL 里 | **服务端丢弃输入**([04 §3](04-one-port.md)) |
+| **我们** | 和 API 同一个口(`/`),token 签在 URL 里 | **服务端丢弃输入**([04 §3](b-input.md)) |
 
 **`pointer-events: none` 是前端的事。** 拿到那个 URL 的人打开 DevTools 删掉
 那行 CSS,就能操作了 —— 它挡的是"不小心碰到",不是"不让他碰"。
 我们那条是服务端在 WS 上按连接的权限丢弃,前端连按钮变灰都不做
-(那是[03 §1](03-input.md) 那个收口的直接好处:**所有输入都必须经过我们翻译**)。
+(那是[03 §1](b-input.md) 那个收口的直接好处:**所有输入都必须经过我们翻译**)。
 
 > 这不是说他们做错了 —— 他们给的是 CDP 直通,**输入本来就不经过他们**,
 > 想在服务端丢弃就得去解析 CDP 流量。约束不同,结论不同。
@@ -110,7 +110,7 @@ tab 表而不是某个页面([05](05-active-tab.md))。这个切分是对的,但
 前四种都是**显式交接**:得有人先说"我要交出去"。这有个前提 ——
 **平台看不见人什么时候动手**,所以必须由 agent 声明。
 
-我们看得见,因为[人的输入也走我们的通道](03-input.md)。于是可以做成**隐式**的:
+我们看得见,因为[人的输入也走我们的通道](b-input.md)。于是可以做成**隐式**的:
 
 > **人不需要"申请接管",他碰一下就是接管。**
 
@@ -215,7 +215,7 @@ Cloudflare 那个 `handoffComplete` 带成功/失败,我们没有对应的东西
 **① 人打的字,现在一条都没有。**
 
 实测:人在画面里点一下 → 有 `pointerdown` 一条;人接着打一串中文 → **零条**。
-因为中文走 `Input.insertText`([03 §3](03-input.md)),它**不产生页面 keydown**,
+因为中文走 `Input.insertText`([03 §3](b-input.md)),它**不产生页面 keydown**,
 而探针是挂在 `keydown` 上的。于是"人在这个表单里填了东西"这件事,
 在行为流里是**不存在**的。
 
@@ -302,8 +302,8 @@ Cloudflare 那个 `handoffComplete` 带成功/失败,我们没有对应的东西
 
 | | |
 | --- | --- |
-| 输入为什么是收口 —— 这一篇一半的前提 | [03 §1](03-input.md) |
-| 只读为什么在服务端 | [04 §3](04-one-port.md) |
+| 输入为什么是收口 —— 这一篇一半的前提 | [03 §1](b-input.md) |
+| 只读为什么在服务端 | [04 §3](b-input.md) |
 | tab 表和 `open` 在哪一层 | [05](05-active-tab.md) |
 | 六类原生 UI —— 它们也是行为流的一部分 | [06](06-no-desktop.md) |
 | 日志是 scrollback 不是归档 | [v1/works/03](../../v1/works/03-log.md) |

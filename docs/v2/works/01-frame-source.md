@@ -72,12 +72,12 @@ works/04 从"一篇需要论证可行性的设计"降级成 v2 的**前提**。
 **① 只读分享是真的。** v1/works/README 写着"分享链接默认只读,要操作得显式要完整 token",
 但 VNC 那条路做不到:我们不在输入通道上,只能给 VNC 密码,而密码只有"给不给"没有"给多少"。
 v2 里只读 = **收到的输入事件不翻译成 `Input.*`**,一行判断,而且是**服务端**丢弃的
-—— 不是前端把按钮 disable 掉那种假只读([04 §3](04-one-port.md#3-读和写是两个-token))。
+—— 不是前端把按钮 disable 掉那种假只读([04 §3](b-input.md#1-收口在哪))。
 
 **② 中文输入不再是老大难。** VNC 的 IME 要么在服务端装一套输入法(还得同步候选词框的像素),
 要么忍受客户端组字与服务端按键的错位。screencast 这条路上,**组字全在客户端本地完成**,
 IME 提交后只发最终文本 —— 远端 Chromium 收到的就是一个带 `text` 的 `keyDown`。
-这是 v2 相对 v1 的**净胜**,不是打平([03 §3](03-input.md#3-ime输入法这条路反而更短))。
+这是 v2 相对 v1 的**净胜**,不是打平([03 §3](b-input.md#3-ime这条路反而比-vnc-短))。
 
 **③ 剪贴板可控。** 客户端的 `paste` 事件 → 一条 `Input.insertText`。
 反向(远端复制 → 本地剪贴板)靠 `Runtime` 读 `document.getSelection()`,
@@ -207,8 +207,8 @@ screencast 是 xpra 装不上时的退路,以及 `remote` 上唯一可能的那�
 | | |
 | --- | --- |
 | 帧怎么发 | [02](02-frame-protocol.md) |
-| 输入怎么翻译 | [03](03-input.md) |
-| 一个口之后 session 长什么样 | [04](04-one-port.md) |
+| 输入怎么翻译 | [03](b-input.md) |
+| 一个口之后 session 长什么样 | [04](b-input.md) |
 | 被作废的那篇 | [v1/works/04](../../v1/works/04-chrome-ui-externalization.md) |
 | 被翻转的那条判据 | [v1/works/08 §2](../../v1/works/08-browser-runtime.md#2-判据哪一半在契约里) |
 | 同一条判据在 tmuxd 里的样子 | tmuxd `works/06 §1` —— *ttyd 是实现细节,tmux 是契约的一部分* |

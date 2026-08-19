@@ -253,7 +253,7 @@ Emulation.setDeviceMetricsOverride  deviceScaleFactor=2
 | | |
 | --- | --- |
 | 为什么画面归我们产 | [01](01-frame-source.md) |
-| 上行的另一半(输入) | [03](03-input.md) |
-| 帧发给谁、谁有权发输入 | [04](04-one-port.md) |
+| 上行的另一半(输入) | [03](b-input.md) |
+| 帧发给谁、谁有权发输入 | [04](b-input.md) |
 | 切 tab 时的残帧怎么丢 | [05 §3](05-active-tab.md#3-切-tab-是把-screencast-搬过去) |
 | 上行长什么样、ack 为什么不搭车 | [09](09-wire-format.md) |

@@ -500,7 +500,7 @@ ttyd 的前端是 xterm.js,因为终端传的是**语义**(§2 那些转义序�
 3. 对话框卡片和下载 toast —— 纯 `/api/pending` 的消费者
 
 **只有第 1 件是别人没法自己写的。** 2 和 3 用的是公开 REST 接口,谁都能重画,
-而且本来就该由上层按自己的产品来画([04 §2](04-one-port.md#2-get--是内置的但它不是界面))。
+而且本来就该由上层按自己的产品来画([04 §2](a-architecture.md#6-客户端位置换了))。
 
 所以边界切在这儿:**只包第 1 件**。
 
@@ -594,7 +594,7 @@ webmuxd 加一个 REST 端点和它无关。
 | | |
 | --- | --- |
 | 帧头怎么用、ack 背压、RTT 自适应 | [02](02-frame-protocol.md) |
-| 输入怎么翻译成 `Input.*` | [03](03-input.md) |
-| 内置页面为什么不算"界面" | [04 §2](04-one-port.md#2-get--是内置的但它不是界面) |
+| 输入怎么翻译成 `Input.*` | [03](b-input.md) |
+| 内置页面为什么不算"界面" | [04 §2](a-architecture.md#6-客户端位置换了) |
 | 切 tab 时残帧怎么丢 | [05 §3](05-active-tab.md#3-切-tab-是把-screencast-搬过去) |
 | ttyd 的 opcode 定义 | `tsl0922/ttyd` 的 `src/server.h`,`protocol.c` 里 `pss->buffer[0]` |

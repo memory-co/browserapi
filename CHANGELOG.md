@@ -363,7 +363,7 @@ KeyError: 'port'
 ```
 
 0.4 的 session 行是 `api_port` / `view_port`,0.5 只有一个 `port`
-([works/04](docs/v2/works/04-one-port.md))。升上来之后 `~/.../sessions.json`
+(当时的 works/04,已在重写中删除)。升上来之后 `~/.../sessions.json`
 里还留着旧行,而代码里是裸下标 —— **第一条命令就崩,而且报错完全不指方向**。
 
 规矩和环境记录那条一样:**格式对不上就当没有**。差别是这儿要**说出来** ——

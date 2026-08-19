@@ -178,7 +178,7 @@ sess.share(writable=True)           # 可操作 —— 能碰你所有登录态
 ```
 
 **只读是服务端丢弃输入**,不是前端把按钮变灰 —— 拿到只读链接的人自己写个 WS
-客户端直接发也没用([works/04 §3](docs/v2/works/04-one-port.md))。
+客户端直接发也没用([works/04 §3](docs/v2/works/b-input.md))。
 
 ## 页面卡住的时候
 

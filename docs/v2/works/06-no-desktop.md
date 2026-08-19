@@ -70,7 +70,7 @@ v2 没有兜底。screencast 拍的是页面内容,浏览器自己的 UI **一�
 意思是"别做":对话框 dismiss(`confirm` 当没点确定、`beforeunload` 留在原页)、
 文件选择填空列表。超时**写进日志**,不静默。
 
-**③ 内置页面要能画它们。** [04 §2](04-one-port.md#2-get--是内置的但它不是界面)
+**③ 内置页面要能画它们。** [04 §2](a-architecture.md#6-客户端位置换了)
 说内置页面不带产品决策,但这六类是**协议的一部分**,不是产品功能:
 不画,人在那个页面上就会遇到"点了没反应"。
 
@@ -154,4 +154,4 @@ Input.dispatchMouseEvent(点 OK 按钮) → 没有 javascriptDialogClosed
 | 这批东西在 v1 的原始记录 | [v1/works/04 §6](../../v1/works/04-chrome-ui-externalization.md#6-顺带会掉出来的东西不影响架构以后按需加) |
 | 日志格式 | [v1/works/03](../../v1/works/03-log.md) —— **原样有效** |
 | popup 为什么不再特殊 | [05 §4](05-active-tab.md#4-popup-不再是特殊情况) |
-| 输入通道 | [03](03-input.md) |
+| 输入通道 | [03](b-input.md) |

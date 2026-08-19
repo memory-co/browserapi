@@ -51,11 +51,10 @@ v1:    ────────────────┘        └───�
 
 | 文件 | 内容 |
 | --- | --- |
+| [b-input.md](b-input.md) | **输入翻译,以及它换来的东西** —— 观看者能表达的意图被限制在 `Input` 域那四个命令里;键盘要发真实 `keyDown` 不是 `insertText`;**IME 反而比 VNC 短**(组字不出本地);光标既不在像素也不在协议里 |
 | [a-architecture.md](a-architecture.md) | **架构基础定位** —— 从前到后走一遍整条链路:Chromium ◀CDP▶ sessiond ◀WS▶ 客户端。CDP 是 RPC 不是流(画面和输入都得主动要);sessiond 是唯一有状态的那个;客户端的位置换了(**ttyd 省下了协议,我们省下了渲染**) |
 
-完整路线图见 [a §8](a-architecture.md#8-往下写什么):
-b 画面从哪来 · c 输入与收口 · d 一个口 · e tab 与 active ·
-f 终端里不存在的东西 · g 浏览器从哪来 · h 换一种像素来源 · i agent 操作面与行为流。
+完整路线图见 [a §8](a-architecture.md#8-往下写什么)。
 
 ### 旧的一套(写完对应篇就删)
 
@@ -63,8 +62,8 @@ f 终端里不存在的东西 · g 浏览器从哪来 · h 换一种像素来源
 | --- | --- |
 | [01-frame-source.md](01-frame-source.md) | **画面自己产** —— 判据为什么翻转,VNC 整条砍掉,代价老实写 |
 | [02-frame-protocol.md](02-frame-protocol.md) | 帧怎么发 —— **原样照抄 demo**,写的是"抄的时候哪几处不能想当然改" |
-| [03-input.md](03-input.md) | 输入翻译**是**安全收口;IME、剪贴板、光标同步 |
-| [04-one-port.md](04-one-port.md) | 一个口:session 形状、token、只读分享 |
+| [b-input.md](b-input.md) | 输入翻译**是**安全收口;IME、剪贴板、光标同步 |
+| [b-input.md](b-input.md) | 一个口:session 形状、token、只读分享 |
 | [05-active-tab.md](05-active-tab.md) | tab 外挂模式一字不改;`active` 从两份真相合成一份 |
 | [06-no-desktop.md](06-no-desktop.md) | 没有桌面之后:六类原生 UI 用 CDP 收回来 —— **v2 唯一的真实工作量** |
 | [07-runtime.md](07-runtime.md) | 浏览器从哪来:**容器不要了**、`webmuxd install` 下一个(照着 playwright)、本机起一个进程 |
