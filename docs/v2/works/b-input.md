@@ -9,12 +9,52 @@
 
 ## 1. 收口在哪
 
+先把一次鼠标移动的完整路径摆出来 —— 后面所有的性质都从这条路径读出来:
+
+```
+①  观看者的浏览器      mousemove 落在画面元素(<img> 或 <canvas>)上
+
+②  客户端归一化        用该元素的实际尺寸,把客户端坐标换算成画面坐标
+
+③  WS /api/view · text {"type":"mouse","event":"move","x":412,"y":233,
+                        "buttons":0,"modifiers":0}
+
+④  sessiond · 白名单   消息类型不在允许集合内 → 丢弃
+
+⑤  sessiond · 权限     只读连接 → 丢弃,且不逐事件回错(见下)
+
+⑥  sessiond · 翻译     Input.dispatchMouseEvent
+                        {type:"mouseMoved", x, y, button, buttons, modifiers}
+
+⑦  CDP(另一条 WS)   带 sessionId 发给 Chromium
+
+⑧  Chromium 渲染进程   页面收到真实的 mousemove
+```
+
+四条性质:
+
+**① 无论像素从哪条来源来,这条路径完全一样。** xpra 那条连接不参与输入 ——
+客户端不向它发送任何输入,代理也不放行([c §7.1](c-pixels.md#71-输入不走-xpra))。
+换来源只改变第 ①、② 步作用在哪个元素上。
+
+**② ③ 与 ⑦ 是两条不同的 WebSocket。** 前者是我们对外提供的,
+后者是 sessiond 作为 Chromium 客户端持有的。**观看者永远接触不到后者** ——
+这正是这一层被称为收口的原因。
+
+**③ ⑦ 的 `sessionId` 决定输入落在哪个 tab。** 它取的是**当前正在被观看的那个**,
+因此一次输入到不了其他 tab。
+
+**④ 移动与滚轮不触发让路窗口**,只有按下与按键触发。否则鼠标一移动,
+程序侧的动作就会被"人正在操作"挡住。
+
+抽象成能力,观看者可表达的意图只有四种:
+
 ```
 观看者的 DOM 事件 ──归一化──> sessiond ──> Input.dispatchMouseEvent
                                             Input.dispatchKeyEvent
                                             Input.insertText
                                             Input.dispatchWheelEvent
-                                      └──> 就这四个,没有别的
+                                      └──> 仅此四个
 ```
 
 观看者**无法取得 DOM、无法执行脚本、无法发送任意 CDP 命令**。可表达的意图仅限于

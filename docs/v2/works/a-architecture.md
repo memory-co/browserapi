@@ -26,6 +26,10 @@
         ▲            RPC         │              一条            <img>
         │                        │
      真实浏览器             唯一持有状态的进程                   程序 ──▶ HTTP /api
+
+     ── 帧:Chromium → sessiond → 客户端
+     ── 输入:客户端 → sessiond → **翻译成 CDP Input.\*** → Chromium
+        观看者永远接触不到左边那条 CDP 连接
      生命周期长于连接       帧由此输出、输入由此进入
 ```
 
