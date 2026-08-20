@@ -1,0 +1,232 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rrweb 控制台</title>
+<link rel="stylesheet" href="/vendor/rrweb.css">
+<script src="/vendor/rrweb.js"></script>
+<style>
+  :root{--bg:#12151a;--fg:#e7eaf0;--dim:#8a92a0;--line:#272c35;--ok:#5aa96b;--warn:#e0a94b}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);display:flex;flex-direction:column;
+       font:14px/1.5 system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;overflow:hidden}
+
+  header{display:flex;gap:8px;align-items:center;padding:8px 12px;flex:none;
+         border-bottom:1px solid var(--line)}
+  header button{background:#222831;color:var(--fg);border:1px solid var(--line);
+       border-radius:6px;width:32px;height:32px;font:inherit;cursor:pointer;flex:none}
+  header button:hover{background:#2c333e}
+  #url{flex:1;min-width:0;background:#0d1015;color:var(--fg);border:1px solid var(--line);
+       border-radius:8px;padding:7px 12px;font:inherit}
+  .pill{flex:none;border:1px solid var(--line);border-radius:999px;padding:2px 10px;
+        font-size:12px;color:var(--dim);white-space:nowrap}
+  .pill.ro{color:var(--warn);border-color:#4a3d22;background:#241d10}
+
+  main{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+       padding:12px;overflow:hidden}
+  /* 舞台按录到的视口比例缩放居中,坐标才能线性换算回去 */
+  #stage{position:relative;background:#fff;border:1px solid var(--line);border-radius:10px;
+         overflow:hidden;box-shadow:0 8px 30px #0006}
+  /* **只读是结构性的,不是靠自觉。**
+     重放出来的 DOM 整个 pointer-events:none —— 点不到、选不中、链接也点不开。
+     所有事件都落在上面那层 #grab 上,由它翻译成 CDP 调用。 */
+  #stage .replayer-wrapper,#stage iframe{pointer-events:none !important;
+       user-select:none !important;transform-origin:0 0}
+  #stage .replayer-mouse{display:none !important}   /* 本地已经有一个光标了 */
+  #grab{position:absolute;inset:0;background:transparent;outline:0}
+  #ime{position:absolute;width:1px;height:1px;opacity:0;border:0;padding:0;
+       left:-9999px;top:0;resize:none}
+
+  footer{flex:none;display:flex;gap:14px;align-items:center;padding:6px 12px;
+         border-top:1px solid var(--line);color:var(--dim);font-size:12px;
+         font-variant-numeric:tabular-nums}
+  footer b{color:var(--fg);font-weight:600}
+  .grow{flex:1}
+</style>
+
+<header>
+  <button id="back" title="后退">‹</button>
+  <button id="fwd" title="前进">›</button>
+  <button id="reload" title="重新加载">⟳</button>
+  <input id="url" placeholder="输入网址,回车">
+  <span class="pill ro" title="重放出来的 DOM 完全不接收事件">画面只读</span>
+  <span class="pill" id="conn">连接中…</span>
+</header>
+
+<main>
+  <div id="stage">
+    <div id="grab" tabindex="0"></div>
+    <textarea id="ime" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+  </div>
+</main>
+
+<footer>
+  <span>输入 <b>全部走 CDP</b></span>
+  <span>光标 <b id="cur">default</b></span>
+  <span id="ev">—</span>
+  <span id="by">—</span>
+  <span id="lag">—</span>
+  <span class="grow"></span>
+  <span id="hint">点一下画面再打字;中文输入法直接用</span>
+</footer>
+
+<script>
+const VW = +"__W__", VH = +"__H__";
+const $ = s => document.querySelector(s);
+const stage = $("#stage"), grab = $("#grab"), ime = $("#ime");
+
+/* ---------------- 舞台缩放:保持录到的视口比例 ---------------- */
+let scale = 1;
+function fit() {
+  const m = document.querySelector("main");
+  const pad = 24;
+  scale = Math.min((m.clientWidth - pad) / VW, (m.clientHeight - pad) / VH);
+  stage.style.width = VW * scale + "px";
+  stage.style.height = VH * scale + "px";
+  const wrap = stage.querySelector(".replayer-wrapper");
+  if (wrap) wrap.style.transform = `scale(${scale})`;
+}
+addEventListener("resize", fit); fit();
+
+/* ---------------- 下行:rrweb 事件流 ---------------- */
+const ws = new WebSocket(location.origin.replace(/^http/, "ws") + "/ws");
+ws.onopen = () => { $("#conn").textContent = "已连接"; bootstrap(); };
+ws.onclose = () => $("#conn").textContent = "断开了";
+const send = o => ws.readyState === 1 && ws.send(JSON.stringify(o));
+
+let replayer = null, pending = [], count = 0, bytes = { rr: 0, res: 0 }, lastTs = 0;
+window.__dbg = { types: {}, added: 0, built: false, err: null };
+
+function feed(e) {
+  count++;
+  __dbg.types[e.type] = (__dbg.types[e.type] || 0) + 1;
+  lastTs = e.timestamp || lastTs;
+  if (e.type === 4) {                       // Meta:新的一页,推倒重来
+    if (replayer) { try { replayer.destroy(); } catch (_) {} replayer = null; }
+    [...stage.children].forEach(c => { if (c !== grab && c !== ime) c.remove(); });
+    pending = [e];
+    return;
+  }
+  if (!replayer) {
+    pending.push(e);
+    if (e.type !== 2) return;               // 等到 FullSnapshot 才建得起来
+    replayer = new rrweb.Replayer(pending, {
+      root: stage, liveMode: true, mouseTail: false,
+      UNSAFE_replayCanvas: true, insertStyleRules: [],
+    });
+    // **基线必须是"现在",不是快照的时间戳。**
+    // rrweb 的 live 模式按 `事件时间 - 基线` 排期。基线取快照那一刻的话,
+    // 只要快照是 10 秒前拍的(重连、或者页面静止了一会儿),
+    // 后面每一条新事件都会被排到 10 秒之后才应用 —— 表现就是"点了没反应",
+    // 而且不报错。取 `Date.now()`,陈旧的事件立刻补上,新的实时应用。
+    replayer.startLive(Date.now());
+    pending = [];
+    __dbg.built = true;
+    window.__rp = replayer;
+    fit();
+    // 重放的 iframe 是它自己建的,再确认一遍不接事件
+    stage.querySelectorAll("iframe").forEach(f => {
+      f.style.pointerEvents = "none";
+      f.setAttribute("tabindex", "-1");
+    });
+    return;
+  }
+  try { replayer.addEvent(e); __dbg.added++; }
+  catch (x) { __dbg.err = String(x); }
+}
+
+ws.onmessage = ev => {
+  const m = JSON.parse(ev.data);
+  if (m.c === "rr") {
+    bytes = m.b || bytes;
+    feed(JSON.parse(m.e));
+    const s = Math.max(1, (Date.now() - t0) / 1000);
+    $("#ev").textContent = `${count} 事件`;
+    $("#by").textContent =
+      `事件 ${(bytes.rr / 1024) | 0} KB · ${(bytes.rr / s / 1024).toFixed(1)} KB/s · 资源 ${(bytes.res / 1024) | 0} KB`;
+    if (lastTs) $("#lag").textContent = `落后 ${((Date.now() - lastTs) / 1000).toFixed(1)}s`;
+  } else if (m.c === "cursor") {
+    // 服务端已经过了白名单,这里直接用
+    $("#cur").textContent = m.v;
+    grab.style.cursor = m.v;
+  } else if (m.c === "url") {
+    if (document.activeElement !== $("#url")) $("#url").value = m.v || "";
+  }
+};
+const t0 = Date.now();
+
+async function bootstrap() {              // 连上之前攒的那一段
+  try {
+    const d = await (await fetch("/rr/events")).json();
+    for (const raw of d.events) feed(JSON.parse(raw));
+    if (d.cursor) grab.style.cursor = d.cursor;
+    if (d.url) $("#url").value = d.url;
+  } catch (_) {}
+}
+
+/* ---------------- 上行:只有这几种意图 ---------------- */
+// CDP 的修饰键位:alt=1 ctrl=2 meta=4 shift=8
+const mod = e => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+const at = e => {
+  const r = grab.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
+};
+
+let moveAt = 0, buttons = 0;
+grab.addEventListener("mousemove", e => {
+  const now = Date.now();
+  if (now - moveAt < 25) return;                 // 25ms 一个,别刷爆
+  moveAt = now;
+  send({ t: "mouse", type: "mouseMoved", ...at(e), buttons, mod: mod(e) });
+});
+grab.addEventListener("mousedown", e => {
+  e.preventDefault();
+  buttons = 1;
+  ime.focus({ preventScroll: true });            // 让键盘和输入法有地方去
+  send({ t: "mouse", type: "mousePressed", ...at(e), buttons: 1,
+         clickCount: e.detail || 1, mod: mod(e) });
+});
+grab.addEventListener("mouseup", e => {
+  buttons = 0;
+  send({ t: "mouse", type: "mouseReleased", ...at(e), buttons: 0,
+         clickCount: e.detail || 1, mod: mod(e) });
+});
+grab.addEventListener("contextmenu", e => e.preventDefault());
+grab.addEventListener("wheel", e => {
+  e.preventDefault();
+  send({ t: "wheel", ...at(e), dx: e.deltaX, dy: e.deltaY });
+}, { passive: false });
+
+/* 文字和 IME:**组字全程在本地**,`compositionend` 之后才提交。
+   组字期间一个按键都不往外发 —— 否则远端会收到一串无意义的字母。 */
+const SPECIAL = new Set(["Enter", "Backspace", "Tab", "Escape", "Delete",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End",
+  "PageUp", "PageDown"]);
+let composing = false;
+ime.addEventListener("compositionstart", () => composing = true);
+ime.addEventListener("compositionend", e => {
+  composing = false;
+  if (e.data) send({ t: "text", text: e.data });
+  ime.value = "";
+});
+ime.addEventListener("input", e => {
+  if (composing || e.isComposing) return;        // 中间态不发
+  if (ime.value) send({ t: "text", text: ime.value });
+  ime.value = "";
+});
+ime.addEventListener("keydown", e => {
+  if (composing || e.isComposing) return;
+  if (SPECIAL.has(e.key) || e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    send({ t: "key", key: e.key, code: e.code, vk: e.keyCode, mod: mod(e) });
+  }
+});
+
+/* ---------------- 地址栏 ---------------- */
+$("#back").onclick = () => send({ t: "back" });
+$("#fwd").onclick = () => send({ t: "forward" });
+$("#reload").onclick = () => send({ t: "reload" });
+$("#url").addEventListener("keydown", e => {
+  e.stopPropagation();
+  if (e.key === "Enter") { send({ t: "nav", url: $("#url").value }); grab.focus(); }
+});
+</script>

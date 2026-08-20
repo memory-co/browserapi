@@ -1,0 +1,55 @@
+<!doctype html><meta charset=utf-8><title>自检页</title>
+<style>
+ body{font:16px/1.7 system-ui,"Noto Sans CJK SC",sans-serif;margin:0;padding:28px;color:#222}
+ .box{border:1px solid #ddd;border-radius:10px;padding:16px;margin-bottom:14px;max-width:760px}
+ h2{margin:0 0 8px;font-size:17px}
+ input,button,textarea{font:inherit;padding:6px 10px;border:1px solid #bbb;border-radius:6px}
+ button{background:#f3f4f6;cursor:pointer}
+ a{color:#06c} .hand{cursor:pointer} .txt{cursor:text} .move{cursor:move}
+ .cursors span{display:inline-block;padding:6px 12px;margin:3px;border:1px dashed #bbb;border-radius:6px}
+ code{background:#f3f4f6;padding:1px 5px;border-radius:4px}
+ #echo{font-family:ui-monospace,monospace;color:#a00;min-height:1.7em}
+</style>
+<h1>rrweb 控制台自检</h1>
+
+<div class=box><h2>① 鼠标进得去吗</h2>
+  <button onclick="ping('点了按钮')">点我</button>
+  <a href="#" onclick="ping('点了链接');return false">点这个链接</a>
+  <div id=echo>还没收到</div>
+  <div style="color:#888;font-size:13px">这里显示的是<b>真页面</b>收到的事件。
+    它变了,就说明输入真的走通了。</div></div>
+
+<div class=box><h2>② 文字和中文输入</h2>
+  <label>随便打点字 <input id=t1 size=30 placeholder="中文也试试"></label>
+  <button onclick="document.getElementById('t1').value=''">清空</button>
+  <div style="color:#888;font-size:13px">组字在你本地完成,
+    <code>compositionend</code> 之后才提交 —— 远端不会收到一串字母。</div></div>
+
+<div class=box><h2>③ 光标形状</h2>
+  <div class=cursors>
+    <span style="cursor:default">default</span><span class=hand>pointer</span>
+    <span class=txt>text</span><span class=move>move</span>
+    <span style="cursor:crosshair">crosshair</span><span style="cursor:not-allowed">not-allowed</span>
+    <span style="cursor:ns-resize">ns-resize</span><span style="cursor:zoom-in">zoom-in</span>
+    <span style="cursor:url(/nope.png),alias">自定义(应降级)</span>
+  </div>
+  <div style="color:#888;font-size:13px">鼠标扫过去,看底栏那个「光标」跟不跟着变。
+    最后一个是 <code>url(...)</code>,<b>不在白名单里,应该降级成 default</b>。</div></div>
+
+<div class=box><h2>④ 滚动</h2>
+  <div style="height:120px;overflow:auto;border:1px solid #eee;padding:8px">
+    <div style="height:600px;background:linear-gradient(#e8f0ff,#ffe8e8)">滚轮试试。上面是渐变,滚到底能看到这行的下面还有内容。<div style="margin-top:520px">到底了。</div></div>
+  </div></div>
+
+<div class=box><h2>⑤ 只读验证</h2>
+  <div style="color:#888;font-size:13px">试着用鼠标<b>选中这段文字</b> ——
+    选不中才对。重放出来的 DOM 是 <code>pointer-events:none</code>,
+    你的每一下都落在上面那层接收层上,再翻译成 CDP 调用送进真页面。</div></div>
+
+<script>
+ let n=0;
+ function ping(what){ n++; document.getElementById('echo').textContent =
+   `第 ${n} 次:${what} @ ${new Date().toLocaleTimeString()}`; }
+ addEventListener('mousedown', e => { if(!e.target.closest('button,a'))
+   ping('按下 ('+(e.clientX|0)+', '+(e.clientY|0)+') → '+e.target.tagName.toLowerCase()); }, true);
+</script>

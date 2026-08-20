@@ -126,6 +126,8 @@ TYPE_IDLE = 0.9
 
 #: 快照/变更里这些属性是资源地址,要改写成走我们。
 URL_ATTRS = ("src", "poster", "xlink:href", "data")
+UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")
 #: 这些标签的 href 才是资源(link 的样式表);<a href> 不能动。
 HREF_TAGS = ("link", "image", "use")
 
@@ -152,6 +154,8 @@ class Live:
         #: url -> (mime, 字节)。**这就是那个"代理"** —— 页面加载过的资源
         #: 我们这儿留一份,重放时从这儿出,不回原站。
         self.res: dict[str, tuple[str, bytes]] = {}
+        #: 上游取资源时带的 Referer —— 很多 CDN(B 站就是)不带就 403
+        self.page_url = ""
         self.cdp: CDP | None = None
         self.sid = ""
         self.proc: subprocess.Popen | None = None
@@ -210,11 +214,18 @@ class Live:
     # ------------------------------------------------- 把地址改到我们身上
 
     def _rw(self, url: str) -> str:
-        """**只改我们兜住了的那些。** 没兜住就原样留着 ——
-        改成一个我们答不上来的地址,只会把「拿得到」变成「破图」。"""
-        if not url or url.startswith(("data:", "blob:", "#", "/res?")):
-            return url
-        return f"/res?u={quote(url, safe='')}" if url in self.res else url
+        """**所有 http(s) 资源一律改到我们身上,不管当时兜住没有。**
+
+        第一版只改"已经收到的",在真实站点上等于没改:全量快照在页面刚加载时
+        就发出去了,而图片是随后几秒才陆续到的 —— 实测 B 站那一页 30 张图,
+        走代理的 0 张、破图 25 张。
+
+        现在 `/res` 是**按需**的:手上有就给,没有就自己去上游取一份。
+        竞态因此不存在了。
+        """
+        if not url or not url.startswith(("http://", "https://")):
+            return url                      # data: / blob: / 相对地址都不动
+        return f"/res?u={quote(url, safe='')}"
 
     def _rw_css(self, css: str) -> str:
         return re.sub(r"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)",
@@ -283,6 +294,32 @@ class Live:
         info = self._pending.pop(params.get("requestId", ""), None)
         if info and info["url"]:
             asyncio.create_task(self._grab(params["requestId"], info))
+
+    async def fetch_res(self, url: str) -> tuple[str, bytes] | None:
+        """手上没有就去上游取。**带上 Referer 和 UA** ——
+        实测不带的话 B 站的图直接 403,而那正是"回原站自己拿"靠不住的原因。"""
+        hit = self.res.get(url)
+        if hit:
+            return hit
+        try:
+            import aiohttp
+            headers = {"User-Agent": UA}
+            if self.page_url:
+                headers["Referer"] = self.page_url
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                async with sess.get(url, headers=headers) as r:
+                    if r.status >= 400:
+                        return None
+                    body = await r.read()
+                    if len(body) > 8 * 1024 * 1024:
+                        return None
+                    mime = r.headers.get("Content-Type", "application/octet-stream")
+        except Exception:
+            return None
+        self.res[url] = (mime, body)
+        self.bytes["res"] += len(body)
+        return self.res[url]
 
     async def _grab(self, rid: str, info: dict) -> None:
         try:
@@ -357,6 +394,7 @@ class Live:
         f = params.get("frame") or {}
         if f.get("parentId"):
             return                                   # 只认主 frame
+        self.page_url = f.get("url", "") or self.page_url
         if self.mode == "trace":
             asyncio.create_task(self._record("nav", {"url": f.get("url", "")}, None))
 
@@ -578,13 +616,19 @@ async def main() -> None:
     app.router.add_get("/flower.mp4", lambda _r: web.FileResponse(HERE / "flower.mp4"))
 
     async def res(request):
-        """页面加载过的资源从这儿出。**重放端不必够得着原站。**"""
+        """资源全从这儿出。**重放端不必够得着原站,也不必有它的 Referer。**
+
+        手上有就给;没有就去上游取一份再给。**取不到就 302 回原地址** ——
+        退回去至少和不做代理一样,不会把"本来能拿到"变成"破图"。
+        """
         u = request.query.get("u", "")
-        hit = live.res.get(u)
+        if not u.startswith(("http://", "https://")):
+            return web.Response(status=400)
+        hit = await live.fetch_res(u)
         if not hit:
-            return web.Response(status=404)
+            raise web.HTTPFound(u)
         mime, blob = hit
-        return web.Response(body=blob, content_type=mime.split(";")[0],
+        return web.Response(body=blob, content_type=mime.split(";")[0].strip(),
                             headers={"Cache-Control": "max-age=300"})
 
     app.router.add_get("/res", res)
