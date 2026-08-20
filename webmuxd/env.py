@@ -35,11 +35,22 @@ from pathlib import Path
 from typing import Any
 
 #: 记录格式的版本。**格式变了老记录就当没有** —— 重新探,而不是猜字段。
-FORMAT_VERSION = 2
+#:
+#: 2 → 3:从"只记浏览器"扩成 [d §1](../docs/v2/works/d-install.md#1-产出一份路径表)
+#: 那张完整的路径表。老记录缺后面那些键,补不出来也不该猜 —— 重新探一遍。
+FORMAT_VERSION = 3
 
 #: 记录里认得的键。多出来的原样留着(是别人写的,不该被我们吃掉),
 #: 但我们只读这几个。
-KEYS = ("default_browser",)
+#:
+#: **每一项都要有一个"runtime 拿它干什么"**,否则就不该记 ——
+#: 记了没人读的东西,过期了也没人发现。
+#:
+#:   default_browser  起浏览器,并锁住版本
+#:   fonts_dir        下下来的中文字体在哪
+#:   xpra             起 VNC 那条:bin / 它自己的解释器 / 版本
+#:   xvfb             传给 `--xvfb=`,**不由发行版配置决定**
+KEYS = ("default_browser", "fonts_dir", "xpra", "xvfb")
 
 
 def path() -> Path:

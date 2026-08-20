@@ -141,6 +141,7 @@ class DomSource:
         必须在导航之前 —— `addScriptToEvaluateOnNewDocument` 只对之后的文档生效。
         """
         if session_id in self.armed:
+            log.info("这个 tab 已经装过了 sid=%s", session_id[:8])
             return
         first = not self.armed
         self._cdp, self._sid = cdp, session_id

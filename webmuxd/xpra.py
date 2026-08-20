@@ -121,6 +121,31 @@ def xpra_python(exe: str | None = None) -> str | None:
     return parts[1] if parts[0].endswith("env") and len(parts) > 1 else parts[0]
 
 
+def probe() -> dict[str, str]:
+    """探出这台机器上 VNC 那条腿的路径表([d §1](../docs/v2/works/d-install.md#1-产出一份路径表))。
+
+    **键在 = 探到了,键不在 = 没探到。** 探不到的一律不写 ——
+    写一个猜的值,下次读的人分不清那是事实还是兜底。
+    """
+    out: dict[str, str] = {}
+    exe = shutil.which("xpra")
+    if exe:
+        out["bin"] = exe
+        py = xpra_python(exe)
+        if py:
+            # **它自己的解释器,不是我们的** —— PIL 要装进这个里面
+            out["python"] = py
+        try:
+            r = subprocess.run([exe, "--version"], capture_output=True,
+                               text=True, timeout=10)
+            ver = (r.stdout or r.stderr).strip().splitlines()
+            if ver:
+                out["version"] = ver[0].replace("xpra", "").strip() or ver[0].strip()
+        except Exception:                       # noqa: BLE001
+            pass                                # 版本探不到不影响能不能跑
+    return out
+
+
 def available() -> tuple[bool, str]:
     """**探到才叫有。** 缺一样都起不来,而且报错要指名道姓。"""
     missing = []

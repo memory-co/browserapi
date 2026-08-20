@@ -24,6 +24,7 @@ docker 那一问整个消失 —— v2 不再关心机器上有没有它(§2)。
 from __future__ import annotations
 
 import os
+import shutil
 import platform
 import sys
 from typing import Any
@@ -137,7 +138,24 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
                  fam.xpra if fam else deps.APT.xpra,
                  tail="不想装的话:webmuxd new … --transport jpg(或 dom)")
     if ok:
-        record["xpra"] = {"vfb": "Xvfb"}
+        # **记的是路径,不是"装好了"**([d §1](../../docs/v2/works/d-install.md#1-产出一份路径表))。
+        # 每次重新探的问题不在耗时,在于**结果可能和上次不一样** ——
+        # 装了新的 xpra、改了 PATH、在 venv 里跑,任一情形都会变,
+        # 而报错不会指出"这次用的和上次不是同一个"。
+        table = xpra_mod.probe()
+        table["vfb"] = "Xvfb"                  # 显式钉死,不读发行版配置
+        record["xpra"] = table
+        # Xvfb 单独记一条:runtime 直接把它传给 `--xvfb=`
+        vfb = shutil.which("Xvfb")
+        if vfb:
+            record["xvfb"] = vfb
+        say(f"  {'':10} xpra {table.get('version', '?')} · "
+            f"解释器 {table.get('python', '(读不出 shebang)')}")
+
+    # 字体目录:**下下来的字体在哪**。探不到就不写 —— 键不在 = 没探到。
+    fonts = browser.FONT_DIR if hasattr(browser, "FONT_DIR") else None
+    if fonts and os.path.isdir(str(fonts)):
+        record["fonts_dir"] = str(fonts)
 
     p = env.save(record)
     say("")

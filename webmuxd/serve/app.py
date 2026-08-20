@@ -150,9 +150,14 @@ def build(session: Session, *, xpra_ws: str = "") -> web.Application:
     # 还没做:/api/tabs/{id}/favicon、/api/live-token、/api/openapi.json
     r.add_get("/api/events", h_events)
     # 画面 —— v2 新增的两条,和 API 同一个口(works/04 §1)
-    r.add_get("/api/view", h_view)
+    # **通道 = 一个上游系统的连接**([e §6.1](../../docs/v2/works/e-client.md#61-通道--一个上游系统的连接))。
+    # 路径前缀本身就是模型的一部分:看到 `/channel/x` 就知道它是一条通道。
+    # 旧路径留着 —— 已经写进别人的脚本里了,**说不认就不认是另一种毛病**。
+    r.add_get("/channel/cdp", h_view)
+    r.add_get("/api/view", h_view)                  # 旧名,别删
     # xpra 那条画面路。**和 API 同一个口**,而且上行过白名单(works/11 §2.2)
-    r.add_get("/xpra", h_xpra)
+    r.add_get("/channel/xpra", h_xpra)
+    r.add_get("/xpra", h_xpra)                      # 旧名,别删
     r.add_get("/static/{name}", h_static)
     r.add_get("/", h_index)
     # 浏览器每开一次页面都会去要它。不接的话日志里每次多一条 404 ——

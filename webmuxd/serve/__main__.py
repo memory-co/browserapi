@@ -2,7 +2,7 @@
 
     python -m webmuxd.serve --cdp http://127.0.0.1:9222 --port 7900
 
-**一个口**:人打开 `/` 看画面,代码打 `/api/…`,帧和输入走 `WS /api/view`
+**一个口**:人打开 `/` 看画面,代码打 `/api/…`,帧和输入走 `WS /channel/cdp`
 (docs/v2/works/04-one-port.md)。
 
 v1 里它必须跑在容器里 —— Chromium 把调试口绑死在 loopback,而容器是另一个

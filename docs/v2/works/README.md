@@ -68,6 +68,6 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 
 | | |
 | --- | --- |
-| 通道路径 | 设计是 `/channel/cdp` 与 `/channel/xpra`,当前实现是 `/api/view` 与 `/xpra`([e §6.1](e-client.md#61-通道--一个上游系统的连接)) |
-| install 的产出 | 设计是一份完整路径表,当前只记了浏览器一条([d §6](d-install.md#6-还没定的)) |
+| **DOM 那条画面不可用** | 注入登记成功但脚本从不执行,查到一半挂起 —— 单独立了档:[issues/dom-注入登记了但不执行](../issues/dom-注入登记了但不执行.md)。JPG / VNC 不受影响 |
+| 通道各自一条连接 | 路径已改叫 `/channel/cdp` / `/channel/xpra`(旧的仍可用),但 DOM 的事件现在**搭在 cdp 那条上**,还没独立成 `/channel/dom` |
 | 协议客户端 | xpra 那条已独立成模块,另一条仍在内置页内([e §9](e-client.md#9-该发出去的是哪一层)) |

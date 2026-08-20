@@ -9,7 +9,7 @@
   没有设置面板、没有仪表盘。存在的唯一理由是「跑起来之后用浏览器打开这个地址,
   链路通没通一眼就看出来」。
 
-  上层要自己画就自己画 —— 用的是同一组接口(WS /api/view 拿帧,/api/tabs 拿 tab 表),
+  上层要自己画就自己画 —— 用的是同一组接口(WS /channel/cdp 拿帧,/api/tabs 拿 tab 表),
   这里没有私货。
 -->
 <style>
@@ -172,7 +172,7 @@
   // ---------------------------------------------------------------- 连接
   function connect() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    ws = new WebSocket(proto + "//" + location.host + "/api/view" + auth);
+    ws = new WebSocket(proto + "//" + location.host + "/channel/cdp" + auth);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => { $("s-conn").textContent = "已连接"; $("s-conn").className = ""; };
     ws.onmessage = (e) => {
@@ -206,6 +206,35 @@
     };
   }
   const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+  // ---------------------------------------------------- 输入批量(e §4.3)
+  // **移动和滚轮攒 25ms 一批,同一批里只留最后一个 move。**
+  // 一秒几十个 mousemove,逐个发是在给自己制造排队 —— 而中间那些位置
+  // 没有任何人关心,只有最后那个是"鼠标现在在哪"。
+  //
+  // **按下、抬起、按键不进批。** 25ms 在点击上能感觉出来,而且 down 和 up
+  // 之间插 25ms,有的页面会判成长按。
+  //
+  // **回执永远不进批**(§4.1)—— 它是 RTT 探针,一排队就测不准。
+  let pendMove = null, pendWheel = null, batchTimer = null;
+  function flushInput() {
+    batchTimer = null;
+    if (pendMove) { send(pendMove); pendMove = null; }
+    if (pendWheel) { send(pendWheel); pendWheel = null; }
+  }
+  function queueInput(o) {
+    if (o.event === "move") pendMove = o;              // 只留最后一个
+    else if (o.type === "wheel") {
+      // 滚轮要**累加**,不能只留最后一个 —— 丢掉的每一格都是真滚过的距离
+      pendWheel = pendWheel
+        ? { ...o, dx: (pendWheel.dx || 0) + (o.dx || 0),
+                  dy: (pendWheel.dy || 0) + (o.dy || 0) }
+        : o;
+    } else { send(o); return; }
+    if (!batchTimer) batchTimer = setTimeout(flushInput, 25);
+  }
+  // 按下之前先把攒着的位置发掉,否则远端收到的"点击位置"是上一个采样点
+  function sendNow(o) { flushInput(); send(o); }
 
   // ------------------------------------------------------------ DOM 那条画面路
   // **只换画面从哪来。** 输入、光标、tab、原生 UI 上面那一整套一行不动
@@ -291,7 +320,7 @@
     }
     img.hidden = true; cvs.hidden = false; screenEl = cvs;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    xpra = new XpraClient(proto + "//" + location.host + "/xpra" + auth, cvs, {
+    xpra = new XpraClient(proto + "//" + location.host + "/channel/xpra" + auth, cvs, {
       status: (st) => {
         $("s-conn").textContent = st === "ready" ? "已连接(xpra)"
           : st === "connected" ? "xpra 握手中…" : "xpra " + st;
@@ -359,24 +388,25 @@
   // 比"切换时重新绑"少一个会忘的状态。
   for (const el of [img, cvs, dom3]) {
   el.addEventListener("mousemove", (e) => {
-    const p = pt(e); send({ type: "mouse", event: "move", ...p, buttons: e.buttons, modifiers: mods(e) });
+    const p = pt(e);
+    queueInput({ type: "mouse", event: "move", ...p, buttons: e.buttons, modifiers: mods(e) });
   });
   el.addEventListener("mousedown", (e) => {
     e.preventDefault(); ime.focus();
     const p = pt(e);
-    send({ type: "mouse", event: "down", ...p, button: e.button, buttons: e.buttons,
+    sendNow({ type: "mouse", event: "down", ...p, button: e.button, buttons: e.buttons,
            clicks: e.detail || 1, modifiers: mods(e) });
   });
   addEventListener("mouseup", (e) => {
     const p = pt(e);
-    send({ type: "mouse", event: "up", ...p, button: e.button, buttons: e.buttons,
+    sendNow({ type: "mouse", event: "up", ...p, button: e.button, buttons: e.buttons,
            clicks: e.detail || 1, modifiers: mods(e) });
   });
   el.addEventListener("contextmenu", (e) => e.preventDefault());
   el.addEventListener("wheel", (e) => {
     e.preventDefault();
     const p = pt(e);
-    send({ type: "wheel", ...p, dx: e.deltaX, dy: e.deltaY, modifiers: mods(e) });
+    queueInput({ type: "wheel", ...p, dx: e.deltaX, dy: e.deltaY, modifiers: mods(e) });
   }, { passive: false });
   }
 

@@ -133,7 +133,9 @@ def test_本机起一个_然后画面和_api_都在那个口上():
         with urllib.request.urlopen(h.view_url, timeout=10) as r:
             page = r.read()
         # 画面页就在那个口的根上,而且是我们自己的那一份
-        assert r.status == 200 and b"/api/view" in page
+        assert r.status == 200 and b"/channel/cdp" in page,\
+                "内置页得从同一个口拿帧 —— 路径已改叫 /channel/cdp(e §6.1),"\
+                "旧的 /api/view 仍然可用但内置页不再用它"
 
         web = Webmuxd()
         sess = web.session(id="t-proc", port=port, runtime="process",
