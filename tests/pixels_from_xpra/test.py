@@ -149,10 +149,23 @@ class _FakeTabs:
         return _FakeTab()
 
 
+class _FakeLog:
+    """**真 session 一定有日志。** 替身也得有 —— 否则"切了要留下记录"
+    那条要求在测试里就是空的。"""
+
+    def __init__(self):
+        self.rows = []
+
+    def append(self, kind, **fields):
+        self.rows.append({"kind": kind, **fields})
+        return len(self.rows)
+
+
 class _FakeSession:
     def __init__(self):
         self.cdp = _FakeCDP()
         self.tabs = _FakeTabs()
+        self.log = _FakeLog()
 
     async def cdp_session_for(self, _tab):
         return "S1"
@@ -773,3 +786,95 @@ def test_有头下要显式指定软件_GL_否则_WebGL_整个是关的():
     assert "--use-gl=angle" in argv and "--use-angle=swiftshader" in argv
     # 这个是陷阱:看着像"关掉 GPU 走软件",实际是把 WebGL 一起关了
     assert "--disable-gpu" not in argv
+
+
+# ------------------------------------------------------- 换一种画面(c §9)
+
+def _switchable(transport="jpg", *, has_xpra=True):
+    from webmuxd.view.cast import Screencaster
+    return Screencaster(_FakeSession(), transport=transport, has_xpra=has_xpra)
+
+
+def test_能切到哪几种是起的时候定的_不是运行时算的():
+    """**VNC 要一个真实的 X 显示,无头浏览器没有。**
+
+    所以起 session 时那个选择不是"用哪种",是"以后能选哪几种"(c §9.3)。
+    """
+    assert set(_switchable(has_xpra=True).available) == {"jpg", "vnc", "dom"}
+    assert set(_switchable(has_xpra=False).available) == {"jpg", "dom"}
+    # 起的时候就是 VNC,那它当然在
+    assert "vnc" in _switchable("vnc", has_xpra=False).available
+
+
+async def test_切过去之后只有画面那一行变了():
+    """**切的只有一样东西。** own_frames / own_viewport 要跟着走,
+    因为 DOM 不用我们截图、但视口必须由我们钉住,而 VNC 两样都不归我们。"""
+    c = _switchable("jpg")
+    await c.switch("vnc")
+    assert c.mode == "vnc" and not c.own_frames and not c.own_viewport
+    await c.switch("dom")
+    # DOM:不截图,**但视口归我们** —— 重放出来的布局就是按它排的
+    assert c.mode == "dom" and not c.own_frames and c.own_viewport
+    await c.switch("jpg")
+    assert c.mode == "jpg" and c.own_frames and c.own_viewport
+
+
+async def test_切到这台机器上没有的那种_要报错_不能悄悄留在原来那种():
+    """**悄悄留着比报错难查得多** —— 使用者以为换了、画质却没变。"""
+    from webmuxd.errors import BadRequest
+    c = _switchable("jpg", has_xpra=False)
+    with pytest.raises(BadRequest) as ei:
+        await c.switch("vnc")
+    assert c.mode == "jpg"                       # 没被偷偷改掉
+    assert "VNC" in ei.value.message
+    d = str(ei.value.details)
+    assert "X 显示" in d                          # 说清为什么没有
+    assert "--transport vnc" in d                # 说清怎么才能有
+
+
+async def test_不认识的名字要报错():
+    from webmuxd.errors import BadRequest
+    c = _switchable("jpg")
+    with pytest.raises(BadRequest):
+        await c.switch("mp4")
+    assert c.mode == "jpg"
+
+
+async def test_切成同一种是幂等的_不重复宣布():
+    c = _switchable("jpg")
+    before = len(c.session.log.rows) if hasattr(c.session.log, "rows") else None
+    info = await c.switch("jpg")
+    assert info["mode"] == "jpg"
+    if before is not None:
+        assert len(c.session.log.rows) == before, "切成同一种不该留一条记录"
+
+
+async def test_切了要留下记录_也要告诉观看者():
+    """**切了必须说出来**(c §9.5)—— 画面变了而人不知道为什么,
+    比画面差本身更糟。"""
+    c = _switchable("jpg")
+    told = []
+
+    class V:
+        closed = False
+        async def tell(self, type_, **kw):
+            told.append((type_, kw))
+
+    c.viewers.add(V())
+    await c.switch("dom", why="人选的")
+    kinds = [t for t, _ in told]
+    assert "mode" in kinds, "得通知观看者"
+    payload = dict(told[[t for t, _ in told].index("mode")][1])
+    assert payload["mode"] == "dom" and payload["was"] == "jpg"
+    assert payload["why"]                         # 为什么变的
+    assert payload["available"]                   # 还能切哪几种
+
+
+def test_能切哪几种要报出来_界面不该自己再写一遍():
+    c = _switchable("jpg")
+    info = c.mode_info()
+    names = [m["name"] for m in info["available"]]
+    assert names and set(names) <= {"jpg", "vnc", "dom"}
+    for m in info["available"]:
+        # 每一种都得带上"一句话体感"和"什么时候选它" —— 那正是使用者要判断的
+        assert m["label"] and m["blurb"] and m["when"]

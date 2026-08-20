@@ -30,7 +30,11 @@ async def _run(args: argparse.Namespace) -> None:
     session = Session(cdp, data_dir=args.data, view={
         "width": args.width, "height": args.height,
         "fmt": args.format, "quality": args.quality, "dsf": args.dsf,
-        "min_quality": args.min_quality, "transport": args.transport})
+        "min_quality": args.min_quality, "transport": args.transport,
+        # **能切到哪几种,起的时候就定了。** VNC 要一个真实的 X 显示,
+        # 而那是起 session 时选的 —— 有 xpra 的上游地址就说明有
+        # ([c §9.3](../../docs/v2/works/c-view.md#93-能切到哪几条起-session-的时候就定了))。
+        "has_xpra": bool(args.xpra_ws)})
     await session.start()
 
     runner = web.AppRunner(build(session, xpra_ws=args.xpra_ws))

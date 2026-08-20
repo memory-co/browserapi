@@ -62,4 +62,5 @@ UPSTREAM = frozenset({
     "mouse", "wheel", "key", "text",     # 输入,见 view/input.py
     "resize",       # 改视口
     "tab",          # 切 tab
+    "mode",         # 换一种画面(c §9)—— 只换画面来源,不碰别的
 })

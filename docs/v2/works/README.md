@@ -50,6 +50,7 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 
 | | 代码 | 测试 |
 | --- | --- | --- |
+| **画面模式与切换** | [`view/modes.py`](../../../webmuxd/view/modes.py) · [`view/cast.py`](../../../webmuxd/view/cast.py) `switch()` | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
 | 帧协议 · 回执 · 自适应 | [`view/cast.py`](../../../webmuxd/view/cast.py) · [`viewer.py`](../../../webmuxd/view/viewer.py) · [`quality.py`](../../../webmuxd/view/quality.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
 | 输入翻译(安全收口) | [`view/input.py`](../../../webmuxd/view/input.py) · [`cursor.py`](../../../webmuxd/view/cursor.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
 | 一个口 · token · 只读 | [`serve/app.py`](../../../webmuxd/serve/app.py) | [`one_endpoint/`](../../../tests/one_endpoint/) · [`the_http_face/`](../../../tests/the_http_face/) |

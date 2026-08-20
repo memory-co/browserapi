@@ -27,6 +27,7 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
+from webmuxd.errors import BadRequest
 from webmuxd.view import modes
 from webmuxd.view.input import Translator
 from webmuxd.view.protocol import build_header
@@ -52,7 +53,8 @@ class Screencaster:
     def __init__(self, session: "Session", *, width: int = DEFAULT_W,
                  height: int = DEFAULT_H, fmt: str = DEFAULT_FORMAT,
                  quality: int = DEFAULT_QUALITY, dsf: float = 1.0,
-                 min_quality: int = 25, transport: str = modes.JPG) -> None:
+                 min_quality: int = 25, transport: str = modes.JPG,
+                 has_xpra: bool = False) -> None:
         self.session = session
         #: **画面从哪来 —— 这是几种模式之间唯一的差别**
         #: ([c §7](../../docs/v2/works/c-view.md#7-接缝切在哪))。
@@ -69,6 +71,10 @@ class Screencaster:
         #: 只有 VNC 不能设 —— 那边画面尺寸是 X 显示的尺寸,再 override 一次
         #: 会让页面被渲染成另一个尺寸而窗口不变,画面里一圈空白。
         self.own_viewport = self.mode != modes.VNC
+        #: **这台 session 上能切到哪几种。**
+        #: 不是"现在用哪种",是"以后能选哪几种" —— VNC 要真实的 X 显示,
+        #: 无头浏览器没有,而有没有是起 session 时定的,运行时改不了。
+        self.available = modes.available_in(headed=has_xpra or transport == modes.VNC)
         #: DOM 那条的事件源。别的模式下是 None。
         #: **在 `__init__` 里就建好,不能等 `start()`** —— tab 的 attach 可能
         #: 更早,那时 `self.dom` 还是 None,记录器就漏装了。
@@ -339,6 +345,78 @@ class Screencaster:
             with contextlib.suppress(Exception):
                 await v.tell(type_, **payload)
 
+    # ------------------------------------------------------------- 换一种画面
+
+    async def switch(self, mode: str, *, why: str = "人选的") -> dict[str, Any]:
+        """换一种画面。**切的只有这一样东西。**
+
+        之所以能这么窄,是因为**没有状态要迁移**:哪些 tab、当前 URL、
+        页面里已经填了什么,全在 Chromium 里,不在任何一条来源里 ——
+        来源是只读的观测者,观测者换人,被观测的东西不知道
+        ([c §9.2](../../docs/v2/works/c-view.md#92-切的只有一样东西))。
+
+        **切不了就报错,不悄悄留在原来那种。** 悄悄留着的话,
+        使用者以为自己换了、画质却没变,比报错难查得多。
+        """
+        want = modes.canon(mode)
+        if want is None:
+            raise BadRequest(
+                f"没有 {mode!r} 这种画面,只有 "
+                + " / ".join(modes.label(m) for m in modes.MODES),
+                code="bad_request")
+        if want not in self.available:
+            # **这不是"暂时不行",是这台 session 上根本没有。**
+            # 起的时候没要有头,就没有那个 X 显示 —— 说清楚为什么,
+            # 以及该怎么才能有。
+            raise BadRequest(
+                f"这个 session 上没有 {modes.label(want)} 这种画面,"
+                f"只有 {' / '.join(modes.label(m) for m in self.available)}",
+                code="bad_request",
+                details={"available": list(self.available),
+                         "why": "VNC 要一个真实的 X 显示,而这个 session 是无头起的 —— "
+                                "起的时候选 --transport vnc 才会有",
+                         "hint": "重新起一个 session:webmuxd new … --transport vnc"})
+        if want == self.mode:
+            return self.mode_info()
+
+        old = self.mode
+        await self._stop_cast()
+        self.mode = want
+        self.own_frames = want == modes.JPG
+        self.own_viewport = want != modes.VNC
+        if want == modes.DOM and self.dom is None:
+            from webmuxd.view.dom import DomSource
+            self.dom = DomSource(push=self._tell_raw)
+            # **中途切到 DOM,当前这一页是没有记录器的。**
+            # 注入只对之后的文档生效 —— 这一条还没解,见
+            # docs/v2/issues/dom-注入登记了但不执行.md
+            log.warning("中途切到 DOM:当前页没有记录器,要等下一次导航")
+        if self.own_frames or self.own_viewport:
+            await self._apply_viewport()
+        await self._start_cast()
+
+        info = self.mode_info(why=why, was=old)
+        # **切了必须说出来**([c §9.5](../../docs/v2/works/c-view.md#95-切了必须说出来))——
+        # 画面变了而人不知道为什么,比画面差本身更糟。
+        log.info("画面从 %s 换成 %s(%s)", modes.label(old), modes.label(want), why)
+        self.session.log.append("session", event="view_mode",
+                                mode=want, was=old, why=why)
+        await self._tell_all("mode", **info)
+        return info
+
+    def mode_info(self, *, why: str = "", was: str = "") -> dict[str, Any]:
+        """现在是哪种、能切哪几种。**界面不该自己再写一遍这些字。**"""
+        out: dict[str, Any] = {
+            "mode": self.mode,
+            "label": modes.label(self.mode),
+            "available": [m for m in modes.choices() if m["name"] in self.available],
+        }
+        if why:
+            out["why"] = why
+        if was:
+            out["was"] = was
+        return out
+
     # ------------------------------------------------------------------ 观测
 
     def stats(self) -> dict[str, Any]:
@@ -353,5 +431,6 @@ class Screencaster:
             "every_nth": self.adaptor.every_nth,
             "w": self.width, "h": self.height,
             "viewers": [v.stats() for v in self.viewers],
+            "available": list(self.available),
             **({"dom": self.dom.stats()} if self.dom is not None else {}),
         }

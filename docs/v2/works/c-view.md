@@ -441,7 +441,8 @@ xpra 观测的是一个真实的 X 显示,所以浏览器必须是有头的 —�
 `Page.addScriptToEvaluateOnNewDocument` 只对**之后的文档**生效 ——
 中途切过去时,当前这一页是没有记录器的。两条路:等下一次导航,或者当场注一次。
 **实测:五百多 KB 的 `Runtime.evaluate` 会挂住**(三十秒不回包),
-所以当场注入得先把记录器拆成一个小的 record-only 包。**这一项还没做**(§17)。
+所以当场注入得先把记录器拆成一个小的 record-only 包。**这一项还没做** ——
+现在切过去只会在日志里告警"当前页没有记录器,要等下一次导航"(§17)。
 
 反过来从 DOM 切走是干脆的:停止发事件即可,注入的东西留在页面里也无害
 —— 但**它留下的痕迹不会因为切走而消失**(§5.6)。
@@ -588,6 +589,7 @@ xpra 的协议部分是自己解的:
 
 | | 验的是什么 | 量到了什么 |
 | --- | --- | --- |
+| **产品里的切换**([`view/modes.py`](../../../webmuxd/view/modes.py) · `cast.switch()`) | 三个词三层贯通、切换、能切哪几种由起 session 时定 | 全套测试绿。**DOM 那条本身还不可用** —— [issues](../issues/dom-注入登记了但不执行.md) |
 | [`rrweb_console/`](../../../examples/rrweb_console/) | **整屏 rrweb、只读、输入全走 CDP** | 点击/中文/光标白名单全通;延迟 0.0s;`pointer-events` 实测 `none`;对话框不接管则整个会话冻住 |
 | [`dom_stream/`](../../../examples/dom_stream/) | DOM 流与截屏**并排**,带对齐检查 | 那 124 px 偏移就是这儿量的(§5.4) |
 | [`live_replay/`](../../../examples/live_replay/) | rrweb 与 Playwright trace 两种重放器对比 | rrweb 114 KB/s vs 截屏 2686 KB/s |

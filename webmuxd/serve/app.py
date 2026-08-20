@@ -125,6 +125,8 @@ def build(session: Session, *, xpra_ws: str = "") -> web.Application:
     r.add_get("/api/observe/{obs}/screenshot", h_obs_shot)
     r.add_get("/api/screenshot", h_screenshot)
     r.add_get("/api/res", h_res)
+    r.add_get("/api/view/mode", h_mode_get)
+    r.add_post("/api/view/mode", h_mode_set)
     r.add_get("/api/rrweb.js", h_rrweb_js)
     r.add_get("/api/rrweb.css", h_rrweb_css)
     r.add_get("/api/text", h_text)
@@ -203,6 +205,22 @@ async def h_viewport(request: web.Request) -> web.Response:
                   # headless 下 outer==inner,量出来就是 0 —— 那是真的没有 UI,
                   # 不是没量到
                   "crop_top": max(0, oh - ih)})
+
+
+async def h_mode_get(request: web.Request) -> web.Response:
+    """现在是哪种画面、这台 session 上能切哪几种。
+
+    **能切哪几种是起 session 时定的,不是运行时算的**
+    ([c §9.3](../../docs/v2/works/c-view.md#93-能切到哪几条起-session-的时候就定了))。
+    """
+    return _json(_s(request).view.mode_info())
+
+
+async def h_mode_set(request: web.Request) -> web.Response:
+    """换一种画面。切的只有这一样东西 —— 输入、光标、tab、原生 UI 一行不动。"""
+    body = await _body(request)
+    want = body.get("mode") or body.get("transport") or ""
+    return _json(await _s(request).view.switch(str(want), why="人选的"))
 
 
 async def h_res(request: web.Request) -> web.Response:
@@ -549,6 +567,13 @@ async def _view_msg(s: Session, v: Viewer, m: dict) -> None:
         tab_id = str(m.get("id") or "")
         if tab_id in s.tabs:
             await s.tabs.activate(tab_id)
+    elif kind == "mode":
+        # 切不了就把原因发回去。**不静默留在原来那种** ——
+        # 使用者以为换了、画质却没变,比报错难查得多。
+        try:
+            await s.view.switch(str(m.get("mode") or ""), why="人选的")
+        except WebmuxdError as e:
+            await v.tell("mode_error", message=e.message, **(e.details or {}))
     else:
         await s.view.handle_input(m)
 

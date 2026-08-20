@@ -43,6 +43,11 @@
     font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
   #ro { color: var(--warn); font-size: 11px; white-space: nowrap; }
 
+    button.mode { padding: 2px 9px; margin-left: 4px; border-radius: 999px;
+                border: 1px solid #333a45; background: #232a34; color: #cfd6e0;
+                font: inherit; font-size: 12px; cursor: pointer; }
+  button.mode:hover { background: #2d3541; }
+  button.mode.on { background: #2e6b3f; border-color: #397a4b; color: #fff; }
   #stage { flex: 1; display: grid; place-items: center; overflow: auto; padding: 10px; }
   /* DOM 那条画面。**只读是结构性的**:重放出来的整棵 DOM 不接事件,
      所有输入落在 #screen3 上,再翻译成 Input.*(c §7)。 */
@@ -97,6 +102,10 @@
   <button id="reload" title="刷新">⟳</button>
   <input id="url" spellcheck="false" placeholder="输入网址回车">
   <span id="ro" hidden>只读</span>
+  <!-- 画面切换。**使用者看到的是 JPG / VNC / DOM**,技术名字不上界面
+       (c §9.1)。切不动的那几种直接不画出来 —— 画一个点不了的按钮
+       比不画更让人困惑。 -->
+  <span id="modes"></span>
 </div>
 
 <div id="stage"><img id="screen" alt=""><canvas id="screen2" hidden></canvas><div id="screen3" hidden><div id="paintbox"></div></div></div>
@@ -184,6 +193,10 @@
         $("ro").hidden = writable;
         if (m.transport === "vnc" && !xpra) startXpra();
         if (m.transport === "dom") startDom();
+        curMode = m.transport || "";
+        fetch("/api/view/mode" + auth).then((r) => r.json())
+          .then((d) => { canSwitch = d.available || []; renderModes(); })
+          .catch(() => {});
         if (m.w) setSize(m.w, m.h);
         if (!xpra) sendSize();          // xpra 的尺寸是 X 显示定的,问也没用
       } else if (m.type === "cast") {
@@ -194,6 +207,12 @@
       // ——所以帧尺寸和有效缩放都以解码出来的那张图为准(见 img.onload)。
       } else if (m.type === "quality") {
         $("s-q").textContent = m.quality + (m.every_nth > 1 ? " /" + m.every_nth : "");
+      } else if (m.type === "mode") {
+        applyMode(m);
+      } else if (m.type === "mode_error") {
+        // 切不动就说清为什么、以及怎么才能有 —— 不静默留在原来那种
+        toast(m.message + (m.hint ? " —— " + m.hint : ""), 12000);
+        renderModes();                          // 把按钮弹回当前那个
       } else if (m.type === "cursor") {
         screenEl.style.cursor = m.cursor;         // 服务端已经过白名单
       }
@@ -235,6 +254,36 @@
   }
   // 按下之前先把攒着的位置发掉,否则远端收到的"点击位置"是上一个采样点
   function sendNow(o) { flushInput(); send(o); }
+
+  // -------------------------------------------------------------- 换画面
+  // **切的只有一样东西。** 输入、光标、tab、原生 UI 一行不动 ——
+  // 所以这儿只干两件事:告诉服务端换哪种,以及把新那条的接收端接上。
+  let curMode = "", canSwitch = [];
+
+  function renderModes() {
+    const box = $("modes");
+    if (canSwitch.length < 2) { box.innerHTML = ""; return; }   // 只有一种就别占地方
+    box.innerHTML = canSwitch.map((m) =>
+      `<button class="mode${m.name === curMode ? " on" : ""}" data-mode="${m.name}"` +
+      ` title="${m.blurb} —— ${m.when}">${m.label}</button>`).join("");
+    for (const b of box.querySelectorAll("button"))
+      b.onclick = () => { if (b.dataset.mode !== curMode) send({ type: "mode", mode: b.dataset.mode }); };
+  }
+
+  function applyMode(m) {
+    const was = curMode;
+    curMode = m.mode;
+    if (m.available) canSwitch = m.available;
+    renderModes();
+    if (was && was !== curMode) {
+      // **切了要说出来。** 画面变了而人不知道为什么,比画面差本身更糟。
+      toast("画面换成 " + m.label + (m.why ? "(" + m.why + ")" : ""), 4000);
+    }
+    // 接上新那条的接收端;旧那条的自己会停
+    if (curMode === "vnc") { if (!xpra) startXpra(); }
+    else if (curMode === "dom") { dom3.hidden = false; cvs.hidden = true; startDom(); }
+    else { img.hidden = false; cvs.hidden = true; dom3.hidden = true; screenEl = img; }
+  }
 
   // ------------------------------------------------------------ DOM 那条画面路
   // **只换画面从哪来。** 输入、光标、tab、原生 UI 上面那一整套一行不动
