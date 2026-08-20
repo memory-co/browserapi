@@ -152,3 +152,47 @@ def test_客户端不声明视频编码_文档和代码是同一个结论():
         "客户端声明了视频编码,但设计稿说不声明"
     doc = _doc()
     assert "不声明视频编码" in doc or "不报视频编码" in doc
+
+
+# ------------------------------------------------- 写着 §N,就得真的指向 §N
+
+def _sections(rel: str) -> dict[str, str]:
+    """那一篇里 `§编号 → 锚点`。"""
+    out = {}
+    for m in re.finditer(r"^#{2,6}\s+(.*)$", (ROOT / rel).read_text(), re.M):
+        t = m.group(1)
+        n = re.match(r"(\d+)\.(\d+)?", t)
+        if n:
+            out[f"{n.group(1)}.{n.group(2)}" if n.group(2) else n.group(1)] = slug(t)
+    return out
+
+
+def test_章节号和锚点指的是同一节():
+    """**链接能跳不等于跳对了。**
+
+    正文写「[c §9](c-view.md#5-…)」时,链接是通的、锚点也存在 ——
+    上面那两条用例全绿,但读的人被送到了另一节。重排一次章节就会出现一批,
+    而且只有人读到才发现。这一条查的是**看得见的编号和跳过去的地方是不是同一节**。
+
+    (加这条用例时一次逮到 12 处,全是 c 篇重排之后留下的。)
+    """
+    cache: dict[str, dict[str, str]] = {}
+    bad = []
+    for rel in sorted(str(p.relative_to(ROOT)) for p in ROOT.rglob("*")
+                      if p.suffix in (".md", ".py", ".js")
+                      and "node_modules" not in str(p) and ".git/" not in str(p)):
+        text = (ROOT / rel).read_text(errors="ignore")
+        for m in re.finditer(r"\[([a-z]\d?) §([\d.]+)[^\]]*\]\([^)#]*?([a-z][\w-]*\.md)#([^)]*)\)",
+                             text):
+            label, num, target, anchor = m.groups()
+            hit = next((p for p in ROOT.glob(f"docs/**/{target}")), None)
+            if not hit:
+                continue
+            key = str(hit.relative_to(ROOT))
+            if key not in cache:
+                cache[key] = _sections(key)
+            rev = {v: k for k, v in cache[key].items()}
+            real = rev.get(anchor)
+            if real and real != num:
+                bad.append(f"{rel}:写着 {label} §{num},锚点其实是 §{real}")
+    assert not bad, "章节号和锚点对不上:\n  " + "\n  ".join(bad)

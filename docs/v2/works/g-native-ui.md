@@ -124,7 +124,7 @@ Input.dispatchMouseEvent(点击 OK) → 没有 javascriptDialogClosed
 
 **② 卡片必须是覆盖整个视口的不透明遮罩。** 否则画面上会同时出现两个对话框,
 而其中一个无法操作。screencast 那条上无所谓,这条上是硬要求 ——
-因此[两条来源采用同一套行为](c-pixels.md#5-接缝切在哪),遮罩统一为不透明。
+因此[两条来源采用同一套行为](c-view.md#7-接缝切在哪),遮罩统一为不透明。
 
 **③ 文件选择更明显。** 那个虚拟显示里根本没有文件管理器,
 原生选择框即使弹出也无法使用,仍须 `DOM.setFileInputFiles`。
@@ -150,6 +150,6 @@ Input.dispatchMouseEvent(点击 OK) → 没有 javascriptDialogClosed
 | --- | --- |
 | 输入为什么只能走一条通道 | [b §1](b-input.md#1-收口在哪) · [e §6.2](e-client.md#62-每条通道能提供什么) |
 | popup 为什么不是特殊情况 | [f §5](f-tabs.md#5-popup-不是特殊情况) |
-| 遮罩为什么必须不透明 | [c §9](c-pixels.md#9-接缝之上的东西一律不动) |
+| 遮罩为什么必须不透明 | [c §12](c-view.md#12-接缝之上的东西一律不动) |
 | 落地在 | [`webmuxd/native/`](../../../webmuxd/native/) |
 | 测试在 | [`tests/no_desktop/`](../../../tests/no_desktop/) |

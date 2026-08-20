@@ -13,7 +13,7 @@
 runtime 的产出:一个 CDP 端点   http://<host>:<port>
 ```
 
-产出这一样就够了。画面不是它的义务 —— 那是用这个端点自己产的([c](c-pixels.md))。
+产出这一样就够了。画面不是它的义务 —— 那是用这个端点自己产的([c](c-view.md))。
 
 于是 runtime 只剩两种,而两者的区别只是**这个端点是我们起的,还是你给的**:
 
@@ -40,7 +40,7 @@ runtime ┤
 
 | 容器为什么曾经必要 | 现在 |
 | --- | --- |
-| 里面有现成的浏览器 **+ 桌面 + VNC** | 画面自己产,桌面不需要([c](c-pixels.md)) |
+| 里面有现成的浏览器 **+ 桌面 + VNC** | 画面自己产,桌面不需要([c](c-view.md)) |
 | 使用者不必自己装浏览器 | **`webmuxd install` 下一个**([d](d-install.md)) |
 | 隔离 | **只剩这一条 —— 而它不是 webmuxd 的活** |
 
@@ -67,7 +67,7 @@ RUN pip install webmuxd && webmuxd install
 
 一个进程,秒起,是 server 的子进程,`kill-server` 时跟着结束。
 
-启动参数随像素来源不同([c](c-pixels.md)):`/channel/cdp` 那条以无头方式启动;
+启动参数随像素来源不同([c](c-view.md)):`/channel/cdp` 那条以无头方式启动;
 `/channel/xpra` 那条是有头的,由 xpra 拉起,并带 `--kiosk` 与软件 GL 参数。
 
 ### 3.1 root 下自动关闭沙箱,但必须说出来
@@ -195,6 +195,6 @@ webmuxd new --id work --port 7900 --bind 0.0.0.0   # 对外,并打印警告
 | | |
 | --- | --- |
 | 浏览器怎么下来、依赖怎么齐 | [d](d-install.md) |
-| 像素来源与那一套 X | [c](c-pixels.md) |
+| 像素来源与那一套 X | [c](c-view.md) |
 | 落地在 | [`runtime/`](../../../webmuxd/runtime/) · [`xpra.py`](../../../webmuxd/xpra.py) |
 | 测试在 | [`tests/one_endpoint/`](../../../tests/one_endpoint/) |

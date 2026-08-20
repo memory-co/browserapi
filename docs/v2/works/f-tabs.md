@@ -11,7 +11,7 @@
 | | 为什么画面里没有 bar |
 | --- | --- |
 | `/channel/cdp` | 截的是页面渲染结果,浏览器 UI 本就不在其中 |
-| `/channel/xpra` | 截的是真实窗口,但浏览器以 `--kiosk` 启动,**它不绘制 bar**([c §8](c-pixels.md#8-画面里没有-bar)) |
+| `/channel/xpra` | 截的是真实窗口,但浏览器以 `--kiosk` 启动,**它不绘制 bar**([c §11](c-view.md#11-画面里没有-bar)) |
 
 于是 tab 条、地址栏、前进后退由观看端自己画,数据经 API 取得:
 
@@ -173,7 +173,7 @@ Page.startScreencast(新 target)
 
 在 `/channel/xpra` 那条上有一个额外的确认:desktop 模式下,
 `<select>` 下拉之类的弹出层被 X 合成进同一个窗口,
-客户端只面对一块画布([c §6](c-pixels.md#6-这一套东西是什么))——
+客户端只面对一块画布([c §8](c-view.md#8-那一套-x-是什么))——
 **popup 不会变成第二个窗口。**
 
 ## 6. 一个 session 一份画面
@@ -193,7 +193,7 @@ per-观看者的状态、tab 条要按观看者渲染、`tab.activated` 要带�
 
 | | |
 | --- | --- |
-| 画面里为什么没有 bar | [c §8](c-pixels.md#8-画面里没有-bar) |
+| 画面里为什么没有 bar | [c §11](c-view.md#11-画面里没有-bar) |
 | 帧头为什么带 `targetId` | [e1 §1.1](e1-wire-format.md#11-下行二进制28-字节头--一整张图) |
 | 内置观看页与外部用同一组接口 | [e §8](e-client.md#8-ui-层内置那个页面不是界面) |
 | 落地在 | [`core/tabs.py`](../../../webmuxd/core/tabs.py) · [`view/cast.py`](../../../webmuxd/view/cast.py) 的 `follow()` |

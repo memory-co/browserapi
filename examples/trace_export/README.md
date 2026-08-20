@@ -1,7 +1,7 @@
 # 把行为流导成 Playwright trace
 
 **这是原型,不是 webmuxd 的功能。** 它验的是
-[c §13.4](../../docs/v2/works/c-pixels.md#134-换个用途同一项技术就成立了)
+[c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物)
 那张映射表能不能落地 —— 结论是能,连带量出六个具体问题(见下)。
 
 ```bash
@@ -30,7 +30,7 @@ npx playwright show-trace webmuxd-trace.zip      # 打开
 
 **动作边界是这件事的关键。** Playwright 自己录不到我们的动作 ——
 我们的输入是裸 CDP `Input.dispatchMouseEvent`,不构成 Playwright 调用
-([c §13.2](../../docs/v2/works/c-pixels.md#132-playwright-trace根本不是一条来源))。
+([c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物))。
 而边界本来就是我们定义的,所以只要在那个位置调一次序列化就行。
 
 ## 量到的问题

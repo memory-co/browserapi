@@ -51,7 +51,7 @@ python3 examples/rrweb_console/serve.py --port 8090 --url https://www.bilibili.c
 > 画面在浏览器内存里由 MediaSource 拼出来,rrweb 记的是元素和播放位置、不是帧。
 > B 站的播放器在重放里是一块黑的,而播放器的控件、"试看30秒"那层提示都在(它们是 DOM)。
 > 要那块画面只能传帧,而传帧就是截屏那条腿
-> ([c §13.1](../../docs/v2/works/c-pixels.md#131-rrweb是一条来源但代价买不起))。
+> ([c §5.3](../../docs/v2/works/c-view.md#53-它的边界能补的和补不了的))。
 
 ## 实测(自检页,2026-08-20)
 

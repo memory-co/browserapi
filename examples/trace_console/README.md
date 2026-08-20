@@ -19,7 +19,7 @@ python3 examples/trace_console/serve.py --port 9090
 | 谁在推 | 页面里的 MutationObserver 推 | **我们从外面 `Runtime.evaluate` 拉** |
 
 第三行是这条路容易被低估的地方:**它不需要往被自动化的页面里塞一个大库。**
-[c §13.4④](../../docs/v2/works/c-pixels.md#134-换个用途同一项技术就成立了)
+[c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物)
 把「改页面」记成了 rrweb 的一项代价 —— 这条路基本不付这笔钱。
 
 第四行是它的代价。但对「记录 tab 操作行为」这个目标来说,离散帧其实正好匹配:

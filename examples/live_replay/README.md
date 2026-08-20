@@ -17,7 +17,7 @@ python3 examples/live_replay/serve.py --port 8090 --replay trace  # 换成 Playw
 | `trace` | Playwright Trace Viewer | **一条动作一跳** | trace 是**产物格式**,时间轴是动作轴;每落一条动作要重拼整包再 post 进去 |
 
 `trace` 那条不顺不是没调好,是拿事后复盘的东西当实时用
-([c §13.2](../../docs/v2/works/c-pixels.md#132-playwright-trace根本不是一条来源))。
+([c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物))。
 留着是为了能直接对比。
 
 **两种都不改变一件事:输入永远走 CDP。** 下半屏只是看,不承载操作
@@ -41,7 +41,7 @@ python3 examples/live_replay/serve.py --port 8090 --replay trace  # 换成 Playw
 每条拍前后两张 DOM 快照 + 一帧截屏,标题带「谁做的」。
 Playwright 自己录不到这些 —— 输入是裸 CDP,不构成它的 API 调用,
 所以 trace 是我们写的,格式照它的来
-([c §13.4](../../docs/v2/works/c-pixels.md#134-换个用途同一项技术就成立了))。
+([c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物))。
 
 ## 图片和视频:能补到哪一步
 
@@ -78,7 +78,7 @@ MSE 视频 → 只能自己抓帧    ——那就是又写了一条截屏通道
 
 **补到最后,这条来源会变成另外那条,只是绕了一圈、还更贵。**
 所以该停在哪是个设计决定,不是能力问题:
-[c §13.1](../../docs/v2/works/c-pixels.md#131-rrweb是一条来源但代价买不起)。
+[c §5.3](../../docs/v2/works/c-view.md#53-它的边界能补的和补不了的)。
 
 ## 做的时候踩到的三个坑
 
@@ -99,7 +99,7 @@ MSE 视频 → 只能自己抓帧    ——那就是又写了一条截屏通道
 
 - rrweb 落后约 1.5 秒,没去调 —— live 模式按时间戳推进,基线取的是第一条事件
 - **记录器有五百多 KB,整个注进被自动化的页面**。这是它的真实代价,
-  比现在那个光标探针大得多([c §13.4④](../../docs/v2/works/c-pixels.md#134-换个用途同一项技术就成立了))
+  比现在那个光标探针大得多([c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物))
 - 只跟一个 tab;新开的 tab 不进重放
 - `trace` 模式每条动作重拼整个 zip 再整份 post 过去,动作多了会变慢
 - rrweb 的 bundle 第一次跑会下到 `~/.cache/webmuxd-examples/`

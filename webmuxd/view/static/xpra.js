@@ -196,7 +196,7 @@ export class XpraClient {
       // 切换时它会按变化推送光标图像(24×24 PNG + 热点)。不用它是个决定,
       // 不是漏了 —— 它只存在于这一条来源上,采用它等于同一个行为有两套实现,
       // 而 CDP 探针那条无论如何都得留着(screencast 没有别的选择)。
-      // 理由见 docs/v2/works/c-pixels.md §5.1。
+      // 理由见 docs/v2/works/c-view.md §5.1。
       case "encodings": case "cursor": case "window-metadata":
       case "window-icon": case "lost-window": case "setting-change":
       case "desktop_size": case "bell": case "eos": case "raise-window":

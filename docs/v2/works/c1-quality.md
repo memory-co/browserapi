@@ -1,8 +1,8 @@
-# c1 · 画质:三个旋钮与自适应([c](c-pixels.md) 的参考篇)
+# c1 · 画质:三个旋钮与自适应([c](c-view.md) 的参考篇)
 
 **这一篇只讲 `/channel/cdp` 那条来源。** `/channel/xpra` 有它自己的一套
 (按区域挑编码、静止后补无损、码率自适应),那些不是我们的参数 ——
-见 [c §4.1](c-pixels.md#41-它强在哪以及它的劣势区)。
+见 [c §4.1](c-view.md#41-它强在哪以及它的劣势区)。
 
 **一句话**:画面糊有**三个互不相干的来源**,调错旋钮不会有任何效果;
 另有一套按链路状况自动降质的机制,它的输入是回执往返时间。
@@ -148,7 +148,7 @@ Emulation.setDeviceMetricsOverride  deviceScaleFactor=2
 
 | | |
 | --- | --- |
-| 两条像素来源的结构 | [c](c-pixels.md) |
+| 两条像素来源的结构 | [c](c-view.md) |
 | 回执为什么必须独立发、带帧号 | [e §4.1](e-client.md#41-收到帧立刻回执带帧号不搭车) |
 | 额度与缓冲的具体数值 | [e1 §4](e1-wire-format.md#4-额度与缓冲) |
 | 落地在 | [`view/quality.py`](../../../webmuxd/view/quality.py) · [`view/cast.py`](../../../webmuxd/view/cast.py) |

@@ -12,14 +12,14 @@
 | `trace` | Playwright Trace Viewer | **一条动作一跳** —— 每条都要重拼整包再 post 进去 |
 
 `trace` 那条不顺是结构决定的:trace 是给事后复盘的产物格式,
-时间轴是**动作轴**([c §13.2](../../docs/v2/works/c-pixels.md#132-playwright-trace根本不是一条来源));
+时间轴是**动作轴**([c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物));
 rrweb 本来就是流,`addEvent()` 一条一条喂就行。
 
 两种都不改变一件事:**输入永远走 CDP。** 下半屏只是看,不承载操作
 ([b §1](../../docs/v2/works/b-input.md#1-收口在哪))。
 
 > **rrweb 会往页面里注入一个五百多 KB 的记录器。** 这是它的真实代价,
-> 比现在那个光标探针大得多([c §13.4④](../../docs/v2/works/c-pixels.md#134-换个用途同一项技术就成立了))。
+> 比现在那个光标探针大得多([c §16](../../docs/v2/works/c-view.md#16-playwright-trace不是来源是产物))。
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ CACHE = Path.home() / ".cache" / "webmuxd-examples"
 
 #: 注进页面的那段:开录,每条事件经 binding 送出来。
 #: `recordCanvas` 打开是为了让 canvas 也能重放 —— 关掉的话那一格是空的,
-#: 正是 [c §13.1③] 说的那条缺口。代价是它要一直把 canvas 转成图。
+#: 正是 [c §5.5] 说的那条缺口。代价是它要一直把 canvas 转成图。
 RECORD_JS = """
 (() => {
   if (window.__rrwebOn) return;
