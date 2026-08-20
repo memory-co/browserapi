@@ -140,6 +140,11 @@ class Console:
         self.cursor = "default"
         self.bytes = {"rr": 0, "res": 0}
         self._pending: dict[str, dict] = {}
+        #: 正在挡路的那个 JS 对话框。**必须有人应答,否则渲染进程永远卡着** ——
+        #: 开了 `Page.enable` 之后 Chrome 就把它交给客户端等着,
+        #: 而卡住的表现是"鼠标点了没反应",不是报错(g §1)。
+        self.dialog: dict | None = None
+        self._dlg_timer: asyncio.TimerHandle | None = None
 
     # ------------------------------------------------------------------ 起
 
@@ -186,6 +191,8 @@ class Console:
         self.cdp.on("Page.frameNavigated", self._on_nav)
         self.cdp.on("Network.responseReceived", self._on_resp)
         self.cdp.on("Network.loadingFinished", self._on_done)
+        self.cdp.on("Page.javascriptDialogOpening", self._on_dialog)
+        self.cdp.on("Page.javascriptDialogClosed", self._on_dialog_closed)
 
     # ---------------------------------------------------------- 页面传出来
 
@@ -218,6 +225,45 @@ class Console:
                 self.rr = self.rr[-4000:]
         self.bytes["rr"] += len(payload)
         self._push({"c": "rr", "e": payload, "b": self.bytes})
+
+    # ----------------------------------------------------- 挡路的对话框
+
+    def _on_dialog(self, params: dict, _sid: str | None) -> None:
+        """**一个 alert 就能把整个会话冻住。** 实测:弹出之前 CDP 往返 3ms,
+        弹出之后连着三次十二秒都不回 —— 因为渲染进程在等应答。"""
+        self.dialog = {"kind": params.get("type", "alert"),
+                       "message": params.get("message", ""),
+                       "prompt": params.get("defaultPrompt", "")}
+        self._push({"c": "dialog", **self.dialog})
+        if self._dlg_timer:
+            self._dlg_timer.cancel()
+        # **兜底:没人答就自己取消。** 不替使用者决定,但也绝不允许永久卡住 ——
+        # 超时一律偏向"取消"(g §3)。
+        self._dlg_timer = asyncio.get_running_loop().call_later(
+            25, lambda: asyncio.create_task(self.answer(False, "", auto=True)))
+
+    def _on_dialog_closed(self, _params: dict, _sid: str | None) -> None:
+        self.dialog = None
+        if self._dlg_timer:
+            self._dlg_timer.cancel()
+            self._dlg_timer = None
+        self._push({"c": "dialog", "kind": None})
+
+    async def answer(self, accept: bool, text: str = "", *, auto: bool = False) -> None:
+        if not self.dialog:
+            return
+        # **先把要用的东西取出来。** 应答成功会立刻触发 `javascriptDialogClosed`,
+        # 那个回调把 `self.dialog` 置空 —— 之后再读它就是 None。
+        what = (self.dialog.get("message") or "")[:80]
+        try:
+            await self.cdp.send("Page.handleJavaScriptDialog",
+                                {"accept": accept, "promptText": text},
+                                session_id=self.sid)
+        except Exception as e:
+            print("应答对话框失败:", e)
+            return
+        if auto:
+            print(f"！没人应答,自动取消了一个对话框:{what}")
 
     def _on_nav(self, params: dict, _sid: str | None) -> None:
         f = params.get("frame") or {}
@@ -332,6 +378,9 @@ class Console:
         """**观看端能表达的意图只有这几种。** 这就是安全收口:
         不是"过滤掉危险的",而是"只能说这几句话"。"""
         k = m.get("t")
+        if k == "dialog":
+            await self.answer(bool(m.get("accept")), m.get("text", ""))
+            return
         if k == "mouse":
             await self.cdp.send("Input.dispatchMouseEvent", {
                 "type": m["type"], "x": m["x"], "y": m["y"],
@@ -437,7 +486,10 @@ async def main() -> None:
                     try:
                         await con.input(json.loads(msg.data))
                     except Exception as e:
+                        # **卡住必须让观看端看见。** 只写日志的话,
+                        # 使用者看到的是"鼠标点了没反应",查不到任何东西。
                         print("input 出错:", e)
+                        con._push({"c": "stuck", "why": str(e)[:120]})
         finally:
             con.viewers.discard(ws)
         return ws

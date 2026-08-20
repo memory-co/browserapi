@@ -29,12 +29,32 @@
   /* **只读是结构性的,不是靠自觉。**
      重放出来的 DOM 整个 pointer-events:none —— 点不到、选不中、链接也点不开。
      所有事件都落在上面那层 #grab 上,由它翻译成 CDP 调用。 */
+  /* **rrweb 有自己的容器,只清它。**
+     以前是"删掉 #stage 里除了 grab/ime 之外的所有孩子",
+     结果后来加的对话框卡片被一起删了 —— 而且不报错,只是永远不出现。
+     换成专属容器之后,叠在上面的东西再多也不会被误伤。 */
+  #paintbox{position:absolute;inset:0;overflow:hidden}
   #stage .replayer-wrapper,#stage iframe{pointer-events:none !important;
        user-select:none !important;transform-origin:0 0}
   #stage .replayer-mouse{display:none !important}   /* 本地已经有一个光标了 */
   #grab{position:absolute;inset:0;background:transparent;outline:0}
   #ime{position:absolute;width:1px;height:1px;opacity:0;border:0;padding:0;
        left:-9999px;top:0;resize:none}
+  /* 挡路的 JS 对话框。**它不是装饰** —— 不应答的话整个渲染进程会一直卡着 */
+  #dlg{position:absolute;inset:0;background:#0009;display:none;
+       align-items:center;justify-content:center;z-index:9}
+  #dlg.on{display:flex}
+  #dlg .card{background:#1a1f27;border:1px solid var(--line);border-radius:12px;
+       padding:18px 20px;max-width:520px;box-shadow:0 20px 60px #000a}
+  #dlg h3{margin:0 0 6px;font-size:14px;color:var(--warn)}
+  #dlg p{margin:0 0 12px;white-space:pre-wrap;word-break:break-word}
+  #dlg input{width:100%;margin-bottom:12px;background:#0d1015;color:var(--fg);
+       border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit}
+  #dlg .row{display:flex;gap:8px;justify-content:flex-end}
+  #dlg button{background:#222831;color:var(--fg);border:1px solid var(--line);
+       border-radius:6px;padding:6px 14px;font:inherit;cursor:pointer}
+  #dlg button.primary{background:#2e6b3f;border-color:#397a4b}
+  .pill.bad{color:#e07a6b;border-color:#4a2a22;background:#241310}
 
   footer{flex:none;display:flex;gap:14px;align-items:center;padding:6px 12px;
          border-top:1px solid var(--line);color:var(--dim);font-size:12px;
@@ -49,13 +69,27 @@
   <button id="reload" title="重新加载">⟳</button>
   <input id="url" placeholder="输入网址,回车">
   <span class="pill ro" title="重放出来的 DOM 完全不接收事件">画面只读</span>
+  <span class="pill bad" id="stuck" style="display:none"></span>
   <span class="pill" id="conn">连接中…</span>
 </header>
 
 <main>
   <div id="stage">
+    <div id="paintbox"></div>
     <div id="grab" tabindex="0"></div>
     <textarea id="ime" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+    <div id="dlg"><div class="card">
+      <h3 id="dlg-kind">页面弹了个对话框</h3>
+      <p id="dlg-msg"></p>
+      <input id="dlg-input" style="display:none">
+      <div class="row">
+        <button id="dlg-no">取消</button>
+        <button id="dlg-yes" class="primary">确定</button>
+      </div>
+      <div style="color:var(--dim);font-size:12px;margin-top:10px">
+        <b>不答的话页面会一直卡住</b> —— 渲染进程在等它。25 秒没人答就自动取消。
+      </div>
+    </div></div>
   </div>
 </main>
 
@@ -72,7 +106,7 @@
 <script>
 const VW = +"__W__", VH = +"__H__";
 const $ = s => document.querySelector(s);
-const stage = $("#stage"), grab = $("#grab"), ime = $("#ime");
+const stage = $("#stage"), paintbox = $("#paintbox"), grab = $("#grab"), ime = $("#ime");
 
 /* ---------------- 舞台缩放:保持录到的视口比例 ---------------- */
 let scale = 1;
@@ -82,7 +116,7 @@ function fit() {
   scale = Math.min((m.clientWidth - pad) / VW, (m.clientHeight - pad) / VH);
   stage.style.width = VW * scale + "px";
   stage.style.height = VH * scale + "px";
-  const wrap = stage.querySelector(".replayer-wrapper");
+  const wrap = paintbox.querySelector(".replayer-wrapper");
   if (wrap) wrap.style.transform = `scale(${scale})`;
 }
 addEventListener("resize", fit); fit();
@@ -102,7 +136,7 @@ function feed(e) {
   lastTs = e.timestamp || lastTs;
   if (e.type === 4) {                       // Meta:新的一页,推倒重来
     if (replayer) { try { replayer.destroy(); } catch (_) {} replayer = null; }
-    [...stage.children].forEach(c => { if (c !== grab && c !== ime) c.remove(); });
+    paintbox.innerHTML = "";          // 只清 rrweb 那个容器
     pending = [e];
     return;
   }
@@ -110,7 +144,7 @@ function feed(e) {
     pending.push(e);
     if (e.type !== 2) return;               // 等到 FullSnapshot 才建得起来
     replayer = new rrweb.Replayer(pending, {
-      root: stage, liveMode: true, mouseTail: false,
+      root: paintbox, liveMode: true, mouseTail: false,
       UNSAFE_replayCanvas: true, insertStyleRules: [],
     });
     // **基线必须是"现在",不是快照的时间戳。**
@@ -124,7 +158,7 @@ function feed(e) {
     window.__rp = replayer;
     fit();
     // 重放的 iframe 是它自己建的,再确认一遍不接事件
-    stage.querySelectorAll("iframe").forEach(f => {
+    paintbox.querySelectorAll("iframe").forEach(f => {
       f.style.pointerEvents = "none";
       f.setAttribute("tabindex", "-1");
     });
@@ -150,7 +184,40 @@ ws.onmessage = ev => {
     grab.style.cursor = m.v;
   } else if (m.c === "url") {
     if (document.activeElement !== $("#url")) $("#url").value = m.v || "";
+  } else if (m.c === "dialog") {
+    showDialog(m);
+  } else if (m.c === "stuck") {
+    // 指令送不出去时,至少让人看见是什么挡住了
+    const el = $("#stuck");
+    el.style.display = "";
+    el.textContent = "指令超时:" + m.why;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.style.display = "none", 8000);
   }
+};
+
+/* 挡路的对话框:**必须有人答**,否则渲染进程一直卡着,
+   表现就是"鼠标点了没反应"而且不报错。 */
+const KIND = { alert: "页面弹了个提示", confirm: "页面在问你要不要",
+               prompt: "页面要你填点东西", beforeunload: "页面问你确定要离开吗" };
+function showDialog(m) {
+  const box = $("#dlg");
+  if (!m.kind) { box.classList.remove("on"); return; }
+  $("#dlg-kind").textContent = KIND[m.kind] || m.kind;
+  $("#dlg-msg").textContent = m.message || "(没有内容)";
+  const inp = $("#dlg-input");
+  inp.style.display = m.kind === "prompt" ? "" : "none";
+  inp.value = m.prompt || "";
+  box.classList.add("on");
+  if (m.kind === "prompt") inp.focus();
+}
+$("#dlg-yes").onclick = () => {
+  send({ t: "dialog", accept: true, text: $("#dlg-input").value });
+  $("#dlg").classList.remove("on");
+};
+$("#dlg-no").onclick = () => {
+  send({ t: "dialog", accept: false });
+  $("#dlg").classList.remove("on");
 };
 const t0 = Date.now();
 
