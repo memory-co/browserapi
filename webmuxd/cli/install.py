@@ -135,7 +135,7 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
     # 不是一个可选的加分项。装不上也要把话说完:怎么装、以及不想装可以走哪条。
     ok = _ensure(say, fam, rooted, "xpra", xpra_mod.available,
                  fam.xpra if fam else deps.APT.xpra,
-                 tail="不想装的话:webmuxd new … --transport screencast")
+                 tail="不想装的话:webmuxd new … --transport jpg(或 dom)")
     if ok:
         record["xpra"] = {"vfb": "Xvfb"}
 

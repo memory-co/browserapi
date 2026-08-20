@@ -24,6 +24,8 @@ import tempfile
 from typing import Any
 
 from webmuxd import browser, xpra as xpra_mod
+from webmuxd.errors import UsageError
+from webmuxd.view import modes
 from webmuxd.runtime.base import (
     Handle, free_port, require_ports, spawn_sessiond, unavailable, wait_http,
     wait_port,
@@ -71,25 +73,34 @@ def resolve_browser(explicit: str | None = None) -> str:
 
 
 def resolve_transport(explicit: str | None) -> str:
-    """没显式说的时候走哪条画面路。**默认 xpra。**
+    """没显式说的时候用哪种画面。**默认 VNC。**
 
-    xpra 按 damage 区域编码,滚动时 `scroll` 包零字节搬像素 ——
+    VNC(xpra)按 damage 区域编码,滚动时 `scroll` 包零字节搬像素 ——
     实测滚一页 Wikipedia,57% 的重绘面积没花一个字节
-    ([12 §9](../../docs/v2/works/12-xpra-client.md))。这是默认值该给的东西。
+    ([c §4.1](../../docs/v2/works/c-view.md#41-它强在哪以及它的劣势区))。
+    这是默认值该给的东西。
 
-    **起不来就抛,不退回 screencast。** 静默退回等于让你以为自己在看 xpra
-    的画质,而那正是 [07](../../docs/v2/works/07-runtime.md) 那句
-    "不可用时抛,不降级"要防的事。退路是**显式说一声**,不是我们替你决定。
+    **起不来就抛,不自己换一种。** 静默换等于让你以为自己在看 VNC 的画质,
+    而那正是"不可用时抛,不降级"要防的事。退路是**显式说一声**
+    ([c §9.5](../../docs/v2/works/c-view.md#95-切了必须说出来))。
     """
-    if explicit:
-        return explicit
+    if explicit is not None:
+        m = modes.canon(explicit)
+        if m is None:
+            raise UsageError(
+                f"没有 {explicit!r} 这种画面,只有 "
+                + " / ".join(modes.label(x) for x in modes.MODES)
+                + " —— JPG 什么都显示得出来,VNC 连续跟手,DOM 字最清楚最省流量",
+                details={"got": explicit, "choices": list(modes.MODES)})
+        return m
     ok, why = xpra_mod.available()
     if ok:
-        return "xpra"
+        return modes.VNC
     raise unavailable(
-        "process", f"默认走 xpra,但这台机器起不来:{why}",
+        "process", f"默认走 VNC,但这台机器起不来:{why}",
         "装上:`webmuxd install`(有 root 就自动装,没 root 会打出该跑的那行);"
-        "不想装就显式说:`--transport screencast` / `transport=\"screencast\"`")
+        "不想装就显式说:`--transport jpg`(什么都显示得出来)"
+        "或 `--transport dom`(字最清楚、最省流量)")
 
 
 class ProcessRuntime:
@@ -116,15 +127,15 @@ class ProcessRuntime:
         # ([02 §4③](../../docs/v2/works/02-frame-protocol.md)),而 xpra 那条路上
         # 没有 screencast —— 画面尺寸就是那个 X 显示的尺寸。
         # **给了却不起作用,比报错难查得多。**
-        if transport == "xpra" and dsf and dsf != 1.0:
+        if transport == modes.VNC and dsf and dsf != 1.0:
             # **说清 xpra 是你选的还是默认来的。** 没说要 xpra 的人被告知
             # "dsf 在 xpra 上没用",第一反应会是"我什么时候要 xpra 了"。
-            which = "--transport xpra" if asked else "默认的 xpra"
+            which = "--transport vnc" if asked else "默认的 VNC"
             raise unavailable(
                 "process", f"--dsf {dsf} 在 {which} 上没有用",
                 "xpra 截的是那个 X 显示,倍率得由显示尺寸决定 —— "
                 "把 --window-size 开大(比如 2048x1536)是等价的做法;"
-                "要 dsf 就用 --transport screencast")
+                "要 dsf 就用 --transport jpg")
         exe = resolve_browser(browser_path)
         require_ports(port)
 
@@ -142,7 +153,7 @@ class ProcessRuntime:
         if not browser.has_cjk_font():
             notes.append(f"{browser.FONT_HINT[1]} —— `{browser.FONT_HINT[0]}`")
 
-        if transport == "xpra":
+        if transport == modes.VNC:
             return self._start_xpra(
                 id, exe=exe, port=port, url=url, work=work, cdp_port=cdp_port,
                 proxy=proxy, token=token, bind=bind, view=view or {},
@@ -198,7 +209,10 @@ class ProcessRuntime:
         procs["sessiond"] = spawn_sessiond(
             f"http://127.0.0.1:{cdp_port}", port=port, bind=bind,
             data=os.path.join(work, "data"), token=token,
-            view={**(view or {}), "dsf": dsf})
+            # **画面模式必须传下去。** 漏了这一个键的表现是:
+            # `--transport dom` 一路顺利地起来了,而 sessiond 用的是默认的 jpg ——
+            # 观看端收得到 hello/cast,DOM 事件一条没有,**全程不报错**。
+            view={**(view or {}), "dsf": dsf, "transport": transport})
         if bind not in ("127.0.0.1", "localhost", "::1"):
             notes.append(f"画面口绑在 {bind} —— **这台机器网络能到的人,"
                          f"拿到 token 就能操作这个浏览器**")
@@ -264,7 +278,7 @@ class ProcessRuntime:
         procs["sessiond"] = spawn_sessiond(
             f"http://127.0.0.1:{cdp_port}", port=port, bind=bind,
             data=os.path.join(work, "data"), token=token,
-            view={**view, "transport": "xpra", "xpra-ws": sess.ws_url})
+            view={**view, "transport": modes.VNC, "xpra-ws": sess.ws_url})
         if bind not in ("127.0.0.1", "localhost", "::1"):
             notes.append(f"画面口绑在 {bind} —— **这台机器网络能到的人,"
                          f"拿到 token 就能操作这个浏览器**")
@@ -275,7 +289,7 @@ class ProcessRuntime:
                               f"日志在 {os.path.join(work, 'sessiond.log')}")
         return Handle(self.name, id, port,
                       {"cdp_port": cdp_port, "work": work, "browser": exe,
-                       "bind": bind, "transport": "xpra", "display": display,
+                       "bind": bind, "transport": modes.VNC, "display": display,
                        "xpra_ws_port": ws_port, "xpra_log": sess.log_path,
                        "pids": {"sessiond": procs["sessiond"].pid,
                                 "xpra": sess.proc.pid},

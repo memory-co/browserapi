@@ -17,6 +17,7 @@ import os
 import sys
 from typing import Any
 
+from webmuxd.view import modes
 from webmuxd import Webmuxd, runtime as rt
 from webmuxd.cli.registry import Registry
 from webmuxd.client.session import Session
@@ -244,8 +245,11 @@ def cmd_info(args: argparse.Namespace) -> int:
     xpra_ok, xpra_why = xpra_mod.available()
     info = {"version": __import__("webmuxd").__version__, "runtimes": rt.detect(),
             "default_runtime": rt.default(),
-            "default_transport": "xpra" if xpra_ok else None,
-            "transports": {"screencast": True, "xpra": xpra_ok},
+            "default_transport": modes.VNC if xpra_ok else None,
+            # **报的是使用者看得见的那三个词。** JPG / DOM 不依赖系统里的东西,
+            # 永远可用;VNC 要一个真实的 X 显示([c §9.3])。
+            "transports": {modes.JPG: True, modes.VNC: xpra_ok, modes.DOM: True},
+            "views": modes.choices(),
             "xpra_why": "" if xpra_ok else xpra_why,
             "env_record": {"at": rec["at"]} if rec else None,
             "sessions": {"total": len(rows),
@@ -564,13 +568,16 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--bind", default="127.0.0.1",
                    help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
                         "拿到 token 的人就能操作这个浏览器")
-    # **画面从哪来。默认 xpra**(works/11 §6)——它按 damage 区域编码,
+    # **画面用哪种。默认 VNC**([c §13])—— 它按 damage 区域编码,
     # 滚动时 `scroll` 包零字节搬像素。`webmuxd install` 会把它装上。
-    # 起不来就报错,**不静默退回 screencast**;退路是显式说一声。
-    n.add_argument("--transport", default=None,
-                   choices=["screencast", "xpra"],
-                   help="画面怎么来。不给就是 xpra —— 按区域编码,滚动更顺;"
-                        "screencast = CDP 截屏,零系统依赖,xpra 装不上时用它")
+    # 起不来就报错,**不自己换一种**;退路是显式说一声。
+    #
+    # 旧名字(screencast / xpra / rrweb)继续认,但不列在 choices 里 ——
+    # **一件事一个词**,列出来就等于承认有两套叫法。
+    n.add_argument("--transport", default=None, metavar="{jpg,vnc,dom}",
+                   help="画面用哪种。不给就是 vnc。"
+                        "jpg=什么都显示得出来;vnc=连续、跟手;"
+                        "dom=字最清楚、最省流量(但没有视频)")
     n.add_argument("-d", action="store_true", help="建完不 attach(默认就是)")
 
     ins = add("install", cmd_install, target=False,

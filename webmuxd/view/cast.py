@@ -27,6 +27,7 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
+from webmuxd.view import modes
 from webmuxd.view.input import Translator
 from webmuxd.view.protocol import build_header
 from webmuxd.view.quality import Adaptor
@@ -51,16 +52,32 @@ class Screencaster:
     def __init__(self, session: "Session", *, width: int = DEFAULT_W,
                  height: int = DEFAULT_H, fmt: str = DEFAULT_FORMAT,
                  quality: int = DEFAULT_QUALITY, dsf: float = 1.0,
-                 min_quality: int = 25, transport: str = "screencast") -> None:
+                 min_quality: int = 25, transport: str = modes.JPG) -> None:
         self.session = session
-        #: **像素从哪来 —— 这是两个 transport 之间唯一的差别**
-        #: ([11 §5](../../docs/v2/works/11-xpra.md))。
+        #: **画面从哪来 —— 这是几种模式之间唯一的差别**
+        #: ([c §7](../../docs/v2/works/c-view.md#7-接缝切在哪))。
         #:
-        #: `xpra` 时这个类**照常干所有别的活**:跟着 tab 走(`Target.activateTarget`)、
+        #: 不是 JPG 时这个类**照常干所有别的活**:跟着 tab 走(`Target.activateTarget`)、
         #: 收输入、发光标、管观看者名单 —— 只有 `Page.startScreencast` 那三行不发。
-        #: 那条原则落到代码上就是下面几个 `if self.xpra: return`,没有第二处分叉。
-        self.transport = transport
-        self.xpra = transport == "xpra"
+        #: 那条原则落到代码上就是下面几个 `if not self.own_frames: return`,
+        #: 没有第二处分叉。
+        self.mode = modes.canon(transport) or modes.JPG
+        #: 画面归不归我们截。JPG 归;VNC 的来自 xpra,DOM 的来自页面里的记录器。
+        self.own_frames = self.mode == modes.JPG
+        #: 视口归不归我们定。**这和上面那条不是一回事** ——
+        #: DOM 不用我们截图,但**视口必须由我们钉住**:重放出来的布局就是按它排的。
+        #: 只有 VNC 不能设 —— 那边画面尺寸是 X 显示的尺寸,再 override 一次
+        #: 会让页面被渲染成另一个尺寸而窗口不变,画面里一圈空白。
+        self.own_viewport = self.mode != modes.VNC
+        #: DOM 那条的事件源。别的模式下是 None。
+        #: **在 `__init__` 里就建好,不能等 `start()`** —— tab 的 attach 可能
+        #: 更早,那时 `self.dom` 还是 None,记录器就漏装了。
+        #: 漏装的表现是:模式对、日志说装上了,而页面里 `typeof rrweb` 是
+        #: `undefined`、事件一条没有,**全程不报错**。
+        self.dom = None
+        if self.mode == modes.DOM:
+            from webmuxd.view.dom import DomSource
+            self.dom = DomSource(push=self._tell_raw)
         self._warned_resize = False
         self.width, self.height = width, height
         self.format = fmt
@@ -101,6 +118,13 @@ class Screencaster:
         self.viewers.add(v)
         if len(self.viewers) == 1:
             await self.follow(self.session.tabs.active, force=True)
+        if self.dom is not None:
+            # **新来的要从最近一张全量快照接上,不能从半路接** ——
+            # 增量链从中间开始重放出来的是一棵错的 DOM,而且不报错
+            # ([c §5.5](../../docs/v2/works/c-view.md#55-背压不能沿用丢旧保新))。
+            for e in self.dom.snapshot_for_new_viewer():
+                with contextlib.suppress(Exception):
+                    await v.tell("dom", e=e)
 
     async def remove_viewer(self, v: Viewer) -> None:
         v.closed = True
@@ -131,6 +155,14 @@ class Screencaster:
                 log.warning("attach 不上 %s: %s", tab_id, e)
                 return
             self._sid = sid
+            if self.dom is not None:
+                # **记录器挂在这个 target 上。** 同一个 target 只挂一次;
+                # 挂不上就报出来 —— 静默失败的表现是"DOM 模式下画面永远不出来",
+                # 和"页面没动"分不清。
+                try:
+                    await self.dom.arm(self.session.cdp, sid)
+                except Exception as e:            # noqa: BLE001
+                    log.error("DOM 画面挂不上:%s", e)
             # **必须 activate,否则一帧都不会有** —— 本轮实测
             with contextlib.suppress(Exception):
                 tab = self.session.tabs.get(tab_id)
@@ -143,7 +175,7 @@ class Screencaster:
                              dsf=self.dsf)
 
     async def _start_cast(self, *, locked: bool = False) -> None:
-        if self.xpra:
+        if not self.own_frames:
             # 画面由 xpra 那条连接下来,**这里一个 CDP 截图命令都不发** ——
             # 两条都开着等于同一份画面编码两遍。
             return
@@ -164,7 +196,7 @@ class Screencaster:
         self._on = True
 
     async def _stop_cast(self, *, locked: bool = False) -> None:
-        if self.xpra:
+        if not self.own_frames:
             self._on = False
             return
         if not self._on or self._sid is None:
@@ -176,9 +208,9 @@ class Screencaster:
                                         session_id=self._sid)
 
     async def _apply_viewport(self) -> None:
-        """视口是 per-tab 的,一条 CDP 命令([02 §5](../../docs/v2/works/02-frame-protocol.md))。"""
-        if self.xpra:
-            # **xpra 下画面尺寸是那个 X 显示的尺寸,不是 CDP 说了算的。**
+        """视口是 per-tab 的,一条 CDP 命令([c1](../../docs/v2/works/c1-quality.md))。"""
+        if not self.own_viewport:
+            # **VNC 下画面尺寸是那个 X 显示的尺寸,不是 CDP 说了算的。**
             # 这时候再 setDeviceMetricsOverride,页面会被渲染成另一个尺寸,
             # 而窗口不变 —— 结果是画面里一圈空白。所以不发。
             return
@@ -190,7 +222,7 @@ class Screencaster:
                 "deviceScaleFactor": 0, "mobile": False}, session_id=self._sid)
 
     async def resize(self, width: int, height: int) -> None:
-        if self.xpra:
+        if not self.own_viewport:
             # 尺寸由 `xpra --resize-display=WxH` 定死,浏览器窗口拉大拉小
             # 不改变它 —— **说一次,别每次都吵**。
             if not self._warned_resize:
@@ -296,6 +328,12 @@ class Screencaster:
             self.session.note_human_activity(str(msg.get("type")))
         await Translator(self.session.cdp, self._sid).handle(msg)
 
+    async def _tell_raw(self, msg: dict[str, Any]) -> None:
+        """DOM 那条的事件直接发给所有观看者。**不进帧的额度环** ——
+        它不是帧,丢一条就断链(§5.5),那套"留最新丢最旧"在这儿是错的。"""
+        kind = msg.pop("type", "dom")
+        await self._tell_all(kind, **msg)
+
     async def _tell_all(self, type_: str, **payload: Any) -> None:
         for v in list(self.viewers):
             with contextlib.suppress(Exception):
@@ -305,7 +343,9 @@ class Screencaster:
 
     def stats(self) -> dict[str, Any]:
         return {
-            "transport": self.transport,
+            "transport": self.mode,
+            "mode": self.mode,
+            "mode_label": modes.label(self.mode),
             "on": self._on, "tab": self._tab, "cast_id": self._cast_id,
             "frames": self.frames, "bytes": self.bytes_out,
             "format": self.format, "quality": self.adaptor.quality,
@@ -313,4 +353,5 @@ class Screencaster:
             "every_nth": self.adaptor.every_nth,
             "w": self.width, "h": self.height,
             "viewers": [v.stats() for v in self.viewers],
+            **({"dom": self.dom.stats()} if self.dom is not None else {}),
         }

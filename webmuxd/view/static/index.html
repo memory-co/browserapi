@@ -44,6 +44,13 @@
   #ro { color: var(--warn); font-size: 11px; white-space: nowrap; }
 
   #stage { flex: 1; display: grid; place-items: center; overflow: auto; padding: 10px; }
+  /* DOM 那条画面。**只读是结构性的**:重放出来的整棵 DOM 不接事件,
+     所有输入落在 #screen3 上,再翻译成 Input.*(c §7)。 */
+  #screen3 { position: relative; background: #fff; overflow: hidden; outline: 0; }
+  #paintbox { position: absolute; inset: 0; overflow: hidden; }
+  #screen3 .replayer-wrapper, #screen3 iframe {
+    pointer-events: none !important; user-select: none !important;
+    transform-origin: 0 0; border: 0; }
   #screen, #screen2 { display: block; background: #000; image-rendering: auto;
     outline: none; user-select: none; -webkit-user-drag: none; }
   #screen.dead, #screen2.dead { opacity: .35; }
@@ -92,7 +99,7 @@
   <span id="ro" hidden>只读</span>
 </div>
 
-<div id="stage"><img id="screen" alt=""><canvas id="screen2" hidden></canvas></div>
+<div id="stage"><img id="screen" alt=""><canvas id="screen2" hidden></canvas><div id="screen3" hidden><div id="paintbox"></div></div></div>
 
 <div id="status">
   <span>帧 <b id="s-fps">0</b> fps</span>
@@ -113,9 +120,10 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const img = $("screen"), cvs = $("screen2"), ime = $("ime");
+  const dom3 = $("screen3"), paintbox = $("paintbox");
   // **画面在哪个元素上。** screencast 是 <img>,xpra 是 <canvas> ——
   // 除了这一处,下面所有代码对两者一视同仁(works/11 §5)。
-  let screenEl = img, xpra = null;
+  let screenEl = img, xpra = null, replayer = null, rrPending = [];
   const qs = new URLSearchParams(location.search);
   const token = qs.get("t") || "";
   // token 会进历史和 Referer,进来之后就抹掉(works/04 §4)
@@ -170,10 +178,12 @@
     ws.onmessage = (e) => {
       if (typeof e.data !== "string") return onFrame(e.data);
       const m = JSON.parse(e.data);
+      if (m.type === "dom") { return feedDom(JSON.parse(m.e)); }
       if (m.type === "hello") {
         writable = !!m.writable;
         $("ro").hidden = writable;
-        if (m.transport === "xpra" && !xpra) startXpra();
+        if (m.transport === "vnc" && !xpra) startXpra();
+        if (m.transport === "dom") startDom();
         if (m.w) setSize(m.w, m.h);
         if (!xpra) sendSize();          // xpra 的尺寸是 X 显示定的,问也没用
       } else if (m.type === "cast") {
@@ -196,6 +206,74 @@
     };
   }
   const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+  // ------------------------------------------------------------ DOM 那条画面路
+  // **只换画面从哪来。** 输入、光标、tab、原生 UI 上面那一整套一行不动
+  // ([c §7](../../../docs/v2/works/c-view.md#7-接缝切在哪))。
+  //
+  // 重放出来的那棵 DOM 整个 `pointer-events: none`(见 style)——
+  // **点不到、选不中、链接也点不开**,事件全落在 #screen3 上,
+  // 再翻译成 `Input.*`。只读是结构性的,不是靠自觉。
+  let rrLoaded = null;
+  function startDom() {
+    img.hidden = true; dom3.hidden = false; screenEl = dom3;
+    $("s-q").textContent = "DOM";
+    if (!rrLoaded) {
+      rrLoaded = new Promise((res, rej) => {
+        const css = document.createElement("link");
+        css.rel = "stylesheet"; css.href = "/api/rrweb.css" + auth;
+        document.head.appendChild(css);
+        const sc = document.createElement("script");
+        sc.src = "/api/rrweb.js" + auth;
+        sc.onload = res;
+        sc.onerror = () => rej(new Error("重放器加载失败"));
+        document.head.appendChild(sc);
+      }).catch((err) => {
+        // **不静默换一种。** 选了 DOM 而它起不来是个要修的事,
+        // 不是该被悄悄绕过去的事。
+        $("s-conn").textContent = "DOM 重放器加载失败"; $("s-conn").className = "bad";
+        toast("DOM 重放器加载失败:" + err.message + " —— 换 --transport jpg 可以先用", 20000);
+        throw err;
+      });
+    }
+    return rrLoaded;
+  }
+
+  async function feedDom(e) {
+    if (!rrLoaded) startDom();
+    try { await rrLoaded; } catch (_) { return; }
+    if (e.type === 4) {                       // Meta:新的一页,推倒重来
+      if (replayer) { try { replayer.destroy(); } catch (_) {} replayer = null; }
+      paintbox.innerHTML = "";                // **只清这个容器**,别动兄弟节点
+      rrPending = [e];
+      if (e.data && e.data.width) { frameW = e.data.width; frameH = e.data.height; }
+      return;
+    }
+    if (!replayer) {
+      rrPending.push(e);
+      if (e.type !== 2) return;               // 等到全量快照才建得起来
+      replayer = new rrweb.Replayer(rrPending, {
+        root: paintbox, liveMode: true, mouseTail: false,
+        UNSAFE_replayCanvas: true, insertStyleRules: [],
+      });
+      // **基线取"现在",不是快照的时间戳。** live 模式按 `事件时间 − 基线`
+      // 排期;基线取十秒前那张快照的话,后面每条新事件都被排到十秒后才应用 ——
+      // 表现是"点了没反应",而且不报错。
+      replayer.startLive(Date.now());
+      rrPending = [];
+      fitDom();
+      return;
+    }
+    try { replayer.addEvent(e); } catch (_) {}
+  }
+
+  function fitDom() {
+    const wrap = paintbox.querySelector(".replayer-wrapper");
+    if (!wrap) return;
+    const r = dom3.getBoundingClientRect();
+    if (r.width) wrap.style.transform = "scale(" + (r.width / (frameW || castW)) + ")";
+  }
+  addEventListener("resize", fitDom);
 
   // ------------------------------------------------------------ xpra 那条画面路
   // **只换像素从哪来。** 输入、光标、tab、原生 UI 上面那一整套一行不动
@@ -279,7 +357,7 @@
 
   // **两个元素都绑。** 只有一个是可见的,事件只会从那个上来 ——
   // 比"切换时重新绑"少一个会忘的状态。
-  for (const el of [img, cvs]) {
+  for (const el of [img, cvs, dom3]) {
   el.addEventListener("mousemove", (e) => {
     const p = pt(e); send({ type: "mouse", event: "move", ...p, buttons: e.buttons, modifiers: mods(e) });
   });

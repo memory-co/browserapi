@@ -11,6 +11,8 @@ network namespace。**v2 没有容器,这条前提就没了**(works/07 §3)。
 
 from __future__ import annotations
 
+from webmuxd.view import modes
+
 import argparse
 import asyncio
 import logging
@@ -72,14 +74,20 @@ def main() -> None:
     p.add_argument("--quality", type=int, default=80)
     p.add_argument("--min-quality", type=int, default=25, dest="min_quality")
     p.add_argument("--dsf", type=float, default=1.0)
-    # **画面从哪来。** 默认 screencast —— 它开箱即用;xpra 要 Xvfb + xpra 本体,
-    # 换来的是按区域编码和 `scroll`(works/11 §6、12 §9)。
-    # **不静默回退**:选了 xpra 而 xpra 起不来,就是起不来。
-    p.add_argument("--transport", default="screencast",
-                   choices=["screencast", "xpra"])
+    # **画面用哪种。** 默认 JPG —— 它开箱即用。
+    # 取值归一交给 `view.modes`,**这儿不再写第二份名单** ——
+    # 写两份的下场刚踩过:上层已经改叫 vnc,这里还只认 xpra,
+    # 报的是 argparse 的 `invalid choice`,和"画面"两个字都不沾边。
+    p.add_argument("--transport", default=modes.JPG,
+                   metavar="{jpg,vnc,dom}")
     p.add_argument("--xpra-ws", dest="xpra_ws", default="",
-                   help="transport=xpra 时,上游那个 xpra 的 ws 地址")
+                   help="VNC 那条上游 xpra 的 ws 地址")
     args = p.parse_args()
+    canon = modes.canon(args.transport)
+    if canon is None:
+        p.error(f"没有 {args.transport!r} 这种画面,只有 "
+                + " / ".join(modes.label(m) for m in modes.MODES))
+    args.transport = canon
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     asyncio.run(_run(args))
 

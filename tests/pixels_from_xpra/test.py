@@ -196,8 +196,34 @@ async def test_xpra_下不改视口_尺寸是那个_X_显示说了算():
 
 
 def test_状态里报的出来现在走的是哪条():
-    assert _caster("xpra").stats()["transport"] == "xpra"
-    assert _caster("screencast").stats()["transport"] == "screencast"
+    """**报的是使用者看得见的那个词。** 旧名字进得来,但不再回传出去 ——
+    回传旧词等于承认有两套叫法(c §9.1)。"""
+    assert _caster("xpra").stats()["transport"] == "vnc"
+    assert _caster("screencast").stats()["transport"] == "jpg"
+    assert _caster("rrweb").stats()["mode_label"] == "DOM"
+
+
+def test_旧名字还认_但一律归一到新词():
+    """`--transport xpra` 已经写进别人的脚本了,**不能说不认就不认**;
+    但归一之后全程只用新词,不让两套叫法在系统里并存。"""
+    from webmuxd.view import modes
+    for old, new in (("screencast", "jpg"), ("cdp", "jpg"), ("xpra", "vnc"),
+                     ("rrweb", "dom"), ("JPG", "jpg"), (" vnc ", "vnc")):
+        assert modes.canon(old) == new, old
+    assert modes.canon("mp4") is None          # 不认识就说不认识,不猜
+
+
+def test_能用哪几种是起的时候定的():
+    """**VNC 要一个真实的 X 显示,无头浏览器没有。**
+    所以那个选择不是"用哪种",是"以后能选哪几种"(c §9.3)。"""
+    from webmuxd.view import modes
+    assert modes.available_in(headed=True) == ("vnc", "jpg", "dom")
+    assert "vnc" not in modes.available_in(headed=False)
+    assert "vnc" not in modes.available_in(headed=True, remote=True)
+    # 另外两条不依赖系统里的东西,**在哪都在**
+    for where in (dict(headed=True), dict(headed=False),
+                  dict(headed=True, remote=True)):
+        assert {"jpg", "dom"} <= set(modes.available_in(**where))
 
 
 # ------------------------------------------------------------------ 起浏览器
@@ -362,7 +388,7 @@ def test_remote_上没有_xpra_这条路_而且要说清为什么():
     from webmuxd.runtime.remote import RemoteRuntime
     with pytest.raises(RuntimeUnavailable) as ei:
         RemoteRuntime().start("x", port=1, cdp="http://x", transport="xpra")
-    assert "xpra" in ei.value.message
+    assert "VNC" in ei.value.message
     assert "CDP" in str(ei.value.details)          # 说清了为什么做不到
 
 
@@ -548,17 +574,30 @@ def test_起不来时先说清是哪一层没起来():
 
 # ------------------------------------------------------------------ 默认是 xpra
 
-def test_默认走_xpra():
-    """0.7.0 起 xpra 是默认。它按 damage 区域编码,滚动时 `scroll` 包零字节
-    搬像素(§9)—— 这是默认值该给的东西。"""
+def test_默认走_vnc():
+    """VNC 按 damage 区域编码,滚动时 `scroll` 包零字节搬像素(c §4.1)——
+    这是默认值该给的东西。"""
     from webmuxd.runtime.process import resolve_transport
-    assert resolve_transport(None) == "xpra"
+    assert resolve_transport(None) == "vnc"
 
 
 def test_显式给的赢():
     from webmuxd.runtime.process import resolve_transport
-    assert resolve_transport("screencast") == "screencast"
-    assert resolve_transport("xpra") == "xpra"
+    assert resolve_transport("jpg") == "jpg"
+    assert resolve_transport("vnc") == "vnc"
+    assert resolve_transport("dom") == "dom"
+    assert resolve_transport("screencast") == "jpg"     # 旧名字照样赢
+
+
+def test_不认识的画面名要报错_不能悄悄给一个默认():
+    """**给了个我们不认识的词,就是写错了。** 悄悄换成默认的那条,
+    等于让人以为自己在看另一种画面。"""
+    from webmuxd.errors import UsageError
+    from webmuxd.runtime.process import resolve_transport
+    with pytest.raises(UsageError) as ei:
+        resolve_transport("mp4")
+    for word in ("JPG", "VNC", "DOM"):                  # 报错里要写清有哪几种
+        assert word in ei.value.message
 
 
 def test_xpra_起不来时报错_不静默退回_screencast(monkeypatch):
@@ -573,33 +612,34 @@ def test_xpra_起不来时报错_不静默退回_screencast(monkeypatch):
                         lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
     with pytest.raises(RuntimeUnavailable) as ei:
         resolve_transport(None)
-    assert "默认走 xpra" in ei.value.message
+    assert "默认走 VNC" in ei.value.message
     hint = str(ei.value.details)
     assert "webmuxd install" in hint            # 怎么装
-    assert "screencast" in hint                 # 不想装走哪条
+    assert "jpg" in hint and "dom" in hint      # 不想装的话还有哪两条
 
 
-def test_remote_上_screencast_是唯一可能的_所以它就是默认():
+def test_remote_上少一个选项不是降级_是那条路上的全集():
     """**这不是"降级"。** 我们手里只有一个 CDP 端点,那台机器上的 X 显示
-    碰不到 —— screencast 是那条路上画面唯一的来源。"""
+    碰不到 —— JPG 和 DOM 就是那条路上的全部(c §9.3)。"""
     import inspect
     from webmuxd.runtime.remote import RemoteRuntime
     src = inspect.getsource(RemoteRuntime.start)
-    assert 'transport or "screencast"' in src
+    assert "modes.available_in(headed=False, remote=True)" in src
+    assert "modes.JPG" in src
     assert inspect.signature(RemoteRuntime.start).parameters["transport"].default is None
 
 
 def test_dsf_报错要说清_xpra_是你选的还是默认来的(monkeypatch):
-    """没说要 xpra 的人被告知"dsf 在 xpra 上没用",第一反应是"我什么时候要 xpra 了"。"""
+    """没说要 VNC 的人被告知"dsf 在 VNC 上没用",第一反应是"我什么时候要 VNC 了"。"""
     from webmuxd.errors import RuntimeUnavailable
     from webmuxd.runtime.process import ProcessRuntime
     with pytest.raises(RuntimeUnavailable) as ei:
         ProcessRuntime().start("x", port=65010, dsf=2.0)
-    assert "默认的 xpra" in ei.value.message
+    assert "默认的 VNC" in ei.value.message
     with pytest.raises(RuntimeUnavailable) as ei:
         ProcessRuntime().start("x", port=65010, dsf=2.0, transport="xpra")
-    assert "--transport xpra" in ei.value.message
-    assert "screencast" in str(ei.value.details)     # 要 dsf 该走哪条
+    assert "--transport vnc" in ei.value.message
+    assert "--transport jpg" in str(ei.value.details)  # 要 dsf 该走哪条
 
 
 # --------------------------------------------------------------- install 装依赖
@@ -647,7 +687,7 @@ def test_没有_root_时只打印_而且给完整的那一行(monkeypatch):
     ins.install(out=out)
     text = out.getvalue()
     assert "sudo yum install -y -q xpra xorg-x11-server-Xvfb python3-pillow" in text
-    assert "--transport screencast" in text, "得说清不想装可以走哪条"
+    assert "--transport jpg" in text, "得说清不想装可以走哪条"
 
 
 def test_装完要重新探一遍_不看安装器的退出码(monkeypatch):

@@ -19,6 +19,7 @@ import os
 import tempfile
 from typing import Any
 
+from webmuxd.view import modes
 from webmuxd.runtime.base import (
     Handle, require_ports, spawn_sessiond, unavailable, wait_http,
 )
@@ -34,19 +35,22 @@ class RemoteRuntime:
               data_dir: str | None = None, token: str | None = None,
               bind: str = "127.0.0.1", view: dict[str, Any] | None = None,
               transport: str | None = None, **_opts: Any) -> Handle:
-        # **remote 上不存在默认之争:screencast 是唯一可能的那个。**
-        # 我们手里只有一个 CDP 端点,那台机器上的 X 显示我们碰不到 ——
-        # 所以这不是"降级",是这条路上画面唯一的来源。
-        transport = transport or "screencast"
-        # **不静默忽略。** xpra 要截的是那个浏览器所在机器上的 X 显示,
-        # 而 `remote` 的浏览器根本不在这台机器上 —— 我们只有一个 CDP 端点。
-        # 悄悄给一个 screencast 的画面,等于让人以为自己在看 xpra 的画质。
-        if transport != "screencast":
+        # **remote 上能用 JPG 和 DOM,不能用 VNC。**
+        # VNC 要截的是那个浏览器所在机器上的 X 显示,而 remote 的浏览器根本
+        # 不在这台机器上 —— 我们手里只有一个 CDP 端点。
+        # **少一个选项不是降级,是这条路上的全集**
+        # ([c §9.3](../../docs/v2/works/c-view.md#93-能切到哪几条起-session-的时候就定了))。
+        allowed = modes.available_in(headed=False, remote=True)
+        transport = modes.canon(transport) or modes.JPG
+        # **不静默忽略。** 悄悄给一个 JPG 的画面,等于让人以为自己在看 VNC 的画质。
+        if transport not in allowed:
             raise unavailable(
-                self.name, f"runtime=remote 上没有 {transport} 这条画面路",
-                "xpra 要截浏览器所在机器上的 X 显示,而 remote 的浏览器不在这儿 —— "
-                "我们只有一个 CDP 端点。用默认的 screencast,"
-                "或者在那台机器上直接跑 webmuxd")
+                self.name,
+                f"runtime=remote 上没有 {modes.label(transport)} 这种画面",
+                f"这条路上只有 {' / '.join(modes.label(m) for m in allowed)} —— "
+                "VNC 要截浏览器所在机器上的 X 显示,而 remote 的浏览器不在这儿,"
+                "我们手里只有一个 CDP 端点。"
+                "要 VNC 就在那台机器上直接跑 webmuxd")
         if not cdp:
             raise unavailable(self.name, "runtime=remote 得给 cdp=",
                               "cdp 指向对面那个浏览器的 CDP 端点,"

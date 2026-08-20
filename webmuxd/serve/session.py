@@ -227,6 +227,13 @@ class Session:
         await shim.install(self.cdp, sid)
         await shim.install_input_watch(self.cdp, sid)
         await cursor_probe.install(self.cdp, sid)
+        # **DOM 那条画面的记录器也在这儿装。**
+        # 注入只对**之后的文档**生效 —— 等第一个观看者连上再装就晚了,
+        # 那时页面早加载完,记录器一个事件都发不出来
+        # ([c §9.4](../../docs/v2/works/c-view.md#94-切到-dom-要先把记录器注进去))。
+        # 这个坑刚踩过:观看端收得到 hello/cast,dom 事件是 0。
+        if getattr(self.view, "dom", None) is not None:
+            await self.view.dom.arm(self.cdp, sid)
         await self.native.attach_target(sid)
         self._exec[tab_id] = ex
         return ex

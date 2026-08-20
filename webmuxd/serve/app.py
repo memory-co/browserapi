@@ -124,6 +124,9 @@ def build(session: Session, *, xpra_ws: str = "") -> web.Application:
     r.add_get("/api/observe", h_observe)
     r.add_get("/api/observe/{obs}/screenshot", h_obs_shot)
     r.add_get("/api/screenshot", h_screenshot)
+    r.add_get("/api/res", h_res)
+    r.add_get("/api/rrweb.js", h_rrweb_js)
+    r.add_get("/api/rrweb.css", h_rrweb_css)
     r.add_get("/api/text", h_text)
 
     r.add_get("/api/log", h_log)
@@ -195,6 +198,42 @@ async def h_viewport(request: web.Request) -> web.Response:
                   # headless 下 outer==inner,量出来就是 0 —— 那是真的没有 UI,
                   # 不是没量到
                   "crop_top": max(0, oh - ih)})
+
+
+async def h_res(request: web.Request) -> web.Response:
+    """DOM 那条画面用的资源转发。
+
+    **观看端不回原站拿。** 记录器只记 `src`,让观看端自己去拉的话,
+    要登录的站、认 `Referer` 的 CDN 全是破图 —— 实测某视频站一页 30 张图破 25 张。
+    手上有就给,没有就带着 `Referer`/UA 去上游取一份;
+    **取不到才 302 回原地址** —— 退回去至少不比不转发更差
+    ([c §10.2](../../docs/v2/works/c-view.md#102-那条连接经过我们))。
+    """
+    src = _s(request).view.dom
+    u = request.query.get("u", "")
+    if src is None or not u.startswith(("http://", "https://")):
+        raise BadRequest("这个地址不能转发", code="bad_request")
+    hit = await src.fetch(u)
+    if not hit:
+        raise web.HTTPFound(u)
+    mime, blob = hit
+    return web.Response(body=blob, content_type=mime.split(";")[0].strip(),
+                        headers={"Cache-Control": "max-age=300"})
+
+
+async def h_rrweb_js(_request: web.Request) -> web.Response:
+    """观看端要的重放器。**和页面里那份记录器是同一个包** ——
+    两边版本不一致的话,事件格式对不上,表现是画面局部不更新而且不报错。"""
+    from webmuxd.view import dom as dom_mod
+    return web.Response(body=dom_mod.viewer_js(),
+                        content_type="application/javascript",
+                        headers={"Cache-Control": "max-age=86400"})
+
+
+async def h_rrweb_css(_request: web.Request) -> web.Response:
+    from webmuxd.view import dom as dom_mod
+    return web.Response(body=dom_mod.viewer_css(), content_type="text/css",
+                        headers={"Cache-Control": "max-age=86400"})
 
 
 async def h_reset(request: web.Request) -> web.Response:
