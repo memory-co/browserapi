@@ -47,7 +47,7 @@ CDP 给的 `Page.screencastFrame` 是 base64。如果原样塞进 JSON 转发:
 | 24–27 | 保留 |
 
 **targetId 进头部是有用的,不是装饰**:客户端画的 tab 条知道自己现在该显示哪个 tab,
-帧头对不上就直接丢 —— 切 tab 的瞬间管道里还有旧 tab 的帧([05 §3](05-active-tab.md#3-切-tab-是把-screencast-搬过去))。
+帧头对不上就直接丢 —— 切 tab 的瞬间管道里还有旧 tab 的帧([05 §3](f-tabs.md#4-切-tab))。
 
 ## 2. ack 背压:两个独立的环
 
@@ -255,5 +255,5 @@ Emulation.setDeviceMetricsOverride  deviceScaleFactor=2
 | 为什么画面归我们产 | [01](01-frame-source.md) |
 | 上行的另一半(输入) | [03](b-input.md) |
 | 帧发给谁、谁有权发输入 | [04](b-input.md) |
-| 切 tab 时的残帧怎么丢 | [05 §3](05-active-tab.md#3-切-tab-是把-screencast-搬过去) |
+| 切 tab 时的残帧怎么丢 | [05 §3](f-tabs.md#4-切-tab) |
 | 上行长什么样、ack 为什么不搭车 | [09](e1-wire-format.md) |

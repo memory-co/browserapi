@@ -191,7 +191,7 @@ screencast 是 xpra 装不上时的退路,以及 `remote` 上唯一可能的那�
 | headless 下能不能 screencast | **能**。demo 用 `--headless=new` 跑完 17 项 e2e |
 | 三个 tab 同时 `startScreencast` | 2 秒内 **只有前台那个产帧**(前台 41 帧,另两个各 0 帧) |
 | `Target.activateTarget` 之后 | 后台那个**立刻开始产帧**(前 1 秒 0 帧 → 后 1 秒 20 帧) |
-| 切 tab 的首帧延迟 | **14 – 39 ms**([05 §3](05-active-tab.md#3-切-tab-是把-screencast-搬过去)) |
+| 切 tab 的首帧延迟 | **14 – 39 ms**([05 §3](f-tabs.md#4-切-tab)) |
 | 静止页面开着 screencast 静置 3 秒 | **1 帧,13 KB** —— 没人动就几乎不发 |
 | 简单动画页面 | 20.3 fps,均帧 7 KB,1.08 Mbps(真实网页要看 §4 那组 youtube 数字) |
 | ~~`--network host` 下宿主机直连容器里的 CDP~~ | 通,零转发 —— **但用不上了**,见下 |

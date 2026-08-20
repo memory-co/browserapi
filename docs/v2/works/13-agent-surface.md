@@ -27,7 +27,7 @@
 | 逃生舱 | `js` |
 
 **`open` 不在这张表里** —— 开 tab 是 `POST /api/tabs`,因为它改的是 session 的
-tab 表而不是某个页面([05](05-active-tab.md))。这个切分是对的,但**没有在任何
+tab 表而不是某个页面([05](f-tabs.md))。这个切分是对的,但**没有在任何
 一篇里说清楚**,所以外面的人第一反应总是去 `act` 里找 `open`。§2.1 补这一刀。
 
 ### 0.2 一条流,人和 agent 都在里面
@@ -304,6 +304,6 @@ Cloudflare 那个 `handoffComplete` 带成功/失败,我们没有对应的东西
 | --- | --- |
 | 输入为什么是收口 —— 这一篇一半的前提 | [03 §1](b-input.md) |
 | 只读为什么在服务端 | [04 §3](b-input.md) |
-| tab 表和 `open` 在哪一层 | [05](05-active-tab.md) |
+| tab 表和 `open` 在哪一层 | [05](f-tabs.md) |
 | 六类原生 UI —— 它们也是行为流的一部分 | [06](06-no-desktop.md) |
 | 日志是 scrollback 不是归档 | [v1/works/03](../../v1/works/03-log.md) |

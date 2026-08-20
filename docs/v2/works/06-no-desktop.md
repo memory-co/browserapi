@@ -96,7 +96,7 @@ v1 的操作日志是"每一步看到什么、做了什么、页面变成什么�
 
 | | v1(有桌面) | v2 |
 | --- | --- | --- |
-| **新窗口 / popup** | 独立 X 窗口,盖在画面上([v1/works/07](../../v1/works/07-popup-windows.md)) | 就是一个 tab([05 §4](05-active-tab.md#4-popup-不再是特殊情况)) |
+| **新窗口 / popup** | 独立 X 窗口,盖在画面上([v1/works/07](../../v1/works/07-popup-windows.md)) | 就是一个 tab([05 §4](f-tabs.md#5-popup-不是特殊情况)) |
 | **全屏**(视频) | 改变 `crop_top`,要发 `viewport.changed` | 页面内的事,帧尺寸不变,**不用管** |
 | **打印** | 系统打印对话框 | `Page.printToPDF`,当下载处理 |
 | **拖放文件进页面** | 桌面拖放 | `Input.dispatchDragEvent` + 文件走上传端点 |
@@ -153,5 +153,5 @@ Input.dispatchMouseEvent(点 OK 按钮) → 没有 javascriptDialogClosed
 | --- | --- |
 | 这批东西在 v1 的原始记录 | [v1/works/04 §6](../../v1/works/04-chrome-ui-externalization.md#6-顺带会掉出来的东西不影响架构以后按需加) |
 | 日志格式 | [v1/works/03](../../v1/works/03-log.md) —— **原样有效** |
-| popup 为什么不再特殊 | [05 §4](05-active-tab.md#4-popup-不再是特殊情况) |
+| popup 为什么不再特殊 | [05 §4](f-tabs.md#5-popup-不是特殊情况) |
 | 输入通道 | [03](b-input.md) |
