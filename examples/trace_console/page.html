@@ -1,0 +1,211 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>trace 控制台</title>
+<style>
+  :root{--bg:#12151a;--fg:#e7eaf0;--dim:#8a92a0;--line:#272c35;--ok:#5aa96b;--warn:#e0a94b}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);display:flex;flex-direction:column;
+       font:14px/1.5 system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;overflow:hidden}
+
+  header{display:flex;gap:8px;align-items:center;padding:8px 12px;flex:none;
+         border-bottom:1px solid var(--line)}
+  header button,header a.btn{background:#222831;color:var(--fg);border:1px solid var(--line);
+       border-radius:6px;height:32px;min-width:32px;padding:0 10px;font:inherit;cursor:pointer;
+       flex:none;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+  header button:hover,header a.btn:hover{background:#2c333e}
+  #url{flex:1;min-width:0;background:#0d1015;color:var(--fg);border:1px solid var(--line);
+       border-radius:8px;padding:7px 12px;font:inherit}
+  .pill{flex:none;border:1px solid var(--line);border-radius:999px;padding:2px 10px;
+        font-size:12px;color:var(--dim);white-space:nowrap}
+  .pill.ro{color:var(--warn);border-color:#4a3d22;background:#241d10}
+
+  main{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+       padding:12px;overflow:hidden}
+  #stage{position:relative;background:#fff;border:1px solid var(--line);border-radius:10px;
+         overflow:hidden;box-shadow:0 8px 30px #0006}
+  /* **只读是结构性的。** 渲染出来的那棵 DOM 整个不接事件;
+     所有输入都落在上面这层 #grab 上,再翻译成 CDP 调用。 */
+  #paint{position:absolute;top:0;left:0;width:__W__px;height:__H__px;border:0;
+         transform-origin:0 0;pointer-events:none !important;user-select:none !important;
+         background:#fff}
+  #grab{position:absolute;inset:0;background:transparent;outline:0}
+  #ime{position:absolute;width:1px;height:1px;opacity:0;border:0;padding:0;left:-9999px;top:0}
+  #flash{position:absolute;inset:0;pointer-events:none;background:#5aa96b;opacity:0;
+         transition:opacity .18s}
+  #flash.on{opacity:.07;transition:none}
+
+  footer{flex:none;display:flex;gap:14px;align-items:center;padding:6px 12px;
+         border-top:1px solid var(--line);color:var(--dim);font-size:12px;
+         font-variant-numeric:tabular-nums}
+  footer b{color:var(--fg);font-weight:600}
+  .grow{flex:1}
+</style>
+
+<header>
+  <button id="back" title="后退">‹</button>
+  <button id="fwd" title="前进">›</button>
+  <button id="reload" title="重新加载">⟳</button>
+  <input id="url" placeholder="输入网址,回车">
+  <button id="shot" title="立刻重打一张快照">重打</button>
+  <a class="btn" id="dl" href="/trace.zip" download title="下下来用 npx playwright show-trace 打开">trace.zip</a>
+  <span class="pill ro" title="渲染出来的 DOM 完全不接收事件">画面只读</span>
+  <span class="pill" id="conn">连接中…</span>
+</header>
+
+<main>
+  <div id="stage">
+    <iframe id="paint" sandbox="allow-same-origin"></iframe>
+    <div id="flash"></div>
+    <div id="grab" tabindex="0"></div>
+    <textarea id="ime" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+  </div>
+</main>
+
+<footer>
+  <span>画面 <b>按操作打点的全量快照</b></span>
+  <span>输入 <b>走 CDP</b></span>
+  <span>光标 <b id="cur">default</b></span>
+  <span id="cnt">—</span>
+  <span id="by">—</span>
+  <span id="why">—</span>
+  <span class="grow"></span>
+  <span>点一下画面再打字;中文输入法直接用</span>
+</footer>
+
+<script>
+const VW = +"__W__", VH = +"__H__";
+const $ = s => document.querySelector(s);
+const stage = $("#stage"), paint = $("#paint"), grab = $("#grab"), ime = $("#ime");
+
+/* ---------- NodeSnapshot(嵌套数组)→ HTML ----------
+   格式来自 packages/trace/src/snapshot.ts:
+     文本节点 → 字符串;元素 → [标签名, {属性}, ...子节点] */
+const VOID = new Set(["AREA","BASE","BR","COL","EMBED","HR","IMG","INPUT","LINK",
+                      "META","PARAM","SOURCE","TRACK","WBR"]);
+const esc  = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const escA = s => String(s).replace(/[&"]/g, c => ({"&":"&amp;",'"':"&quot;"}[c]));
+
+function toHTML(n, parent) {
+  if (typeof n === "string")
+    return (parent === "STYLE" || parent === "TITLE") ? n : esc(n);  // style 不能转义
+  if (!Array.isArray(n) || typeof n[0] !== "string") return "";
+  const [tag, attrs, ...kids] = n;
+  const a = [];
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "__playwright_value_") { a.push(`value="${escA(v)}"`); continue; }
+    if (k === "__playwright_checked_") { if (v === "true") a.push("checked"); continue; }
+    if (k.startsWith("__playwright")) continue;
+    a.push(`${k}="${escA(v)}"`);
+  }
+  const open = `<${tag.toLowerCase()}${a.length ? " " + a.join(" ") : ""}>`;
+  if (VOID.has(tag)) return open;
+  return open + kids.map(k => toHTML(k, tag)).join("") + `</${tag.toLowerCase()}>`;
+}
+
+/* ---------- 舞台缩放:保持录到的视口比例,坐标才能线性换算 ---------- */
+let scale = 1;
+function fit() {
+  const m = document.querySelector("main"), pad = 24;
+  scale = Math.min((m.clientWidth - pad) / VW, (m.clientHeight - pad) / VH);
+  stage.style.width = VW * scale + "px";
+  stage.style.height = VH * scale + "px";
+  paint.style.transform = `scale(${scale})`;
+}
+addEventListener("resize", fit); fit();
+
+/* ---------- 下行:一张一张的全量快照 ---------- */
+const ws = new WebSocket(location.origin.replace(/^http/, "ws") + "/ws");
+ws.onopen  = () => $("#conn").textContent = "已连接";
+ws.onclose = () => $("#conn").textContent = "断开了";
+const send = o => ws.readyState === 1 && ws.send(JSON.stringify(o));
+
+let shots = 0, t0 = Date.now();
+function draw(snap) {
+  shots++;
+  // **整张换掉,不打补丁。** 这条路没有增量链 —— 上一张错了不影响这一张。
+  paint.srcdoc = "<!doctype html>" + toHTML(snap.html, null);
+  $("#flash").classList.add("on");
+  setTimeout(() => $("#flash").classList.remove("on"), 30);
+}
+
+ws.onmessage = ev => {
+  const m = JSON.parse(ev.data);
+  if (m.c === "shot") {
+    draw(m.snap);
+    const s = Math.max(1, (Date.now() - t0) / 1000);
+    $("#cnt").textContent = `${shots} 张快照 · ${m.n} 条动作`;
+    $("#by").textContent = `快照 ${(m.b.snap/1024)|0} KB · ${(m.b.snap/s/1024).toFixed(1)} KB/s · 资源 ${(m.b.res/1024)|0} KB`;
+    $("#why").textContent = m.why ? `最后一张:${m.why}` : "";
+    if (m.url && document.activeElement !== $("#url")) $("#url").value = m.url;
+  } else if (m.c === "cursor") {
+    $("#cur").textContent = m.v;              // 服务端已经过了白名单
+    grab.style.cursor = m.v;
+  } else if (m.c === "url") {
+    if (document.activeElement !== $("#url")) $("#url").value = m.v || "";
+  }
+};
+
+/* ---------- 上行:只有这几种意图 ---------- */
+const mod = e => (e.altKey?1:0) | (e.ctrlKey?2:0) | (e.metaKey?4:0) | (e.shiftKey?8:0);
+const at = e => {
+  const r = grab.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
+};
+let moveAt = 0, buttons = 0;
+grab.addEventListener("mousemove", e => {
+  const now = Date.now();
+  if (now - moveAt < 25) return;              // 25ms 一个,别刷爆
+  moveAt = now;
+  send({ t: "mouse", type: "mouseMoved", ...at(e), buttons, mod: mod(e) });
+});
+grab.addEventListener("mousedown", e => {
+  e.preventDefault(); buttons = 1;
+  ime.focus({ preventScroll: true });         // 让键盘和输入法有地方去
+  send({ t: "mouse", type: "mousePressed", ...at(e), buttons: 1,
+         clickCount: e.detail || 1, mod: mod(e) });
+});
+grab.addEventListener("mouseup", e => {
+  buttons = 0;
+  send({ t: "mouse", type: "mouseReleased", ...at(e), buttons: 0,
+         clickCount: e.detail || 1, mod: mod(e) });
+});
+grab.addEventListener("contextmenu", e => e.preventDefault());
+grab.addEventListener("wheel", e => {
+  e.preventDefault();
+  send({ t: "wheel", ...at(e), dx: e.deltaX, dy: e.deltaY });
+}, { passive: false });
+
+/* 文字和 IME:组字全程在本地,`compositionend` 之后才提交 ——
+   组字期间一个按键都不往外发,否则远端会收到一串无意义的字母。 */
+const SPECIAL = new Set(["Enter","Backspace","Tab","Escape","Delete","ArrowUp",
+  "ArrowDown","ArrowLeft","ArrowRight","Home","End","PageUp","PageDown"]);
+let composing = false;
+ime.addEventListener("compositionstart", () => composing = true);
+ime.addEventListener("compositionend", e => {
+  composing = false;
+  if (e.data) send({ t: "text", text: e.data });
+  ime.value = "";
+});
+ime.addEventListener("input", e => {
+  if (composing || e.isComposing) return;     // 中间态不发
+  if (ime.value) send({ t: "text", text: ime.value });
+  ime.value = "";
+});
+ime.addEventListener("keydown", e => {
+  if (composing || e.isComposing) return;
+  if (SPECIAL.has(e.key) || e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    send({ t: "key", key: e.key, code: e.code, vk: e.keyCode, mod: mod(e) });
+  }
+});
+
+$("#back").onclick = () => send({ t: "back" });
+$("#fwd").onclick = () => send({ t: "forward" });
+$("#reload").onclick = () => send({ t: "reload" });
+$("#shot").onclick = () => send({ t: "shot" });
+$("#url").addEventListener("keydown", e => {
+  e.stopPropagation();
+  if (e.key === "Enter") { send({ t: "nav", url: $("#url").value }); grab.focus(); }
+});
+</script>
