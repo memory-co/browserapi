@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -31,6 +32,8 @@ from webmuxd.view.cast import Screencaster
 #: 人在 VNC 里动过之后,API 让路多少毫秒(api/README §5)。0 = 关掉这个行为。
 HUMAN_YIELD_MS = 3000
 
+
+log = logging.getLogger("webmuxd.session")
 
 class Session:
     """sessiond 的核心对象。一个进程一个。"""
@@ -89,10 +92,44 @@ class Session:
 
     def _on_attached(self, params: dict, _sid: str | None) -> None:
         info = params.get("targetInfo", {})
-        if info.get("type") == "page":
-            self._pending_sessions[info["targetId"]] = params["sessionId"]
+        sid = params["sessionId"]
+        waiting = bool(params.get("waitingForDebugger"))
+        if info.get("type") != "page":
+            # **worker / service worker 立刻放行。** 它们也会被 autoAttach 暂停,
+            # 而我们什么都不往里注 —— 不放行的话页面等它,整个卡住。
+            if waiting:
+                asyncio.create_task(self._resume(sid))
+            return
+        self._pending_sessions[info["targetId"]] = sid
+        if waiting:
+            self._waiting.add(sid)
+            # **看门狗:没人放行也不能永远停着。**
+            # 正常路径是 `executor_for()` 注入完就放;万一那条路没走到
+            # (adopt 失败、异常),这里兜底放行并且**说出来** ——
+            # 一个永远白着的 tab 查起来毫无线索。
+            asyncio.create_task(self._resume_later(sid))
+
+    async def _resume(self, sid: str) -> None:
+        with contextlib.suppress(Exception):
+            await self.cdp.send("Runtime.runIfWaitingForDebugger", session_id=sid)
+
+    async def _resume_later(self, sid: str, delay: float = 5.0) -> None:
+        await asyncio.sleep(delay)
+        if sid in self._waiting:
+            self._waiting.discard(sid)
+            log.warning("没人放行这个 target,兜底放了(sid=%s)—— "
+                        "注入那条路没走到,画面里的探针可能是缺的", sid[:8])
+            await self._resume(sid)
+
+    async def release(self, sid: str) -> None:
+        """注入都做完了,放这个 target 跑。**这一句必须在最后。**"""
+        if sid in self._waiting:
+            self._waiting.discard(sid)
+            await self._resume(sid)
 
     _pending_sessions: dict[str, str] = {}
+    #: 还停着等我们放行的 target。
+    _waiting: set[str] = set()
 
     #: 我们自己刚派发完动作的时间点。这之后这么久内的输入算我们的,不算人的。
     _SELF_WINDOW = 0.4
@@ -236,6 +273,9 @@ class Session:
             await self.view.dom.arm(self.cdp, sid)
         await self.native.attach_target(sid)
         self._exec[tab_id] = ex
+        # **注入全做完才放行。** 在这之前页面一行都还没跑 ——
+        # 这就是那个竞态的解法:不是"抢在导航前面",是"页面根本还没开始"。
+        await self.release(sid)
         return ex
 
     async def cdp_session_for(self, tab_id: str) -> str:

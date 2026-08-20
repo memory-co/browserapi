@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import re
@@ -148,8 +149,14 @@ class DomSource:
         #     会被解析成"调用上一个表达式的结果",报的是
         #     `(intermediate value)(...) is not a function`,和 rrweb 无关。
         await cdp.send("Runtime.addBinding", {"name": BINDING}, session_id=session_id)
-        await cdp.send("Page.addScriptToEvaluateOnNewDocument",
-                       {"source": src}, session_id=session_id)
+        # **Page 域要先开。** 不开的话 `addScriptToEvaluateOnNewDocument`
+        # 有可能被接受却不生效 —— 表现是 binding 在、记录器不在,不报错。
+        with contextlib.suppress(Exception):
+            await cdp.send("Page.enable", session_id=session_id)
+        r = await cdp.send("Page.addScriptToEvaluateOnNewDocument",
+                           {"source": src}, session_id=session_id)
+        log.info("注入登记好了 id=%s(%d KB)",
+                 r.get("identifier"), len(src) // 1024)
         if first:
             # 事件回调是连接级的,**只挂一次** —— 每个 tab 挂一遍的话,
             # 同一条事件会被处理 N 次,缓冲里全是重复。

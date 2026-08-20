@@ -156,9 +156,16 @@ class TabTable:
         self._cdp.on("Target.targetDestroyed", self._on_destroyed)
         self._cdp.on("Target.targetInfoChanged", self._on_info)
         await self._cdp.send("Target.setDiscoverTargets", {"discover": True})
+        # **新 target 先暂停,等我们注入完再放行。**
+        # `Target.createTarget({url})` 一建出来页面就开始加载,而注入是 attach
+        # 之后才做的 —— 中间那一小段就是竞态:同样的代码,一次探到记录器在,
+        # 下一次是 `undefined`,**而且不报错**。
+        #
+        # 放行在 `Session.executor_for()` 末尾(注入全做完那一刻)。
+        # 谁要是不放行,那个 tab 就永远停在那儿 —— 所以那边还挂了个看门狗。
         await self._cdp.send(
             "Target.setAutoAttach",
-            {"autoAttach": True, "flatten": True, "waitForDebuggerOnStart": False},
+            {"autoAttach": True, "flatten": True, "waitForDebuggerOnStart": True},
         )
 
     def _on_created(self, params: dict, _sid: str | None) -> None:
