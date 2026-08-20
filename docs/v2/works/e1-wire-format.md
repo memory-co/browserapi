@@ -223,4 +223,5 @@ draw = ["draw", wid, x, y, w, h, coding, <像素>, seq, rowstride, options]
 | 这些格式为什么这样定 | [e §4](e-client.md#4-协议层四条规则) |
 | 通道模型与仲裁 | [e §6](e-client.md#6-通道模型) |
 | 输入从客户端到 Chromium 的完整路径 | [b §1](b-input.md#1-收口在哪) |
+| 测试在 | [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) · [`tests/pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
 | 落地在 | [`view/protocol.py`](../../../webmuxd/view/protocol.py) · [`viewer.py`](../../../webmuxd/view/viewer.py) · [`static/xpra.js`](../../../webmuxd/view/static/xpra.js) · [`view/relay.py`](../../../webmuxd/view/relay.py) |

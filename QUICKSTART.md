@@ -20,7 +20,7 @@ $ webmuxd install
 ```
 
 **版本是钉死的** —— 每个 release 钉一个,机器之间完全一致
-([works/07 §4.1](docs/v2/works/07-runtime.md))。
+([works/d §2](docs/v2/works/d-install.md#2-每样东西从哪来))。
 
 **下载源不用你挑** —— `install` 会并发探一遍(下真实那个文件的头 256 KB,
 量的是吞吐不是 ping),自己选最快的:
@@ -122,7 +122,7 @@ python examples/quickstart.py
 ## 画面糊?先看状态栏
 
 糊有**三个互不相干的来源,调错旋钮不会有任何效果**
-([works/02 §4](docs/v2/works/02-frame-protocol.md))。页面底下那条状态栏就是
+([works/c1 §1](docs/v2/works/c1-quality.md#1-三个旋钮))。页面底下那条状态栏就是
 用来判断该调哪个的:
 
 | 状态栏 | 说明 | 调哪个 |
@@ -151,7 +151,7 @@ webmuxd new --id work --port 7900 --min-quality 40  # 链路差时最多降到 4
 
 默认走的 xpra 按 damage 区域编码,滚动时用 `scroll` 包**零字节搬像素** ——
 实测滚一页 Wikipedia,57% 的重绘面积没花一个字节
-([works/12 §9](docs/v2/works/c-pixels.md))。所以先看状态栏:
+([works/c §4.1](docs/v2/works/c-pixels.md))。所以先看状态栏:
 
 | 状态栏「画质」那格 | 走的是 | |
 | --- | --- | --- |
@@ -178,7 +178,7 @@ sess.share(writable=True)           # 可操作 —— 能碰你所有登录态
 ```
 
 **只读是服务端丢弃输入**,不是前端把按钮变灰 —— 拿到只读链接的人自己写个 WS
-客户端直接发也没用([works/04 §3](docs/v2/works/b-input.md))。
+客户端直接发也没用([works/b §1](docs/v2/works/b-input.md#1-收口在哪))。
 
 ## 页面卡住的时候
 
@@ -195,7 +195,7 @@ $ curl -X POST localhost:7900/api/tabs/t_2/dialog -d '{"accept":true}'
 内置的那个页面会直接把这张卡画出来,点一下就行。**没人回答就超时走取消,
 并且写进日志** —— 页面为什么停住、后来为什么又动了,`webmuxd log` 里查得到。
 
-下载、文件选择、权限、Basic 认证同理,见 [works/06](docs/v2/works/06-no-desktop.md)。
+下载、文件选择、权限、Basic 认证同理,见 [works/g](docs/v2/works/g-native-ui.md)。
 
 ## 要隔离
 

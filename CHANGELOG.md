@@ -20,7 +20,7 @@
 > 判据可以记成一句话:**记"他动了哪个控件",不记"控件里是什么"**。
 > 后者要看,有 `observe` 和截图,那两条路上有明确的授权。
 
-顺带新增 [works/13](docs/v2/works/13-agent-surface.md):给 agent 的操作面
+顺带新增 [works/13](docs/v2/works/i-agent-surface.md):给 agent 的操作面
 和一条行为流,横向看了七家云浏览器。这个 bug 就是写那一篇时量出来的。
 
 ## 0.7.1
@@ -192,7 +192,7 @@ Wikipedia,**57% 的重绘面积是 `scroll` 包干的,一个字节没花**
 而且 `20 → 5` 是个断崖。降质的意义是"糊一点但还能操作",不是"糊到看不清"。
 
 25 不是拍的 —— BrowserBox 自己在 Tor 模式下就把下限压到 25
-([works/01 §4](docs/v2/works/01-frame-source.md)),那是它认为的"还能用"的底。
+([works/01 §4](docs/v2/works/c-pixels.md)),那是它认为的"还能用"的底。
 现在是 `80 → 60 → 40 → 25`,**到底了改抽帧** —— 那才是链路真撑不住时该退的方向。
 
 ```bash
@@ -224,7 +224,7 @@ webmuxd new --id work --port 7900 --dsf 2 --quality 95 --format png
 ```
 
 糊有**三个互不相干的来源,调错旋钮不会有任何效果**
-([works/02 §4](docs/v2/works/02-frame-protocol.md))。页面底下那条状态栏就是
+([works/02 §4](docs/v2/works/c1-quality.md))。页面底下那条状态栏就是
 用来判断该调哪个的:
 
 | 状态栏 | 说明 | 调哪个 |
@@ -279,7 +279,7 @@ webmuxd new --id work --port 7900 --dsf 2 --quality 95 --format png
 
 `--host` 在这个 CLI 里已经占着"连哪台机器"的意思,再拿它表示"绑哪个地址"
 必然打架。所以服务端那一侧**统一叫 `--bind`**(`sessiond` 那边旧名 `--host`
-留作别名,免得 [works/07](docs/v2/works/07-runtime.md) 里那条命令突然报错)。
+留作别名,免得 [works/07](docs/v2/works/h-runtime.md) 里那条命令突然报错)。
 
 ```bash
 webmuxd new --id work --port 7900                  # 只绑 127.0.0.1
@@ -325,7 +325,7 @@ is not supported. See https://crbug.com/638180.
 ### ① root 下自动 `--no-sandbox`,并且说出来
 
 **这不是选择题** —— Chromium 在 root 下没有开着沙箱还能跑的配置。而且我们自己
-推荐的隔离路子(把 webmuxd 装进容器,[works/07 §2](docs/v2/works/07-runtime.md))
+推荐的隔离路子(把 webmuxd 装进容器,[works/07 §2](docs/v2/works/h-runtime.md))
 默认就是 root:一律拒绝的话,我们推荐的做法自己走不通。
 
 v1 的姿态是"默认不加 `--no-sandbox`",**这一条推翻了它** ——
@@ -430,7 +430,7 @@ Chrome for Testing 的 zip;而且只有 `current`,历史版本停在 112 那一�
 **没有版本可钉**。
 
 拿它当源等于把「每个 release 钉一个版本、升级前先跑 `chrome_facts`」整个作废,
-而那是选 Chrome for Testing 的**唯一理由**([works/07 §4.1](docs/v2/works/07-runtime.md))。
+而那是选 Chrome for Testing 的**唯一理由**([works/07 §4.1](docs/v2/works/h-runtime.md))。
 
 真想用系统装的 Chrome,那是另一条路:`--browser /usr/bin/google-chrome` ——
 显式、看得见、不假装自己是钉死的那一版。

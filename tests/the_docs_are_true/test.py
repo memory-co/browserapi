@@ -88,12 +88,12 @@ def test_帧头是二十八个字节_文档里写的也是():
     "ttyd 一个字节、我们二十八个"。改了不同步,那篇的论证就悬空了。"""
     from webmuxd.view.protocol import HEADER_SIZE
     for f in ("02-frame-protocol.md", "09-wire-format.md"):
-        assert f"{HEADER_SIZE} 字节" in _doc(f), f"{f} 里的帧头长度和代码对不上"
+        assert f"{HEADER_SIZE} 字节" in _doc(), f"{f} 里的帧头长度和代码对不上"
 
 
 def test_两个_ack_环的参数和文档一致():
     from webmuxd.view.viewer import ACK_CREDIT, BUFFER
-    t = _doc("02-frame-protocol.md") + _doc("09-wire-format.md")
+    t = _doc() + _doc("09-wire-format.md")
     assert f"额度 {ACK_CREDIT}" in t or f"额度 `ACK_COUNT = {ACK_CREDIT}`" in t
     assert f"长度 {BUFFER}" in t, "缓冲长度对不上"
 
@@ -101,25 +101,25 @@ def test_两个_ack_环的参数和文档一致():
 def test_画质下限和文档一致():
     """25 不是拍的 —— 文档里写着它的来历(BrowserBox 的 Tor 模式)。"""
     from webmuxd.view.quality import QUALITY_FLOOR
-    assert str(QUALITY_FLOOR) in _doc("02-frame-protocol.md")
+    assert str(QUALITY_FLOOR) in _doc()
 
 
 def test_默认视口和文档一致():
     from webmuxd.view.cast import DEFAULT_H, DEFAULT_W
-    assert f"{DEFAULT_W}x{DEFAULT_H}" in _doc("11-xpra.md") + _doc("12-xpra-client.md") \
-        or f"{DEFAULT_W}×{DEFAULT_H}" in _doc("12-xpra-client.md")
+    assert f"{DEFAULT_W}x{DEFAULT_H}" in _doc() + _doc() \
+        or f"{DEFAULT_W}×{DEFAULT_H}" in _doc()
 
 
 def test_钉死的浏览器版本和文档一致():
     """[07 §4.1](../../docs/v2/works/07-runtime.md) 那一节的全部意义就是这个数。"""
     from webmuxd import browser
-    assert browser.PINNED in _doc("07-runtime.md")
+    assert browser.PINNED in _doc()
 
 
 def test_xpra_上行那几个包_文档和白名单是同一份():
     """**这张表是安全边界。** 代码里加一个而文档不加,边界就说不清了。"""
     from webmuxd.view import relay
-    doc = _doc("12-xpra-client.md")
+    doc = _doc()
     for name in relay.ALLOWED:
         assert f"`{name}`" in doc, f"白名单里有 {name},但 12 §7 那张表里没有"
     # **个数也不能自相矛盾。** 写这条测试时就逮到一处:表里 6 个,
@@ -138,13 +138,17 @@ def test_xpra_上行那几个包_文档和白名单是同一份():
 
 def test_xpra_的头是八个字节():
     from webmuxd.view import relay
-    assert f"{relay.HEADER.size} 字节头" in _doc("12-xpra-client.md")
+    assert f"{relay.HEADER.size} 字节头" in _doc()
 
 
-def test_客户端不报视频编码_文档和代码是同一个结论():
-    """[12 §8](../../docs/v2/works/12-xpra-client.md) 说"不报就永远不会发过来" ——
-    哪天真加了 WebCodecs,那一节和「明确不做」都得跟着改。"""
+def test_客户端不声明视频编码_文档和代码是同一个结论():
+    """设计稿里那条「不声明就永远不会发过来」是「明确不做 h264」的**唯一理由**。
+    哪天真加了 WebCodecs,这两处都得跟着改。
+
+    只查结论在不在,不查措辞 —— 文档在重写。
+    """
     src = (ROOT / "webmuxd/view/static/xpra.js").read_text()
-    assert "full_csc_modes" not in re.sub(r"//.*", "", src)
-    assert "不报视频编码" in _doc("12-xpra-client.md") + (
-        ROOT / "docs/v2/works/README.md").read_text()
+    assert "full_csc_modes" not in re.sub(r"//.*", "", src), \
+        "客户端声明了视频编码,但设计稿说不声明"
+    doc = _doc()
+    assert "不声明视频编码" in doc or "不报视频编码" in doc

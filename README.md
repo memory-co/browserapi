@@ -89,10 +89,10 @@ webmuxd kill     -t work
 
 - **画面是自己产的。** 不是 VNC,不是桌面 —— 人的鼠标键盘被归一化后翻译成
   CDP `Input.*` 打回去,所以画面里**只有页面内容**,tab 条和地址栏由你自己画
-  ([docs/v2/works/01](docs/v2/works/01-frame-source.md))。
+  ([docs/v2/works/c](docs/v2/works/c-pixels.md))。
   像素默认由 xpra 出(按区域编码,滚动时零字节搬像素),装不上时退到
   CDP 截屏那条 —— **两条路换的只有像素从哪来**,输入、只读、tab、原生 UI
-  一模一样([works/11](docs/v2/works/c-pixels.md))。
+  一模一样([works/c](docs/v2/works/c-pixels.md))。
 - **按人看得见的字操作。** `click("提交订单")`,不写选择器。分档匹配(精确 → 子串 →
   忽略大小写),**有歧义就给候选,绝不替你挑一个** —— 挑错了你永远不会知道。
 - **"看见"= 元素表 + 标注截图。** `observe()` 一次给全,直接喂多模态模型;
@@ -132,7 +132,7 @@ sess.share(writable=True)           # 可操作 —— 能碰你所有登录态
 | `remote` | 什么都不起,CDP 端点你给 | 云浏览器、别人机器上那个、**你自己起在容器里的那个** |
 
 这条线以上的代码**没有任何一处 `if runtime ==`** —— 为什么能做到,见
-[works/07](docs/v2/works/07-runtime.md)。
+[works/h](docs/v2/works/h-runtime.md)。
 
 **版本是钉死的**:每个 release 钉一个 Chrome for Testing 版本,升级前先跑
 `tests/chrome_facts/`(「我们对 CDP 的假设逐条量过」)。
@@ -154,10 +154,10 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 - **带宽不省。** 静止时是 0,动起来能到几 Mbps。xpra 那条靠 `scroll` 把滚动
   压得很低,但**全屏持续运动仍然贵**(实测 9 Mbps)—— 那是这条路线的性质:
   整屏都在动时,分区域重传会退化成整屏重传
-  ([01 §4.1](docs/v2/works/01-frame-source.md#41-但更费带宽--更不流畅))。
+  ([c §4.1](docs/v2/works/c-pixels.md#41-它强在哪以及它的劣势区))。
 - **没有桌面。** 文件管理器、系统对话框、非浏览器程序都没有。浏览器自己那些
   原生 UI(对话框、下载、文件选择、权限、Basic 认证)是**用 CDP 一条条收回来的**,
-  见 [works/06](docs/v2/works/06-no-desktop.md)。
+  见 [works/g](docs/v2/works/g-native-ui.md)。
 
 这几条不是"还没做",是**这条路线的性质** —— 画面是从浏览器的合成器直接出来的,
 所以它只有页面,没有桌面,也没有声音。要完整桌面就该用远程桌面,不是用这个。
@@ -166,7 +166,7 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 
 默认走 **xpra**:它按 damage 区域编码,尤其是滚动 —— `scroll` 包**零字节搬像素**。
 实测滚一页 Wikipedia,**57% 的重绘面积一个字节没花**
-([works/12 §9](docs/v2/works/c-pixels.md))。
+([works/c §4.1](docs/v2/works/c-pixels.md))。
 
 ```bash
 webmuxd install                                          # 有 root 就把它装上
