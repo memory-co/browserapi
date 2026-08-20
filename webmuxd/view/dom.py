@@ -156,8 +156,18 @@ class DomSource:
             await cdp.send("Page.enable", session_id=session_id)
         r = await cdp.send("Page.addScriptToEvaluateOnNewDocument",
                            {"source": src}, session_id=session_id)
-        log.info("注入登记好了 id=%s(%d KB)",
-                 r.get("identifier"), len(src) // 1024)
+        log.debug("注入登记好了 id=%s(%d KB)", r.get("identifier"), len(src) // 1024)
+        # **还要给当前这一页补一次。**
+        #
+        # `addScriptToEvaluateOnNewDocument` 只对**之后**创建的文档生效。
+        # 而 attach 常常发生在导航之后 —— 实测登记那一刻 `location.href`
+        # 已经是目标页了,于是脚本永远等不到"下一个文档",一条事件都发不出来,
+        # **而且全程不报错**(docs/v2/issues/dom-注入登记了但不执行.md)。
+        #
+        # 不 await:这一下要五秒多(552 KB 的源码要过一遍解析),
+        # 挂在 attach 路径上会把开 tab 拖慢五秒。脚本自己有
+        # `if (window.__wm_dom) return`,补两次也没事。
+        asyncio.create_task(self._inject_now(cdp, session_id, src))
         if first:
             # 事件回调是连接级的,**只挂一次** —— 每个 tab 挂一遍的话,
             # 同一条事件会被处理 N 次,缓冲里全是重复。
@@ -167,6 +177,28 @@ class DomSource:
                 cdp.on(ev, fn)
         self.armed.add(session_id)
         log.info("DOM 记录器装上了(%d 个 tab)", len(self.armed))
+
+    async def _inject_now(self, cdp: Any, session_id: str, src: str) -> None:
+        """给已经加载完的那一页补一次注入。**失败要说出来** ——
+        静默失败的表现是"DOM 模式画面永远不出来",和"页面没动"分不清。"""
+        try:
+            # **binding 要先在。** 它不一定活过导航 —— 实测记录器跑起来了、
+            # 而 `window.__wm_dom_emit` 是 undefined,于是 emit 抛进
+            # try/catch,事件被静默丢掉:画面永远不出来,一条错都没有。
+            # 重复 addBinding 是幂等的,补一次不亏。
+            await cdp.send("Runtime.addBinding", {"name": BINDING},
+                           session_id=session_id)
+            r = await cdp.send("Runtime.evaluate",
+                               {"expression": src, "returnByValue": False},
+                               session_id=session_id)
+        except Exception as e:                    # noqa: BLE001
+            log.warning("当前页补注入失败(等下次导航):%s", e)
+            return
+        if r.get("exceptionDetails"):
+            log.warning("当前页补注入抛了:%s",
+                        json.dumps(r["exceptionDetails"], ensure_ascii=False)[:300])
+        else:
+            log.info("当前页补上记录器了")
 
     def note_url(self, url: str) -> None:
         """当前页地址 —— 取资源时要拿它当 `Referer`,不然很多 CDN 直接 403。"""
