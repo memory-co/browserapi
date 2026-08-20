@@ -31,6 +31,30 @@
   <div style="color:#888;font-size:13px">在左边点某个东西,看这里说实际打到了谁。
     <b>两边对不上,就是「看着点在按钮上、实际点在旁边」。</b></div>
 </div>
+<div class=row>
+  <div class=box><h2>⑥ 图片</h2>
+    <img id=pic src="/pattern.png" width=200 style="border:1px solid #ccc">
+    <div style="color:#888;font-size:13px;max-width:220px">rrweb 只记 <code>src</code>,
+      重放端**自己去拉**。这台机器上两边都够得着,所以看着没事 ——
+      换成要登录的站、或者观看端在别的网里,这里就是破图。
+      <code>--inline-images</code> 才是真把它转过来。</div>
+    <img id=pic2 width=120
+         src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
+         style="border:1px solid #ccc;margin-top:6px">
+    <div style="color:#888;font-size:13px;max-width:220px">这张是**跨域**的 ——
+      内联要把它画进 canvas 才取得出字节,跨域没 CORS 头就会污染画布。</div></div>
+  <div class=box><h2>⑦ 视频(普通 mp4)</h2>
+    <video id=vid2 width=200 autoplay muted loop playsinline src="/flower.mp4"
+           style="border:1px solid #ccc;background:#000"></video>
+    <div style="color:#888;font-size:13px;max-width:220px">它有一个真地址,
+      所以**代理救得回来** —— 重放里从我们这儿拉。</div></div>
+  <div class=box><h2>⑧ 视频(srcObject)</h2>
+    <video id=vid width=200 autoplay muted playsinline
+           style="border:1px solid #ccc;background:#000"></video>
+    <div style="color:#888;font-size:13px;max-width:220px">它的画面来自一条
+      <code>MediaStream</code>,**根本没有 URL**。
+      rrweb 记得了元素和播放位置,记不了帧 —— 重放里这块是黑的。</div></div>
+</div>
 <script>
  // 页面自己报告收到的坐标和命中的元素 —— 不猜,直接看
  addEventListener('mousedown', e => {
@@ -46,5 +70,9 @@
   for(let i=0;i<260;i++)x.lineTo(i,70+Math.sin(i/18+a)*45);x.stroke();
   x.fillStyle='#c33';x.beginPath();x.arc(130+Math.cos(a)*90,70,9,0,7);x.fill();
   requestAnimationFrame(draw);})();
+ // 把 canvas 接成一条 MediaStream 喂给 <video> —— 和真实站点的 MSE/blob 一样,
+ // 没有任何可以在重放端重新拉一遍的地址
+ try { document.getElementById('vid').srcObject =
+         document.getElementById('c').captureStream(30); } catch (e) {}
  setInterval(()=>document.getElementById('t').textContent=new Date().toLocaleTimeString()+'.'+String(Date.now()%1000).padStart(3,'0'),100);
 </script>

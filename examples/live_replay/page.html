@@ -137,7 +137,9 @@ new ResizeObserver(() => scaleRR(vw, vh)).observe(rrBox);
 function feed(e) {
   rrCount++;
   const secs = Math.max(1, (Date.now() - t0) / 1000);
-  $("#tstat").textContent = `${rrCount} 个事件 · ${rate(bytes.rr, secs)}`;
+  // **资源那份也要算进来。** 它不走 WS,走 /res —— 不显示的话账看着比实际便宜
+  $("#tstat").textContent =
+    `${rrCount} 个事件 · 事件 ${rate(bytes.rr, secs)} · 资源 ${(bytes.res/1024).toFixed(0)} KB`;
   if (e.type === 4) {                       // Meta:新的一页,推倒重来
     if (replayer) { try { replayer.destroy(); } catch (_) {} replayer = null; }
     rrBox.innerHTML = "";

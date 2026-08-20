@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import base64
 import json
+import re
 import shutil
 import signal
 import socket
@@ -36,6 +37,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
+from urllib.parse import quote
 
 from aiohttp import WSMsgType, web
 
@@ -95,6 +98,7 @@ RECORD_JS = """
       recordCanvas: true,
       sampling: { canvas: 10 },
       inlineStylesheet: true,
+      inlineImages: __INLINE_IMAGES__,
       errorHandler: (e) => { err("rrweb 内部: " + e); return true; },
     });
   } catch (e) { err(e); }
@@ -120,6 +124,12 @@ SETTLE = 0.45
 TYPE_IDLE = 0.9
 
 
+#: 快照/变更里这些属性是资源地址,要改写成走我们。
+URL_ATTRS = ("src", "poster", "xlink:href", "data")
+#: 这些标签的 href 才是资源(link 的样式表);<a href> 不能动。
+HREF_TAGS = ("link", "image", "use")
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -127,15 +137,21 @@ def _free_port() -> int:
 
 
 class Live:
-    def __init__(self, user: str, mode: str = "rrweb") -> None:
+    def __init__(self, user: str, mode: str = "rrweb", *,
+                 inline_images: bool = False, proxy_res: bool = True) -> None:
         self.user = user
         self.mode = mode
+        self.inline_images = inline_images
+        self.proxy_res = proxy_res
         #: rrweb 的事件缓冲。**只留最近一段可重放的** ——
         #: 一个 Meta(4) 之后跟着 FullSnapshot(2) 才构得出 Replayer,
         #: 所以见到 Meta 就从它重新开始攒,后来的观看者才追得上。
         self.rr: list[str] = []
         #: 两条各花了多少 —— 判断代价要看这个,不是事件条数
-        self.bytes = {"rr": 0, "frame": 0}
+        self.bytes = {"rr": 0, "frame": 0, "res": 0}
+        #: url -> (mime, 字节)。**这就是那个"代理"** —— 页面加载过的资源
+        #: 我们这儿留一份,重放时从这儿出,不回原站。
+        self.res: dict[str, tuple[str, bytes]] = {}
         self.cdp: CDP | None = None
         self.sid = ""
         self.proc: subprocess.Popen | None = None
@@ -178,8 +194,10 @@ class Live:
         r = await self.cdp.send("Target.attachToTarget",
                                 {"targetId": page["targetId"], "flatten": True})
         self.sid = r["sessionId"]
-        for m in ("Page.enable", "Runtime.enable"):
+        for m in ("Page.enable", "Runtime.enable", "Network.enable"):
             await self.cdp.send(m, session_id=self.sid)
+        if self.proxy_res:
+            self._arm_network()
         self.cdp.on("Page.screencastFrame", self._on_frame)
         self.cdp.on("Page.frameNavigated", self._on_nav)
         if self.mode == "rrweb":
@@ -188,6 +206,96 @@ class Live:
                             {"format": "jpeg", "quality": 75,
                              "maxWidth": W, "maxHeight": H, "everyNthFrame": 1},
                             session_id=self.sid)
+
+    # ------------------------------------------------- 把地址改到我们身上
+
+    def _rw(self, url: str) -> str:
+        """**只改我们兜住了的那些。** 没兜住就原样留着 ——
+        改成一个我们答不上来的地址,只会把「拿得到」变成「破图」。"""
+        if not url or url.startswith(("data:", "blob:", "#", "/res?")):
+            return url
+        return f"/res?u={quote(url, safe='')}" if url in self.res else url
+
+    def _rw_css(self, css: str) -> str:
+        return re.sub(r"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)",
+                      lambda m: f"url({self._rw(m.group(1))})", css)
+
+    def _rw_node(self, n: Any) -> None:
+        """递归改写 rrweb 序列化出来的节点树。**按结构走,不用正则扫整串** ——
+        正则会误伤正文里长得像地址的文字。"""
+        if isinstance(n, list):
+            for x in n:
+                self._rw_node(x)
+            return
+        if not isinstance(n, dict):
+            return
+        a = n.get("attributes")
+        if isinstance(a, dict):
+            tag = (n.get("tagName") or "").lower()
+            for k in URL_ATTRS:
+                if isinstance(a.get(k), str):
+                    a[k] = self._rw(a[k])
+            if tag in HREF_TAGS and isinstance(a.get("href"), str):
+                a["href"] = self._rw(a["href"])
+            if isinstance(a.get("srcset"), str):
+                a["srcset"] = ", ".join(
+                    " ".join([self._rw(p.split(" ")[0])] + p.split(" ")[1:])
+                    for p in (x.strip() for x in a["srcset"].split(",")) if p)
+            for k in ("style", "_cssText"):
+                if isinstance(a.get(k), str):
+                    a[k] = self._rw_css(a[k])
+        for k in ("childNodes", "adds", "attributes", "node", "texts", "removes"):
+            v = n.get(k)
+            if isinstance(v, (list, dict)) and k != "attributes":
+                self._rw_node(v)
+
+    def _rewrite(self, payload: str) -> str:
+        """事件里凡是我们兜住了的地址,一律改成走 `/res`。"""
+        try:
+            e = json.loads(payload)
+        except Exception:
+            return payload
+        self._rw_node(e.get("data"))
+        return json.dumps(e, ensure_ascii=False)
+
+    # ------------------------------------------------------ 资源:自己兜住
+
+    def _arm_network(self) -> None:
+        """**从 CDP 收响应体,不从页面里取。**
+
+        `inlineImages` 是把图画进 canvas 再取字节,跨域没 CORS 头就污染画布 ——
+        实测那张跨域图内联不了,只能退回原地址。而 `Network.getResponseBody`
+        走的是浏览器已经收到的字节,**不受同源策略管**,跨域一样拿得到。
+
+        另一半好处是:观看端不必够得着原站。资源从我们这儿出。
+        """
+        self._pending: dict[str, dict] = {}
+        self.cdp.on("Network.responseReceived", self._on_resp)
+        self.cdp.on("Network.loadingFinished", self._on_done)
+
+    def _on_resp(self, params: dict, _sid: str | None) -> None:
+        r = params.get("response") or {}
+        if params.get("type") in ("Image", "Media", "Font", "Stylesheet", "Other"):
+            self._pending[params["requestId"]] = {
+                "url": r.get("url", ""), "mime": r.get("mimeType", "")}
+
+    def _on_done(self, params: dict, _sid: str | None) -> None:
+        info = self._pending.pop(params.get("requestId", ""), None)
+        if info and info["url"]:
+            asyncio.create_task(self._grab(params["requestId"], info))
+
+    async def _grab(self, rid: str, info: dict) -> None:
+        try:
+            r = await self.cdp.send("Network.getResponseBody",
+                                    {"requestId": rid}, session_id=self.sid)
+        except Exception:
+            return                       # 已经被浏览器丢了,不是错误
+        body = r.get("body") or ""
+        raw = base64.b64decode(body) if r.get("base64Encoded") else body.encode()
+        if len(raw) > 8 * 1024 * 1024:   # 别把内存吃光
+            return
+        self.res[info["url"]] = (info["mime"] or "application/octet-stream", raw)
+        self.bytes["res"] += len(raw)
 
     async def _arm_rrweb(self) -> None:
         """**只走 new-document 这条路,不做一次性的大 evaluate。**
@@ -202,7 +310,9 @@ class Live:
         # 那个分号是必须的:UMD 最后一行是 `}))`,后面直接跟 `(() => …)()`
         # 会被解析成"调用上一个表达式的结果",报的是
         # `(intermediate value)(...) is not a function`,和 rrweb 本身没关系。
-        src = vendor("rrweb.js").decode("utf-8") + "\n;\n" + RECORD_JS
+        src = (vendor("rrweb.js").decode("utf-8") + "\n;\n"
+               + RECORD_JS.replace("__INLINE_IMAGES__",
+                                   "true" if self.inline_images else "false"))
         await self.cdp.send("Runtime.addBinding", {"name": "__rrwebEmit"},
                             session_id=self.sid)
         await self.cdp.send("Page.addScriptToEvaluateOnNewDocument",
@@ -227,6 +337,9 @@ class Live:
             self.rr.append(payload)
             if len(self.rr) > 8000:     # 别无限长
                 self.rr = self.rr[-4000:]
+        if self.proxy_res:
+            payload = self._rewrite(payload)
+            self.rr[-1] = payload
         self.bytes["rr"] += len(payload)
         self._push({"c": "rr", "e": payload, "b": self.bytes})
 
@@ -401,6 +514,10 @@ async def main() -> None:
     ap.add_argument("--user", default="人")
     ap.add_argument("--replay", choices=("rrweb", "trace"), default="rrweb",
                     help="下半屏用哪个重放器")
+    #: 把 <img> 转成 data URL 一起传。**代价是体积** —— 开关在这儿就是为了量它。
+    ap.add_argument("--inline-images", action="store_true")
+    #: 关掉之后重放端会回原地址拿资源 —— 留着是为了能对比
+    ap.add_argument("--no-proxy-res", action="store_true")
     #: **默认用托管那份 viewer。** 本地那份要 service worker 才能渲染快照,
     #: 而 service worker 只在安全上下文里注册 —— 从内网 IP 打开就是不安全上下文,
     #: 快照面板会**静默空白**。托管的是 https,怎么访问都能用。
@@ -413,7 +530,8 @@ async def main() -> None:
     args = ap.parse_args()
 
     viewer_url = args.viewer          # index() 用到,路由那边可能会改写
-    live = Live(args.user, args.replay)
+    live = Live(args.user, args.replay, inline_images=args.inline_images,
+                proxy_res=not args.no_proxy_res)
     if args.replay == "rrweb":
         vendor("rrweb.js"); vendor("rrweb.css")     # 先备好再起,免得第一页漏录
     await live.start("about:blank")
@@ -456,6 +574,20 @@ async def main() -> None:
     app = web.Application()
     app.router.add_get("/", index)
     app.router.add_get("/demo", demo)
+    app.router.add_get("/pattern.png", lambda _r: web.FileResponse(HERE / "pattern.png"))
+    app.router.add_get("/flower.mp4", lambda _r: web.FileResponse(HERE / "flower.mp4"))
+
+    async def res(request):
+        """页面加载过的资源从这儿出。**重放端不必够得着原站。**"""
+        u = request.query.get("u", "")
+        hit = live.res.get(u)
+        if not hit:
+            return web.Response(status=404)
+        mime, blob = hit
+        return web.Response(body=blob, content_type=mime.split(";")[0],
+                            headers={"Cache-Control": "max-age=300"})
+
+    app.router.add_get("/res", res)
     app.router.add_get("/trace.zip", trace)
     app.router.add_get("/ws", channel)
     app.router.add_get("/favicon.ico", lambda _r: web.Response(status=204))
@@ -487,6 +619,8 @@ async def main() -> None:
     await web.TCPSite(runner, args.bind, args.port).start()
     url = args.url.replace("SELF", f"http://127.0.0.1:{args.port}")
     await live.handle({"t": "nav", "url": url})
+    if not args.no_proxy_res:
+        print("  资源代理:开 —— 重放端只找我们要,不回原站")
     how = ("rrweb —— 按 DOM 变化连续流,页面动它就动"
            if args.replay == "rrweb" else
            "Playwright Trace —— 一条动作一跳")
