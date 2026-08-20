@@ -450,6 +450,9 @@ rrweb 上观看端看到的是**它自己重排出来的 DOM** —— 一处字�
 
 > 带宽那一侧同样量到了(17.9 KB/s vs 未限流的 10995 KB/s),
 > 但要照实读:**省下来的正是没画出来的那部分。**
+> [`examples/live_replay/`](../../../examples/live_replay/) 里换成真的 rrweb、
+> 并打开 `recordCanvas` 之后,同一张靶页要 **117.9 KB/s** —— 高了六倍多,
+> 换来的正是那块画得出来的 canvas。**canvas 的账躲不掉。**
 
 ### 13.2 Playwright trace:根本不是一条来源
 

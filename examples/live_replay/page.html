@@ -1,6 +1,8 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>CDP 流控制 + trace 实时</title>
+<title>CDP 流控制 + 实时重放</title>
+<link rel="stylesheet" href="/vendor/rrweb.css">
+<script src="/vendor/rrweb.js"></script>
 <style>
   :root{--bg:#14171c;--fg:#e6e9ef;--dim:#8b93a1;--line:#2a2f38;--ok:#5aa96b;--warn:#e0a94b}
   *{box-sizing:border-box}
@@ -32,6 +34,12 @@
   .hit:focus-visible{box-shadow:inset 0 0 0 2px var(--ok)}
   iframe{flex:1;border:1px solid var(--line);border-radius:8px;margin:0 14px 14px;
          background:#fff;min-height:280px}
+  /* rrweb 的 Replayer 会自己按录到的视口尺寸建一层 wrapper —— 我们只负责缩放 */
+  #rr{flex:1;min-height:0;margin:0 14px 14px;background:#fff;border:1px solid var(--line);
+      border-radius:8px;overflow:hidden;position:relative}
+  #rr .replayer-wrapper{position:absolute;top:0;left:0;transform-origin:0 0}
+  #rr iframe{border:0;margin:0;border-radius:0}
+  .hidden{display:none !important}
   .pill{background:#242a33;border:1px solid var(--line);border-radius:999px;
         padding:2px 9px;font-size:12px}
 </style>
@@ -55,17 +63,29 @@
   </div>
   <div class="half bot">
     <div class="bar">
-      <b>② Playwright Trace —— 每做完一个动作它就多一条</b>
-      <span class="dim" id="tstat">还没有动作。点一下、或者打几个字试试</span>
+      <b id="btitle">②</b>
+      <span class="dim" id="tstat">等第一批事件…</span>
     </div>
-    <iframe id="viewer" src="__VIEWER__"></iframe>
+    <div id="rr" class="hidden"></div>
+    <iframe id="viewer" class="hidden"></iframe>
   </div>
 </main>
 
 <script>
+const MODE = "__MODE__";
 const $ = s => document.querySelector(s);
-const screenEl = $("#screen"), hit = $("#hit"), viewer = $("#viewer");
-let frames = 0, t0 = Date.now();
+const screenEl = $("#screen"), hit = $("#hit"), viewer = $("#viewer"), rrBox = $("#rr");
+let frames = 0, t0 = Date.now(), bytes = { rr: 0, frame: 0 };
+const rate = (n, s) => `${(n / 1024).toFixed(0)} KB · ${(n / s / 1024).toFixed(1)} KB/s`;
+
+if (MODE === "rrweb") {
+  rrBox.classList.remove("hidden");
+  $("#btitle").textContent = "② rrweb 实时重放 —— 页面一动它就跟着动";
+} else {
+  viewer.classList.remove("hidden");
+  viewer.src = "__VIEWER__";
+  $("#btitle").textContent = "② Playwright Trace —— 每做完一个动作它就多一条";
+}
 
 function fit() {
   const w = screenEl.parentElement.clientWidth;
@@ -85,13 +105,66 @@ ws.onmessage = ev => {
   if (m.c === "frame") {
     screenEl.src = "data:image/jpeg;base64," + m.data;
     frames++;
+    bytes = m.b || bytes;
     const s = Math.max(1, (Date.now() - t0) / 1000);
-    $("#fps").textContent = `${frames} 帧 · ${(frames / s).toFixed(1)} fps`;
+    $("#fps").textContent =
+      `${frames} 帧 · ${(frames / s).toFixed(1)} fps · ${rate(bytes.frame, s)}`;
   } else if (m.c === "trace") {
     $("#tstat").textContent = `${m.n} 个动作` + (m.last ? ` · 最后一个:${m.last}` : "");
     loadTrace(m.v);
+  } else if (m.c === "rr") {
+    bytes = m.b || bytes;
+    feed(JSON.parse(m.e));
   }
 };
+
+// ---- rrweb:live 模式,一条一条喂 ----
+// **它是流,不是包。** 这正是它比 trace 顺的原因:trace 每次都要重拼整份再整份塞回去。
+let replayer = null, pending = [], rrCount = 0;
+
+function scaleRR(w, h) {
+  const b = rrBox.getBoundingClientRect();
+  const k = Math.min(b.width / w, b.height / h);
+  const wrap = rrBox.querySelector(".replayer-wrapper");
+  if (wrap) {
+    wrap.style.transform = `scale(${k})`;
+    wrap.style.left = ((b.width - w * k) / 2) + "px";
+  }
+}
+let vw = 1024, vh = 768;
+new ResizeObserver(() => scaleRR(vw, vh)).observe(rrBox);
+
+function feed(e) {
+  rrCount++;
+  const secs = Math.max(1, (Date.now() - t0) / 1000);
+  $("#tstat").textContent = `${rrCount} 个事件 · ${rate(bytes.rr, secs)}`;
+  if (e.type === 4) {                       // Meta:新的一页,推倒重来
+    if (replayer) { try { replayer.destroy(); } catch (_) {} replayer = null; }
+    rrBox.innerHTML = "";
+    vw = e.data.width || 1024; vh = e.data.height || 768;
+    pending = [e];
+    return;
+  }
+  if (!replayer) {
+    pending.push(e);
+    if (e.type !== 2) return;               // 等到 FullSnapshot 才建得起来
+    replayer = new rrweb.Replayer(pending, {
+      root: rrBox, liveMode: true, mouseTail: false,
+      UNSAFE_replayCanvas: true, insertStyleRules: [],
+    });
+    replayer.startLive(pending[0].timestamp);
+    pending = [];
+    scaleRR(vw, vh);
+    return;
+  }
+  replayer.addEvent(e);
+}
+
+if (MODE === "rrweb") {                     // 补上连接之前攒的那一段
+  fetch("/rr/events").then(r => r.json()).then(d => {
+    for (const raw of d.events) feed(JSON.parse(raw));
+  }).catch(() => {});
+}
 
 // **把 trace 原地塞进 viewer,不 reload。**
 // viewer 自己听 message:{method:"load", params:{trace: Blob}} —— 见它的 index bundle。
