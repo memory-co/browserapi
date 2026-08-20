@@ -16,8 +16,9 @@
 
 ②  客户端归一化        用该元素的实际尺寸,把客户端坐标换算成画面坐标
 
-③  WS /api/view · text {"type":"mouse","event":"move","x":412,"y":233,
-                        "buttons":0,"modifiers":0}
+③  WS /channel/cdp · text  {"type":"mouse","event":"move","x":412,"y":233,
+                            "buttons":0,"modifiers":0}
+    (当前实现中该路径是 /api/view,见 [e §6.1](e-client.md#61-通道--一个上游系统的连接))
 
 ④  sessiond · 白名单   消息类型不在允许集合内 → 丢弃
 

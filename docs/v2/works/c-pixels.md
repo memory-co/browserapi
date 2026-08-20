@@ -285,7 +285,7 @@ RHEL 系默认 Xorg+dummy,而云主机通常不安装 Xorg —— 同一条命�
 ## 7. 线切在哪
 
 ```
-浏览器  ├── WS /xpra       xpra 协议,只下行画面
+浏览器  ├── WS /channel/xpra       xpra 协议,只下行画面
         └── WS /api/view   输入、光标、tab、ack —— 和另一条腿完全一样
 ```
 
