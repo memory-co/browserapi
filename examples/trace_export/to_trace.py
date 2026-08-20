@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import zipfile
 from datetime import datetime, timezone
@@ -31,8 +32,19 @@ SNAPSHOT_JS = (HERE / "snapshot.js").read_text(encoding="utf-8")
 MARK = "__webmuxd_snapshot__"
 
 
-def _ms(at: str) -> float:
-    """`log.jsonl` 的 `at` 是 ISO 秒。**只到秒** —— 见 README「量到的问题」。"""
+def _ms(e: dict | str) -> float:
+    """取这条动作的毫秒时间戳。
+
+    **优先用 `at_ms`。** `log.jsonl` 的 `at` 只到秒,同一秒里的几条动作会叠在
+    一起、在时间轴上看不出先后(README「量到的问题」第一条)。
+    实时录的时候我们手上就有毫秒,直接带上,不必受日志格式的限制。
+    """
+    if isinstance(e, dict):
+        if e.get("at_ms"):
+            return float(e["at_ms"])
+        at = e["at"]
+    else:
+        at = e
     return datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(
         tzinfo=timezone.utc).timestamp() * 1000
 
@@ -77,6 +89,16 @@ def _snapshot_event(snap: dict, *, name: str, call_id: str,
 def write_trace(out: str | Path, *, actions: list[dict],
                 snapshots: dict[int, dict], shots: dict[int, bytes],
                 viewport: dict, title: str = "webmuxd session") -> Path:
+    """把 `build_trace()` 的结果落到磁盘。"""
+    out = Path(out)
+    out.write_bytes(build_trace(actions=actions, snapshots=snapshots, shots=shots,
+                                viewport=viewport, title=title))
+    return out
+
+
+def build_trace(*, actions: list[dict], snapshots: dict[int, dict],
+                shots: dict[int, bytes], viewport: dict,
+                title: str = "webmuxd session") -> bytes:
     """`actions` 是 log.jsonl 里 kind=="action" 的那些行(已按 seq 排好)。
 
     `snapshots[seq]` = {"before": …, "after": …},`shots[seq]` = 图片字节。
@@ -85,7 +107,7 @@ def write_trace(out: str | Path, *, actions: list[dict],
     if not actions:
         raise ValueError("一条动作都没有,导出来的 trace 里时间轴是空的")
 
-    base = _ms(actions[0]["at"])
+    base = _ms(actions[0])
     events: list[dict] = [{
         "version": VERSION, "type": "context-options", "origin": "library",
         "browserName": "chromium", "platform": "linux",
@@ -102,7 +124,7 @@ def write_trace(out: str | Path, *, actions: list[dict],
         seq = e["seq"]
         call_id = f"call@{seq}"
         page_id = f"page@{e.get('tab', 't_1')}"
-        start = max(_ms(e["at"]) - base, cursor)
+        start = max(_ms(e) - base, cursor)
         end = start + float(e.get("ms") or 0)
         cursor = end + 1
 
@@ -142,14 +164,14 @@ def write_trace(out: str | Path, *, actions: list[dict],
             events.append(_snapshot_event(snap["after"], name=f"after@{call_id}",
                                           call_id=call_id, page_id=page_id, ts=end))
 
-    out = Path(out)
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("trace.trace",
                    "\n".join(json.dumps(e, ensure_ascii=False) for e in events))
         z.writestr("trace.network", "")     # 网络还没接,但这个条目必须在
         for name, blob in files.items():
             z.writestr(name, blob)
-    return out
+    return buf.getvalue()
 
 
 def actions_from_log(entries: list[dict]) -> list[dict]:
