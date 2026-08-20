@@ -243,7 +243,7 @@ Emulation.setDeviceMetricsOverride  deviceScaleFactor=2
 | **按内容选格式**(扁平 UI 走 png) | demo 实测扁平页 q100 时 PNG 比 JPEG 小 30%(§4①) | 有了真实页面的分布,而且能判得准的时候 |
 | **区域更新** —— 只发变化的矩形 | 打字/悬停这类小面积重绘省很多 | 有人抱怨"只是打个字也在跑流量"。注意这正是 VNC 的路子,而它在全屏运动时是负收益([01 §4.1](01-frame-source.md#41-但更费带宽--更不流畅)) |
 | **多观看者共享编码** | 现在是同一份 `Buffer` 扇出,已经不重复编码 | 除非引入 per-观看者的分辨率/画质,否则**不需要** |
-| **H.264 / VP8 走 WebRTC** | 带宽降一个量级 | 带宽成为实际投诉。但实测流畅度已经赢了 VNC,**它换的是带宽不是体验**([works/README](README.md#明确不做))。BrowserBox 的双通道赛跑是怎么回事、为什么我们不抄,见 [09 §4](09-wire-format.md#4-browserbox-的上行) |
+| **H.264 / VP8 走 WebRTC** | 带宽降一个量级 | 带宽成为实际投诉。但实测流畅度已经赢了 VNC,**它换的是带宽不是体验**([works/README](README.md#明确不做))。BrowserBox 那套双通道赛跑我们不抄(当时的 works/09 有对照,已随重写删除) |
 
 排在最前面的两条(帧去重、WebP)成本最低、风险最小,真要动就从它们开始 ——
 而且都要**先量再动**,不要凭"应该会更好"。
@@ -256,4 +256,4 @@ Emulation.setDeviceMetricsOverride  deviceScaleFactor=2
 | 上行的另一半(输入) | [03](b-input.md) |
 | 帧发给谁、谁有权发输入 | [04](b-input.md) |
 | 切 tab 时的残帧怎么丢 | [05 §3](05-active-tab.md#3-切-tab-是把-screencast-搬过去) |
-| 上行长什么样、ack 为什么不搭车 | [09](09-wire-format.md) |
+| 上行长什么样、ack 为什么不搭车 | [09](e1-wire-format.md) |
