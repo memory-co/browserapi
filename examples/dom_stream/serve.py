@@ -22,6 +22,7 @@ import base64
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import tempfile
@@ -195,10 +196,18 @@ class Bridge:
             self.last_snapshot = ""
 
     def stop(self) -> None:
-        if self.proc:
+        """**必须等它真的死掉。** `terminate()` 只是发个信号就返回;
+        不 wait 的话进程组还在,下次再起就多一份 —— 实测漏了九十多个。"""
+        if self.proc and self.proc.poll() is None:
             self.proc.terminate()
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=5)
         if self.profile:
             shutil.rmtree(self.profile, ignore_errors=True)
+            self.profile = ""
 
 
 async def main() -> None:
@@ -258,11 +267,21 @@ async def main() -> None:
     print(f"\n  打开  http://{host}:{args.port}/\n"
           f"  左边 = DOM 流(观看端重排)   右边 = CDP 截屏(像素)\n"
           f"  页面:{url}\n")
+    # **SIGTERM 也要走到清理。** `asyncio.run` 只把 SIGINT 变成 KeyboardInterrupt,
+    # 而 `kill` 默认发的是 SIGTERM —— 不接的话进程直接没了,chrome 留在那儿。
+    done = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, done.set)
+        except NotImplementedError:
+            pass
     try:
-        while True:
-            await asyncio.sleep(3600)
+        await done.wait()
     finally:
+        print("收工,关掉 chrome…")
         bridge.stop()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":

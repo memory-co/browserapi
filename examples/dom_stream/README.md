@@ -65,5 +65,7 @@ python3 examples/dom_stream/serve.py --port 7955
 - `resourceOverrides` 没接:外站的 CSS / 图片在替身里会去打原站
 - iframe 用 `sandbox="allow-same-origin"` 才量得到对齐;脚本已经在序列化时剥掉了,
   但真做要重新想这里的边界
+- 起来的 chrome 是这个服务的子进程,**`Ctrl-C` 和 `kill` 都会把它关掉**
+  —— 第一版没接 SIGTERM,反复重启漏了九十多个进程,现在补上了
 - 右边那条没限流(`everyNthFrame: 1`),webmuxd 自己的管线是有回执和降质的
   ([c1](../../docs/v2/works/c1-quality.md)),所以那个 KB/s 只能当上限看
