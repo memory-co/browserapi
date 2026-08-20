@@ -1,0 +1,189 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>DOM 流 vs CDP 截屏</title>
+<style>
+  :root{--bg:#14171c;--fg:#e6e9ef;--dim:#8b93a1;--line:#2a2f38;--warn:#e0a94b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.5 system-ui,-apple-system,"Noto Sans CJK SC",sans-serif}
+  header{display:flex;gap:12px;align-items:center;padding:10px 16px;
+         border-bottom:1px solid var(--line)}
+  header b{font-weight:600}
+  input[type=url]{flex:1;min-width:0;background:#0e1116;color:var(--fg);
+       border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit}
+  button{background:#242a33;color:var(--fg);border:1px solid var(--line);
+       border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}
+  button:hover{background:#2e3540}
+  .panes{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}
+  .pane{min-width:0}
+  .cap{display:flex;justify-content:space-between;align-items:baseline;
+       margin-bottom:6px}
+  .cap b{font-size:13px}
+  .cap span{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
+  .frame{position:relative;width:100%;aspect-ratio:1024/768;background:#fff;
+         border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .frame iframe,.frame img{position:absolute;inset:0;width:1024px;height:768px;
+         border:0;transform-origin:0 0;background:#fff}
+  .hit{position:absolute;inset:0;cursor:crosshair}
+  footer{padding:10px 16px;border-top:1px solid var(--line);color:var(--dim);
+         font-size:12px;font-variant-numeric:tabular-nums}
+  .warn{color:var(--warn)}
+  kbd{background:#242a33;border:1px solid var(--line);border-radius:4px;
+      padding:1px 5px;font-size:11px}
+</style>
+
+<header>
+  <b>同一个 tab,两条画面通道</b>
+  <input type="url" id="url" value="" placeholder="换个页面试试 —— 带 canvas / video 的最能看出差别">
+  <button id="go">打开</button>
+  <span id="conn" style="color:var(--dim)">连接中…</span>
+</header>
+
+<div class="panes">
+  <div class="pane">
+    <div class="cap"><b>① DOM 流 —— 观看端自己重排</b><span id="s-dom">—</span></div>
+    <div class="frame"><iframe id="dom" sandbox="allow-same-origin"></iframe><div class="hit" data-src="dom"></div></div>
+  </div>
+  <div class="pane">
+    <div class="cap"><b>② CDP 截屏 —— 像素</b><span id="s-cdp">—</span></div>
+    <div class="frame"><img id="cdp" alt=""><div class="hit" data-src="cdp"></div></div>
+  </div>
+</div>
+
+<div style="padding:0 14px 14px">
+  <div class="cap"><b>对齐检查 —— 同一个 id,真实页面 vs 替身</b>
+    <span id="align-sum">—</span></div>
+  <div style="max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:8px">
+    <table id="align" style="width:100%;border-collapse:collapse;font-size:12px;
+      font-variant-numeric:tabular-nums"></table>
+  </div>
+</div>
+
+<footer>
+  两边都能点、都能打字(点一下再敲键)。<b>输入只有一条路</b> —— 不管你点的是哪边,
+  都翻译成 <code>Input.dispatchMouseEvent</code> 送进同一个 tab。
+  <span class="warn" id="note"></span>
+  <br>要看的是:左边缺了什么(canvas / video / 跨域 iframe)、
+  在左边点一下右边是不是真的点着了、以及两条各自花了多少字节。
+  <kbd>Esc</kbd> 之类的功能键也会转发。
+</footer>
+
+<script>
+const VOID = new Set(["AREA","BASE","BR","COL","EMBED","HR","IMG","INPUT","LINK",
+                      "META","PARAM","SOURCE","TRACK","WBR"]);
+const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const escA = s => String(s).replace(/[&"]/g, c => ({"&":"&amp;",'"':"&quot;"}[c]));
+
+// NodeSnapshot(嵌套数组)→ HTML。格式见 packages/trace/src/snapshot.ts
+function toHTML(n, parent) {
+  if (typeof n === "string")
+    return (parent === "STYLE" || parent === "TITLE") ? n : esc(n);  // style 不能转义
+  if (!Array.isArray(n) || Array.isArray(n[0])) return "";           // [[i,j]] 增量引用,我们不发
+  const [tag, attrs, ...kids] = n;
+  const a = [];
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "__playwright_value_") { a.push(`value="${escA(v)}"`); continue; }
+    if (k === "__playwright_checked_") { if (v === "true") a.push("checked"); continue; }
+    if (k.startsWith("__playwright")) continue;
+    a.push(`${k}="${escA(v)}"`);
+  }
+  const open = `<${tag.toLowerCase()}${a.length ? " " + a.join(" ") : ""}>`;
+  if (VOID.has(tag)) return open;
+  return open + kids.map(k => toHTML(k, tag)).join("") + `</${tag.toLowerCase()}>`;
+}
+
+const $ = s => document.querySelector(s);
+const domFrame = $("#dom"), cdpImg = $("#cdp"), note = $("#note");
+let t0 = Date.now();
+
+function fit() {                       // 1024×768 缩到 pane 的宽度
+  for (const el of [domFrame, cdpImg]) {
+    const w = el.parentElement.clientWidth;
+    el.style.transform = `scale(${w / 1024})`;
+  }
+}
+addEventListener("resize", fit); fit();
+
+const ws = new WebSocket(location.origin.replace(/^http/, "ws") + "/ws");
+ws.onopen = () => $("#conn").textContent = "已连接";
+ws.onclose = () => $("#conn").textContent = "断开了";
+ws.onmessage = ev => {
+  const m = JSON.parse(ev.data);
+  if (m.c === "dom") {
+    const s = JSON.parse(m.snap);
+    domFrame.srcdoc = "<!doctype html>" + toHTML(s.html, null);
+    if (!$("#url").value) $("#url").value = s.url;
+  } else if (m.c === "cdp") {
+    cdpImg.src = "data:image/jpeg;base64," + m.data;
+  } else if (m.c === "boxes") {
+    align(JSON.parse(m.boxes));
+    return;                       // 量具不进流量统计
+  }
+  const secs = Math.max(1, (Date.now() - t0) / 1000);
+  const kb = (n) => (n / 1024).toFixed(0) + " KB";
+  $("#s-dom").textContent = `${kb(m.stats.dom)} · ${m.stats.n.dom} 次 · ${(m.stats.dom/secs/1024).toFixed(1)} KB/s`;
+  $("#s-cdp").textContent = `${kb(m.stats.cdp)} · ${m.stats.n.cdp} 帧 · ${(m.stats.cdp/secs/1024).toFixed(1)} KB/s`;
+};
+
+const send = o => ws.readyState === 1 && ws.send(JSON.stringify(o));
+
+// **对齐检查。** 真实页面里 #x 在哪、替身里 #x 在哪 —— 差多少就是点下去会偏多少。
+// 这是 rrweb / DOM 流这一类来源最要命的那一条:偏了不报错,只是点不着。
+function align(real) {
+  const doc = domFrame.contentDocument;
+  if (!doc || !doc.body) return;
+  const rows = [], MISS = [];
+  let worst = 0, n = 0;
+  for (const [id, r] of Object.entries(real)) {
+    const el = doc.getElementById(id);
+    if (!el) { MISS.push(id); continue; }
+    const b = el.getBoundingClientRect();
+    const dx = b.x - r[0], dy = b.y - r[1];
+    const d = Math.round(Math.hypot(dx, dy));
+    worst = Math.max(worst, d); n++;
+    rows.push(`<tr style="border-top:1px solid var(--line)">
+      <td style="padding:3px 8px">#${id}</td>
+      <td style="padding:3px 8px;color:var(--dim)">${r[0]},${r[1]}</td>
+      <td style="padding:3px 8px;color:var(--dim)">${b.x.toFixed(0)},${b.y.toFixed(0)}</td>
+      <td style="padding:3px 8px;color:${d > 4 ? "var(--warn)" : "inherit"}">
+        ${d > 4 ? "偏 " + d + " px" : "对上了"}</td></tr>`);
+  }
+  document.querySelector("#align").innerHTML =
+    `<tr style="color:var(--dim)"><th style="text-align:left;padding:3px 8px">元素</th>
+     <th style="text-align:left;padding:3px 8px">真实页面</th>
+     <th style="text-align:left;padding:3px 8px">替身</th>
+     <th style="text-align:left;padding:3px 8px">差</th></tr>` + rows.join("");
+  $("#align-sum").innerHTML = `${n} 个对上位置,最大偏移 ` +
+    `<b class="${worst > 4 ? "warn" : ""}">${worst} px</b>` +
+    (MISS.length ? ` · <span class="warn">替身里根本没有:${MISS.join(", ")}</span>` : "");
+}
+
+// **两个 pane 的输入走同一条路。** 唯一的差别只有坐标从哪块矩形里量出来。
+for (const hit of document.querySelectorAll(".hit")) {
+  const at = e => {
+    const r = hit.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * 1024 / r.width,
+             y: (e.clientY - r.top) * 768 / r.height };
+  };
+  hit.addEventListener("mousemove", e => send({ t: "mouse", type: "mouseMoved", ...at(e) }));
+  hit.addEventListener("mousedown", e => {
+    note.textContent = `刚才那一下点在「${hit.dataset.src === "dom" ? "DOM 流" : "CDP 截屏"}」上`;
+    send({ t: "mouse", type: "mousePressed", ...at(e), buttons: 1 });
+  });
+  hit.addEventListener("mouseup", e => send({ t: "mouse", type: "mouseReleased", ...at(e), buttons: 0 }));
+  hit.addEventListener("wheel", e => {
+    e.preventDefault();
+    send({ t: "wheel", ...at(e), dx: e.deltaX, dy: e.deltaY });
+  }, { passive: false });
+}
+
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;         // 地址栏归它自己
+  e.preventDefault();
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) send({ t: "text", text: e.key });
+  else send({ t: "key", key: e.key, code: e.code, vk: e.keyCode });
+});
+
+$("#go").onclick = () => send({ t: "nav", url: $("#url").value });
+$("#url").addEventListener("keydown", e => { if (e.key === "Enter") $("#go").click(); });
+</script>

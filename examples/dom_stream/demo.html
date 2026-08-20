@@ -1,0 +1,50 @@
+<!doctype html><meta charset=utf-8><title>靶页</title>
+<style>
+ body{font:16px/1.6 system-ui,"Noto Sans CJK SC",sans-serif;margin:0;padding:24px;color:#222}
+ h2{margin:0 0 4px;font-size:18px} .box{border:1px solid #ddd;border-radius:8px;padding:14px;margin-bottom:14px}
+ .row{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+ input,button{font:inherit;padding:5px 9px;border:1px solid #bbb;border-radius:5px}
+ button{background:#f3f4f6;cursor:pointer} #out{color:#b00;font-weight:600;min-height:1.6em}
+ @keyframes slide{from{transform:translateX(0)}to{transform:translateX(160px)}}
+ .bar{width:40px;height:22px;background:#4a7;border-radius:4px;animation:slide 2s ease-in-out infinite alternate}
+ .tick{font-variant-numeric:tabular-nums;font-size:22px;font-weight:600}
+</style>
+<h1>DOM 流缺什么,这一页上看得见</h1>
+<div class=row>
+  <div class=box><h2>① canvas(每帧在画)</h2>
+    <canvas id=c width=260 height=140 style="border:1px solid #ccc"></canvas>
+    <div style="color:#888;font-size:13px">DOM 流里只有这个空盒子,画不出来</div></div>
+  <div class=box><h2>② CSS 动画</h2><div class=bar></div>
+    <div style="color:#888;font-size:13px">这个能过去 —— 动画是样式,不是像素</div></div>
+</div>
+<div class=row>
+  <div class=box><h2>③ 表单(点它,验坐标)</h2>
+    <label>手机号 <input id=phone size=18></label>
+    <button onclick="document.getElementById('out').textContent='订单已提交 '+new Date().toLocaleTimeString()">提交订单</button>
+    <div id=out></div></div>
+  <div class=box><h2>④ 一直在变的文字</h2><div class=tick id=t>—</div>
+    <div style="color:#888;font-size:13px">看两边谁先更新</div></div>
+</div>
+<div class=box style="background:#fffbe6;border-color:#e8d48b">
+  <h2>⑤ 命中回执 —— 这一格是用来判坐标的</h2>
+  <div id=hit style="font-family:ui-monospace,monospace;font-size:14px">还没点</div>
+  <div style="color:#888;font-size:13px">在左边点某个东西,看这里说实际打到了谁。
+    <b>两边对不上,就是「看着点在按钮上、实际点在旁边」。</b></div>
+</div>
+<script>
+ // 页面自己报告收到的坐标和命中的元素 —— 不猜,直接看
+ addEventListener('mousedown', e => {
+   const el = document.elementFromPoint(e.clientX, e.clientY);
+   const what = el ? (el.id ? '#'+el.id : el.tagName.toLowerCase()) +
+     (el.textContent && el.textContent.trim().length < 12 ? ' 「'+el.textContent.trim()+'」' : '') : '空的';
+   document.getElementById('hit').textContent =
+     `收到 (${e.clientX|0}, ${e.clientY|0}) → 打到 ${what}`;
+ }, true);
+ const x=document.getElementById('c').getContext('2d');let a=0;
+ (function draw(){a+=0.03;x.fillStyle='#fff';x.fillRect(0,0,260,140);
+  x.strokeStyle='#36c';x.lineWidth=3;x.beginPath();
+  for(let i=0;i<260;i++)x.lineTo(i,70+Math.sin(i/18+a)*45);x.stroke();
+  x.fillStyle='#c33';x.beginPath();x.arc(130+Math.cos(a)*90,70,9,0,7);x.fill();
+  requestAnimationFrame(draw);})();
+ setInterval(()=>document.getElementById('t').textContent=new Date().toLocaleTimeString()+'.'+String(Date.now()%1000).padStart(3,'0'),100);
+</script>
