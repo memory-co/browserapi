@@ -185,6 +185,12 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 所以 kiosk 那套留在 `xpra.py`(它是"VNC 那条怎么起"的一部分),
 无头那几个参数跟着起它的地方走。
 
+一个例外要说清楚:**"浏览器在哪 / 这台机器缺什么"跟着 `config.py` 走**,
+不跟 `install.py`。因为起进程的 `processes.py` 是第 1 层,而 `install.py` 在第 5 层 ——
+让第 1 层去 import 第 5 层就是反向依赖。而这几样(缓存目录、可执行文件路径、
+`ldd` 缺不缺、有没有中文字体)本来就是**这台机器的事实**,正是 config 的题目。
+`install.py` 留的是**安装期**那半:镜像表、并发测速、下载解压、写完成标记。
+
 `config.py` 只做一件事:**读**。三条老规矩不变 ——
 
 > **键在 = 探到了,键不在 = 没探到**(不写 `ok:false` 一类空值);
@@ -415,8 +421,13 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 5. **`jpg.py` / `xpra.py` / `rrweb.py` 互不 import** —— 三条并列的腿,
    谁也不是谁的基础;一旦串起来,"换一条"就不再是换一条
 
-**这五条要有测试守**,而且很好写:用 `ast` 扫一遍 import 就行。
+**这五条要有测试守**,而且很好写:用 `ast` 扫一遍 import 就行 ——
+就是 [`tests/the_layout_holds/`](../../../tests/the_layout_holds/)。
 扁平结构的代价就在这儿 —— 目录不再帮你挡,那就让测试挡。
+
+一条例外写进测试里:**`if TYPE_CHECKING:` 里的不算。**
+那些只为类型标注存在,运行时不发生,也就不构成依赖 ——
+`browser_ui.py` 标注 `Session` 就是这一种。
 
 ## 6. 每个文件必须能用一句话说清自己
 
@@ -435,10 +446,11 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | --- | --- | --- |
 | `client/manager.py` `session.py` `tab.py` | `api.py` | 给人 import 的那一面,连同它自己那套 HTTP 调用 |
 | `client/transport.py` | **`api.py`**(并进去) | 唯一调用方就是它;异常映射本来就在 `exceptions.py`(§3.8) |
-| `client/observation.py` `mirror.py` · `core/tabs.Tab` · `runtime/base.Handle` · `view/modes.Mode` | **`models.py`** | 跨边界的数据集中一处 —— 今天散在五个模块,`Tab` 还有两份(§3.1) |
-| `errors.py` | `exceptions.py` | 跟 requests 的叫法 |
+| `client/observation.py` · `core/tabs.Tab` · `runtime/base.Handle` · `view/modes.py` **整个** | **`models.py`** | 跨边界的数据集中一处 —— 今天散在五个模块,`Tab` 还有两份(§3.1) |
+| `client/mirror.py` | **`api.py`** | 它是带后台线程的 WS 订阅,不是数据 —— 里面装的才是 `TabInfo` |
+| `errors.py` | `exceptions.py` | 跟 requests 的叫法;`unavailable()` 这个构造函数也跟过去 —— 它只是造一个异常,留在 `processes.py` 会让 `xpra.py` 反向 import |
 | `runtime/process.py` 里起进程那部分 + `xpra.py` 里起进程那部分 | **`processes.py`** | 两处各写一套"起、等、看活、收" —— 合成一份(§3.2) |
-| `runtime/` 剩下的(选本机还是 remote) | `sessions.py` | 那就是一个 if,不值得一个文件 |
+| `runtime/` 剩下的:`ProcessRuntime` / `RemoteRuntime` / 选哪个 | `sessions.py` | 「要 VNC 就先起 xpra」是**会话的编排**;`processes.py` 是第 1 层,不该认识 `xpra.py` |
 | `serve/session.py` | `sessions.py` | 会话的编排本来就该和会话在一起 |
 | `serve/app.py` `serve/__main__.py` | `serve.py` | 对外那个口 |
 | `cli/__main__.py` `cli/registry.py` | `cli.py` | 连同它自己那套调用代码(§3.5) |
@@ -446,7 +458,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `core/cdp.py` `tabs.py` `act.py` `locate.py` `observe.py` | 同名平铺 | |
 | `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
 | `core/log.py` | `log.py` | |
-| `browser.py` | **`install.py`**(下载 / 镜像 / 版本 / 字体)+ 配置里的一行路径 | 装完之后"浏览器在哪"就是配置,不需要一个模块代表这个概念(§3.3) |
+| `browser.py` | **`install.py`**(下载 / 镜像 / 测速)+ **`config.py`**(路径在哪 / 这台机器缺什么) | 装完之后"浏览器在哪"就是配置(§3.3)。**探测那半要跟着配置走**,因为第 1 层的 `processes.py` 要用它,而 `install.py` 在第 5 层 |
 | `env.py` | `config.py` | 大家会去找的就是这个词;**只有 install 写,别人只读** |
 | `native/` 整个包(六个文件) | **`browser_ui.py` 一个文件** | 五类是"全都要"不是"选一个",而且共用一套规矩(§3.5) |
 | `view/cast.py` | `screen.py` + `jpg.py` | 编排和"JPG 那条"是两件事(§3.4) |
@@ -454,7 +466,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `view/dom.py` | `rrweb.py` | 同上 |
 | `view/protocol.py` | `frames.py` | 它是帧头和上行白名单,不是"协议"这么大 |
 | `view/viewer.py` | `screen.py` | 观看者和背压是编排的一部分 |
-| `view/modes.py` | `models.py`(`ViewMode`)+ `screen.py` | 数据进 models,选哪条的逻辑进 screen |
+| `view/modes.py` | **`models.py` 整个** | 本来想把 `canon()` 这些放 `screen.py`,但 `processes.py`(第 1 层)也要用 —— 那就成了反向依赖。而它们本来就只是**关于 `ViewMode` 这份数据的命名和归一**,归 models 正好 |
 | `view/input.py` `cursor.py` | `input.py` `cursor.py` | 平铺,**和 screen 分开** |
 | `view/quality.py` | `quality.py` | |
 | `view/static/` | `webmuxjs/client/src/` | 这项目唯一的 JS,不该埋在服务端目录下 |
@@ -478,6 +490,16 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
    落到 `webmuxd/_client/`(**不进 git**),加上那条"缺失或过期就红"的守卫
 6. **验 wheel 里的东西一样不少** —— 这项目栽过一次(`.js` 没进包);
    然后干净 venv 装一遍再发
+
+**搬完之后回头看,第 1 步那个"只动位置"是对的。**
+真正花时间的不是搬,是搬完暴露出来的**反向依赖**:`processes.py` 要起 xpra、
+要找浏览器,而这两样一个在第 2 层一个在第 5 层。子目录一直在替这些遮丑 ——
+`runtime/` import `xpra.py` 看着毫无问题,摊平之后才发现它是从第 1 层往上够。
+
+三处因此挪了位(§7 表里都记了):`ProcessRuntime` 去了 `sessions.py`、
+浏览器探测去了 `config.py`、`unavailable()` 去了 `exceptions.py`。
+**这三处都不是为了好看,是为了让那条测试能过** ——
+规矩没有测试守就不是规矩。
 
 **`pyproject.toml` 不用动。** Python 包还在仓库根,位置和包名都没变 ——
 这是按语言分树换来的:比 `server/python/` 那个方案少一整类打包风险。

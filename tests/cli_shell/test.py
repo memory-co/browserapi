@@ -11,9 +11,9 @@ import time
 
 import pytest
 
-from webmuxd.cli.__main__ import main
-from webmuxd.cli.registry import Registry
-from webmuxd.runtime.process import ProcessRuntime
+from webmuxd.cli import main
+from webmuxd.cli import Registry
+from webmuxd.sessions import ProcessRuntime
 
 
 def _free() -> int:
@@ -38,7 +38,7 @@ def run(*argv: str) -> int:
 
 def test_exit_codes_are_the_documented_contract():
     """给脚本用的契约,**不要靠解析输出**(cli/README §6)。"""
-    from webmuxd.cli.__main__ import EXIT
+    from webmuxd.cli import EXIT
     assert EXIT["not_found"] == 4 and EXIT["not_clickable"] == 4
     assert EXIT["timeout"] == 5
     assert EXIT["busy"] == 6 and EXIT["busy_human"] == 6
@@ -72,8 +72,8 @@ def test_no_session_at_all_is_3_not_a_crash(home, capsys):
 def test_registry_probes_liveness_instead_of_trusting_the_file(home):
     """**文件只是线索,`alive()` 才是真相**(works/05 §6)。"""
     reg = Registry(name="default")
-    from webmuxd.runtime.base import Handle
-    reg.put(Handle("process", "ghost", 9, {"pids": {"sessiond": 999999}}))
+    from webmuxd.models import SessionInfo
+    reg.put(SessionInfo("process", "ghost", 9, {"pids": {"sessiond": 999999}}))
 
     rows = reg.list()
     assert rows[0]["id"] == "ghost"
@@ -81,8 +81,8 @@ def test_registry_probes_liveness_instead_of_trusting_the_file(home):
 
 
 def test_ls_shows_dead_ones_with_how_to_clean_them(home, capsys):
-    from webmuxd.runtime.base import Handle
-    Registry(name="default").put(Handle("process", "stale", 9,
+    from webmuxd.models import SessionInfo
+    Registry(name="default").put(SessionInfo("process", "stale", 9,
                                         {"pids": {"sessiond": 999999}}))
     assert run("ls") == 0
     out = capsys.readouterr().out
@@ -91,8 +91,8 @@ def test_ls_shows_dead_ones_with_how_to_clean_them(home, capsys):
 
 
 def test_ls_json_is_the_raw_shape(home, capsys):
-    from webmuxd.runtime.base import Handle
-    Registry(name="default").put(Handle("process", "x", 1234, {}))
+    from webmuxd.models import SessionInfo
+    Registry(name="default").put(SessionInfo("process", "x", 1234, {}))
     assert run("--json", "ls") == 0
     d = json.loads(capsys.readouterr().out)
     assert d["sessions"][0]["port"] == 1234

@@ -151,5 +151,5 @@ Emulation.setDeviceMetricsOverride  deviceScaleFactor=2
 | 两条像素来源的结构 | [c](c-view.md) |
 | 回执为什么必须独立发、带帧号 | [e §4.1](e-client.md#41-收到帧立刻回执带帧号不搭车) |
 | 额度与缓冲的具体数值 | [e1 §4](e1-wire-format.md#4-额度与缓冲) |
-| 落地在 | [`view/quality.py`](../../../webmuxd/view/quality.py) · [`view/cast.py`](../../../webmuxd/view/cast.py) |
+| 落地在 | [`view/quality.py`](../../../webmuxd/quality.py) · [`view/cast.py`](../../../webmuxd/screen.py) |
 | 测试在 | [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |

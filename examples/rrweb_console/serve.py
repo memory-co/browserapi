@@ -49,8 +49,8 @@ from urllib.parse import quote
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 
-from webmuxd.core.cdp import CDP
-from webmuxd.runtime.process import resolve_browser
+from webmuxd.cdp import CDP
+from webmuxd.processes import resolve_browser
 
 HERE = Path(__file__).parent
 PAGE = (HERE / "page.html").read_text(encoding="utf-8")

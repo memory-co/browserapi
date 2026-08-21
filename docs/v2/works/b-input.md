@@ -176,5 +176,5 @@ VNC 传输中文一直是难点:要么在服务端安装完整输入法(候选�
 | --- | --- |
 | 这一跳在整条链路的什么位置 | [a §3](a-architecture.md#3-chromium--sessiondcdp-是-rpc不是流) |
 | 程序化操作(`click("提交订单")`)不走这条路 | 它走 `core/act`,是另一条线 |
-| 落地在 | [`view/input.py`](../../../webmuxd/view/input.py) · [`cursor.py`](../../../webmuxd/view/cursor.py) · [`serve/app.py`](../../../webmuxd/serve/app.py) |
+| 落地在 | [`view/input.py`](../../../webmuxd/input.py) · [`cursor.py`](../../../webmuxd/cursor.py) · [`serve/app.py`](../../../webmuxd/serve.py) |
 | 测试在 | [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) · [`tests/the_http_face/`](../../../tests/the_http_face/) |

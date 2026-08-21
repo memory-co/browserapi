@@ -151,5 +151,5 @@ Input.dispatchMouseEvent(点击 OK) → 没有 javascriptDialogClosed
 | 输入为什么只能走一条通道 | [b §1](b-input.md#1-收口在哪) · [e §6.2](e-client.md#62-每条通道能提供什么) |
 | popup 为什么不是特殊情况 | [f §5](f-tabs.md#5-popup-不是特殊情况) |
 | 遮罩为什么必须不透明 | [c §12](c-view.md#12-接缝之上的东西一律不动) |
-| 落地在 | [`webmuxd/native/`](../../../webmuxd/native/) |
+| 落地在 | [`webmuxd/browser_ui.py`](../../../webmuxd/browser_ui.py) |
 | 测试在 | [`tests/no_desktop/`](../../../tests/no_desktop/) |

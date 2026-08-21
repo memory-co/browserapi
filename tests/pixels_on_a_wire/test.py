@@ -11,12 +11,12 @@ import json
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from webmuxd.core.cdp import CDP
-from webmuxd.serve.app import build
-from webmuxd.serve.session import Session
-from webmuxd.view import cursor as cursor_probe
-from webmuxd.view.protocol import HEADER_SIZE, parse_header
-from webmuxd.view.viewer import ACK_CREDIT, BUFFER
+from webmuxd.cdp import CDP
+from webmuxd.serve import build
+from webmuxd.sessions import Session
+from webmuxd import cursor as cursor_probe
+from webmuxd.frames import HEADER_SIZE, parse_header
+from webmuxd.screen import ACK_CREDIT, BUFFER
 
 #: 一直在动的页面 —— screencast 只在画面变化时产帧,静止页面测不出流。
 MOVING = ("data:text/html," + (
@@ -89,10 +89,10 @@ async def test_一连上就有画面而且帧头是我们说的那个形状(live
         assert len(f) > HEADER_SIZE
         h = parse_header(f)
         # targetId 进头部不是装饰:客户端靠它丢掉切 tab 前的残帧(02 §1)
-        assert h["target_id"] == tab.target_id.lower()
+        assert h.target_id == tab.target_id.lower()
         assert f[HEADER_SIZE:HEADER_SIZE + 2] == b"\xff\xd8"      # JPEG 魔数
 
-    ids = [parse_header(f)["frame_id"] for f in frames]
+    ids = [parse_header(f).frame_id for f in frames]
     assert ids == sorted(ids) and len(set(ids)) == len(ids)       # 单调递增
 
 
@@ -147,7 +147,7 @@ async def test_active_就是_screencast_挂在哪个_target_上(live):
                 if m.type.name != "BINARY":
                     continue
                 await ws.send_json({"type": "ack"})
-                if parse_header(m.data)["target_id"] == a.target_id.lower():
+                if parse_header(m.data).target_id == a.target_id.lower():
                     break
     assert session.tabs.active == a.id
 
@@ -286,7 +286,7 @@ def _stub_viewer():
     async def send_json(_o: dict) -> None:
         pass
 
-    from webmuxd.view.viewer import Viewer
+    from webmuxd.screen import Viewer
     return Viewer(send_bytes, send_json, writable=True), sent
 
 
@@ -356,7 +356,7 @@ async def test_真链路上回显帧号之后算得出_rtt(live):
                 if m.type.name == "BINARY":
                     got += 1
                     await ws.send_json({"type": "ack",
-                                        "frameId": parse_header(m.data)["frame_id"]})
+                                        "frameId": parse_header(m.data).frame_id})
         await asyncio.sleep(0.3)
         stats = session.view.stats()["viewers"][0]
         assert stats["rtt_ms"] is not None, "带了帧号就该算得出 RTT"
@@ -370,7 +370,7 @@ async def test_链路慢了会降质_而且降的过程进_scrollback(live, monk
     02 §3 一直写着"想验证它必须人为加延迟"—— 换个做法:把阈值搬下来,
     死区仍然保留(`FAST < SLOW`),就能在本机跑出真实的降级路径。
     """
-    from webmuxd.view import quality
+    from webmuxd import quality
     # 压到任何真实 RTT 都必然高于它 —— 进程内的 WS 往返只有零点几毫秒,
     # 阈值设在 0.5 会卡在边界上,用例就飘了。**死区仍然留着**(FAST < SLOW)。
     monkeypatch.setattr(quality, "SLOW_MS", 0.0001)
@@ -390,7 +390,7 @@ async def test_链路慢了会降质_而且降的过程进_scrollback(live, monk
                         n += 1
                         await ws.send_json({
                             "type": "ack",
-                            "frameId": parse_header(m.data)["frame_id"]})
+                            "frameId": parse_header(m.data).frame_id})
                     elif m.type.name == "TEXT":
                         d = json.loads(m.data)
                         if d["type"] == "quality":
@@ -416,7 +416,7 @@ async def test_死区防的是来回震荡():
     没有死区(两个条件能同时成立)的话,一个在阈值附近的链路会一直升降,
     画质来回变 —— 比一直糊更难受。
     """
-    from webmuxd.view.quality import Adaptor, FAST_MS, SLOW_MS
+    from webmuxd.quality import Adaptor, FAST_MS, SLOW_MS
     assert FAST_MS < SLOW_MS, "死区没了,两边会同时成立"
 
     a = Adaptor(80)
@@ -433,7 +433,7 @@ async def test_画质有下限_到底了改抽帧():
     默认下限 25 有出处:BrowserBox 自己在 Tor 模式下就压到 25
     ([01 §4](../../docs/v2/works/01-frame-source.md))。
     """
-    from webmuxd.view.quality import Adaptor, QUALITY_FLOOR
+    from webmuxd.quality import Adaptor, QUALITY_FLOOR
     assert QUALITY_FLOOR == 25
 
     a = Adaptor(80)
@@ -448,7 +448,7 @@ async def test_画质有下限_到底了改抽帧():
 
 
 async def test_下限可配_而且不能高过上限():
-    from webmuxd.view.quality import Adaptor
+    from webmuxd.quality import Adaptor
     a = Adaptor(80, floor=40)
     for _ in range(6):
         a._last_down = 0
@@ -469,7 +469,7 @@ async def test_人的动作进日志_但密码不进(live):
 
     页面里那个输入探针原来报的是 `innerText || value`,而 `value` 在密码框上
     就是明文密码 —— 它会被写进 `log.jsonl`,`webmuxd log` 打得出来、
-    `log/bundle` 打包带得走。[log.py](../../webmuxd/core/log.py) 的注释写着
+    `log/bundle` 打包带得走。[log.py](../../webmuxd/log.py) 的注释写着
     "明文不该走到这儿",但那条掩码只管 API 那条路,**人从画面进来的这条绕过去了**。
 
     控件的身份是它的**标签**,不是它的内容。
@@ -500,8 +500,8 @@ async def test_人的动作进日志_但密码不进(live):
 
 def test_探针不许去读表单控件的_value():
     """不依赖跑浏览器的那一半 —— **永远会跑**。"""
-    from webmuxd.core import shim
-    js = shim.HUMAN_INPUT_JS
+    from webmuxd import probe
+    js = probe.HUMAN_INPUT_JS
     assert "e.target.value" not in js and "el.value" not in js, \
         "输入探针又去读 value 了 —— 密码框上那就是明文"
     assert "aria-label" in js and "placeholder" in js, "得从标签取控件身份"

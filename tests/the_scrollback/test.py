@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 
-from webmuxd.core.log import KINDS, Log, Seq
+from webmuxd.log import KINDS, Log, Seq
 
 
 @pytest.fixture

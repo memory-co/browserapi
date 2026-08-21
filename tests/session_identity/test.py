@@ -11,10 +11,10 @@ import time
 import pytest
 
 from webmuxd import Tab, Webmuxd
-from webmuxd.core.cdp import CDP
-from webmuxd.errors import BadRequest, NotFound, RuntimeUnavailable, TabGone
-from webmuxd.serve.app import build
-from webmuxd.serve.session import Session as CoreSession
+from webmuxd.cdp import CDP
+from webmuxd.exceptions import BadRequest, NotFound, RuntimeUnavailable, TabGone
+from webmuxd.serve import build
+from webmuxd.sessions import Session as CoreSession
 
 
 def _free_port() -> int:
@@ -156,7 +156,7 @@ def test_a_new_id_without_ports_is_refused(live):
 
 def test_那个口上什么都没有就去起_起不来要说清是哪一种(live):
     """两种失败指向**不同的下一步**,所以不能糊成一句。"""
-    from webmuxd.errors import PortInUse
+    from webmuxd.exceptions import PortInUse
     web = Webmuxd()
 
     # 1024 以下要 root —— 报"被占了"会让人去查一个不存在的进程

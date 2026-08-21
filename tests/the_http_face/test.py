@@ -11,9 +11,9 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from webmuxd.core.cdp import CDP
-from webmuxd.serve.app import build
-from webmuxd.serve.session import Session
+from webmuxd.cdp import CDP
+from webmuxd.serve import build
+from webmuxd.sessions import Session
 
 pytestmark = pytest.mark.asyncio
 

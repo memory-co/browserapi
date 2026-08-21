@@ -86,13 +86,13 @@ def _doc(*names: str) -> str:
 def test_帧头是二十八个字节_文档里写的也是():
     """这个数字是 [09](../../docs/v2/works/09-wire-format.md) 整篇的主角 ——
     "ttyd 一个字节、我们二十八个"。改了不同步,那篇的论证就悬空了。"""
-    from webmuxd.view.protocol import HEADER_SIZE
+    from webmuxd.frames import HEADER_SIZE
     for f in ("02-frame-protocol.md", "09-wire-format.md"):
         assert f"{HEADER_SIZE} 字节" in _doc(), f"{f} 里的帧头长度和代码对不上"
 
 
 def test_两个_ack_环的参数和文档一致():
-    from webmuxd.view.viewer import ACK_CREDIT, BUFFER
+    from webmuxd.screen import ACK_CREDIT, BUFFER
     t = _doc() + _doc("09-wire-format.md")
     assert f"额度 {ACK_CREDIT}" in t or f"额度 `ACK_COUNT = {ACK_CREDIT}`" in t
     assert f"长度 {BUFFER}" in t, "缓冲长度对不上"
@@ -100,25 +100,25 @@ def test_两个_ack_环的参数和文档一致():
 
 def test_画质下限和文档一致():
     """25 不是拍的 —— 文档里写着它的来历(BrowserBox 的 Tor 模式)。"""
-    from webmuxd.view.quality import QUALITY_FLOOR
+    from webmuxd.quality import QUALITY_FLOOR
     assert str(QUALITY_FLOOR) in _doc()
 
 
 def test_默认视口和文档一致():
-    from webmuxd.view.cast import DEFAULT_H, DEFAULT_W
+    from webmuxd.screen import DEFAULT_H, DEFAULT_W
     assert f"{DEFAULT_W}x{DEFAULT_H}" in _doc() + _doc() \
         or f"{DEFAULT_W}×{DEFAULT_H}" in _doc()
 
 
 def test_钉死的浏览器版本和文档一致():
     """[07 §4.1](../../docs/v2/works/07-runtime.md) 那一节的全部意义就是这个数。"""
-    from webmuxd import browser
-    assert browser.PINNED in _doc()
+    from webmuxd import config
+    assert config.PINNED in _doc()
 
 
 def test_xpra_上行那几个包_文档和白名单是同一份():
     """**这张表是安全边界。** 代码里加一个而文档不加,边界就说不清了。"""
-    from webmuxd.view import relay
+    from webmuxd import xpra as relay
     doc = _doc()
     for name in relay.ALLOWED:
         assert f"`{name}`" in doc, f"白名单里有 {name},但 12 §7 那张表里没有"
@@ -137,7 +137,7 @@ def test_xpra_上行那几个包_文档和白名单是同一份():
 
 
 def test_xpra_的头是八个字节():
-    from webmuxd.view import relay
+    from webmuxd import xpra as relay
     assert f"{relay.HEADER.size} 字节头" in _doc()
 
 
@@ -147,7 +147,7 @@ def test_客户端不声明视频编码_文档和代码是同一个结论():
 
     只查结论在不在,不查措辞 —— 文档在重写。
     """
-    src = (ROOT / "webmuxd/view/static/xpra.js").read_text()
+    src = (ROOT / "webmuxd/_client/xpra.js").read_text()
     assert "full_csc_modes" not in re.sub(r"//.*", "", src), \
         "客户端声明了视频编码,但设计稿说不声明"
     doc = _doc()

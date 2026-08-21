@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from webmuxd.core.cdp import CDP
+from webmuxd.cdp import CDP
 
 pytestmark = pytest.mark.asyncio
 

@@ -7,10 +7,10 @@
     tab  = sess.open("https://example.com")
 """
 
-from webmuxd.client import (  # noqa: F401
-    Webmuxd, Session, Tab, ActResult, Observation, Element,
+from webmuxd.api import (  # noqa: F401
+    ActResult, Observation, Session, Tab, Webmuxd,
 )
-from webmuxd.errors import (  # noqa: F401
+from webmuxd.exceptions import (  # noqa: F401
     WebmuxdError,
     ActionError,
     PlatformError,
@@ -32,6 +32,7 @@ from webmuxd.errors import (  # noqa: F401
     SessionExists,
     SessionNotFound,
 )
+from webmuxd.models import Element                    # noqa: F401
 
 #: **版本号只有这一处。** pyproject.toml 用 `dynamic = ["version"]` 读它
 #: (setuptools 静态解析这行,不 import 这个包)。

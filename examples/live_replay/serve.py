@@ -46,8 +46,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "trace_export"))
 
 from to_trace import SNAPSHOT_JS, build_trace  # noqa: E402
 
-from webmuxd.core.cdp import CDP  # noqa: E402
-from webmuxd.runtime.process import resolve_browser  # noqa: E402
+from webmuxd.cdp import CDP  # noqa: E402
+from webmuxd.processes import resolve_browser  # noqa: E402
 
 HERE = Path(__file__).parent
 PAGE = (HERE / "page.html").read_text(encoding="utf-8")

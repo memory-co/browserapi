@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-from webmuxd.core.tabs import TabTable, is_blocked
-from webmuxd.errors import BadRequest, TabGone
+from webmuxd.tabs import TabTable, is_blocked
+from webmuxd.exceptions import BadRequest, TabGone
 
 
 

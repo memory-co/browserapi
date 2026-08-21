@@ -51,17 +51,17 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 
 | | 代码 | 测试 |
 | --- | --- | --- |
-| **画面模式与切换** | [`view/modes.py`](../../../webmuxd/view/modes.py) · [`view/cast.py`](../../../webmuxd/view/cast.py) `switch()` | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
-| 帧协议 · 回执 · 自适应 | [`view/cast.py`](../../../webmuxd/view/cast.py) · [`viewer.py`](../../../webmuxd/view/viewer.py) · [`quality.py`](../../../webmuxd/view/quality.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
-| 输入翻译(安全收口) | [`view/input.py`](../../../webmuxd/view/input.py) · [`cursor.py`](../../../webmuxd/view/cursor.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
-| 一个口 · token · 只读 | [`serve/app.py`](../../../webmuxd/serve/app.py) | [`one_endpoint/`](../../../tests/one_endpoint/) · [`the_http_face/`](../../../tests/the_http_face/) |
-| tab 表 | [`core/tabs.py`](../../../webmuxd/core/tabs.py) | [`tab_identity/`](../../../tests/tab_identity/) · [`chrome_facts/`](../../../tests/chrome_facts/) |
-| 浏览器自己的 UI | [`native/`](../../../webmuxd/native/) | [`no_desktop/`](../../../tests/no_desktop/) |
-| runtime | [`runtime/`](../../../webmuxd/runtime/) | [`one_endpoint/`](../../../tests/one_endpoint/) |
-| install · 系统包 | [`cli/install.py`](../../../webmuxd/cli/install.py) · [`cli/deps.py`](../../../webmuxd/cli/deps.py) | [`installing/`](../../../tests/installing/) |
-| xpra:起 · 代理 · 白名单 | [`xpra.py`](../../../webmuxd/xpra.py) · [`view/relay.py`](../../../webmuxd/view/relay.py) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
-| 观看端客户端 | [`static/index.html`](../../../webmuxd/view/static/index.html) · [`xpra.js`](../../../webmuxd/view/static/xpra.js) · [`rencode.js`](../../../webmuxd/view/static/rencode.js) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
-| 动作与行为流 | [`core/act.py`](../../../webmuxd/core/act.py) · [`core/log.py`](../../../webmuxd/core/log.py) | [`pointing_at_things/`](../../../tests/pointing_at_things/) · [`the_scrollback/`](../../../tests/the_scrollback/) |
+| **画面模式与切换** | [`view/modes.py`](../../../webmuxd/models.py) · [`view/cast.py`](../../../webmuxd/screen.py) `switch()` | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
+| 帧协议 · 回执 · 自适应 | [`view/cast.py`](../../../webmuxd/screen.py) · [`viewer.py`](../../../webmuxd/screen.py) · [`quality.py`](../../../webmuxd/quality.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
+| 输入翻译(安全收口) | [`view/input.py`](../../../webmuxd/input.py) · [`cursor.py`](../../../webmuxd/cursor.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
+| 一个口 · token · 只读 | [`serve/app.py`](../../../webmuxd/serve.py) | [`one_endpoint/`](../../../tests/one_endpoint/) · [`the_http_face/`](../../../tests/the_http_face/) |
+| tab 表 | [`core/tabs.py`](../../../webmuxd/tabs.py) | [`tab_identity/`](../../../tests/tab_identity/) · [`chrome_facts/`](../../../tests/chrome_facts/) |
+| 浏览器自己的 UI | [`native/`](../../../webmuxd/browser_ui.py) | [`no_desktop/`](../../../tests/no_desktop/) |
+| runtime | [`runtime/`](../../../webmuxd/processes.py) | [`one_endpoint/`](../../../tests/one_endpoint/) |
+| install · 系统包 | [`cli/install.py`](../../../webmuxd/install.py) · [`cli/deps.py`](../../../webmuxd/install.py) | [`installing/`](../../../tests/installing/) |
+| xpra:起 · 代理 · 白名单 | [`xpra.py`](../../../webmuxd/xpra.py) · [`view/relay.py`](../../../webmuxd/xpra.py) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
+| 观看端客户端 | [`static/index.html`](../../../webmuxd/_client/index.html) · [`xpra.js`](../../../webmuxd/_client/xpra.js) · [`rencode.js`](../../../webmuxd/_client/rencode.js) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
+| 动作与行为流 | [`core/act.py`](../../../webmuxd/act.py) · [`core/log.py`](../../../webmuxd/log.py) | [`pointing_at_things/`](../../../tests/pointing_at_things/) · [`the_scrollback/`](../../../tests/the_scrollback/) |
 | **文档本身** | — | [`the_docs_are_true/`](../../../tests/the_docs_are_true/) —— 链接、锚点、以及文档里的数字与代码一致 |
 
 ## 文档与实现的差距

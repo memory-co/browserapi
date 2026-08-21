@@ -196,5 +196,5 @@ webmuxd new --id work --port 7900 --bind 0.0.0.0   # 对外,并打印警告
 | --- | --- |
 | 浏览器怎么下来、依赖怎么齐 | [d](d-install.md) |
 | 像素来源与那一套 X | [c](c-view.md) |
-| 落地在 | [`runtime/`](../../../webmuxd/runtime/) · [`xpra.py`](../../../webmuxd/xpra.py) |
+| 落地在 | [`runtime/`](../../../webmuxd/processes.py) · [`xpra.py`](../../../webmuxd/xpra.py) |
 | 测试在 | [`tests/one_endpoint/`](../../../tests/one_endpoint/) |

@@ -1,11 +1,11 @@
-"""xpra 那条画面路的**服务端一头** —— docs/v2/works/11 · 12。
+"""**VNC 那条画面** —— 起一套 xpra,再按它那个 8 字节头协议转下来。
 
     Xvfb :N  +  xpra start-desktop :N  +  chrome --kiosk --display=:N
 
 三个进程,但只有一个归我们管:**xpra 自己会拉起 Xvfb 和 chrome**
 (`--start-child`),所以我们 Popen 一个、杀一个。
 
-三条来自实测的硬规矩([12](../docs/v2/works/12-xpra-client.md)):
+三条来自实测的硬规矩([e](../docs/v2/works/e-client.md)):
 
 **① `start-desktop`,不是 `start`。** seamless 模式下 `<select>` 下拉是一个独立的
 `new-override-redirect` 窗口,客户端得自己做多窗口合成;desktop 模式下 X 把它
@@ -21,13 +21,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
 import os
 import shutil
+import struct
 import subprocess
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
-from webmuxd.runtime.base import unavailable
+import aiohttp
+from aiohttp import WSMsgType, web
+
+from webmuxd.exceptions import unavailable
 
 #: **虚拟显示由我们指定,不看发行版的配置。**
 #:
@@ -47,7 +54,7 @@ XVFB = ("Xvfb -screen 0 8192x4096x24 +extension GLX +extension RANDR "
         "+extension RENDER +extension Composite -extension DOUBLE-BUFFER "
         "-nolisten tcp -noreset -auth $XAUTHORITY")
 
-#: 起 xpra 时固定关掉的一堆。**我们只要像素**([11 §5](../docs/v2/works/11-xpra.md))——
+#: 起 xpra 时固定关掉的一堆。**我们只要像素**([c](../docs/v2/works/c-view.md))——
 #: 剪贴板、音频、通知、文件传输、打印全走我们自己的 API,不走 xpra。
 OFF = (
     "--notifications=no", "--pulseaudio=no", "--speaker=off", "--microphone=no",
@@ -73,7 +80,7 @@ KIOSK_ARGS = (
     # 换默认的时候差点把这个功能弄丢。
     #
     # 而且 `--disable-gpu` **救不回来**:有头下它关得更彻底,WebGL 照样是 false。
-    # 实测能用的只有下面这一组([11 §7](../docs/v2/works/11-xpra.md))。
+    # 实测能用的只有下面这一组([c](../docs/v2/works/c-view.md))。
     "--use-gl=angle", "--use-angle=swiftshader",
 )
 
@@ -291,3 +298,155 @@ def tail(path: str, lines: int = 6) -> str:
     keep = [ln.strip() for ln in text.splitlines()
             if ln.strip() and not ln.startswith("  ")]
     return "\n     ".join(keep[-lines:])
+
+
+# --------------------------------------------------------------------------
+# 上行中继 —— 观看端 → xpra(原 view/relay.py)
+# --------------------------------------------------------------------------
+
+log = logging.getLogger("webmuxd.xpra")
+
+#: 8 字节头([e](../docs/v2/works/e-client.md))。
+#: `!BBBBL` = 'P'、proto flags、压缩级别、**包数组下标**、大端长度。
+HEADER = struct.Struct("!BBBBL")
+MAGIC = ord("P")
+
+#: **客户端能往 xpra 发的全部东西。** 每一条都写清楚不发会怎样 ——
+#: 这张表是安全边界,不是配置。
+ALLOWED = {
+    "hello":            "握手。不发连不上",
+    "map-window":       "告诉服务端我在看。**不发一帧都不来**",
+    "focus":            "键盘焦点。我们不用键盘走这条,但协议要",
+    "damage-sequence":  "帧 ack。这是 xpra 的背压,对应我们的环 B",
+    "ping_echo":        "心跳回应。不发一段时间后被服务端断开",
+    "disconnect":       "关页面时好好说一声",
+}
+
+#: 上行最大包长。握手那个 caps 字典是最大的一个,几 KB;
+#: **给一个上限,别让代理成为一个内存放大器**。
+MAX_UP = 256 * 1024
+
+
+def packet_type(body: bytes) -> str | None:
+    """从 rencodeplus 的载荷里读出包名。读不出来返回 `None`(→ 丢弃)。
+
+    只认两种形状,因为包名总是个短字符串:
+
+        192+n            定长数组,n 个元素
+        59               变长数组,以 127 结尾
+        128+n            定长字符串,n 字节
+        "<len>:" + bytes 变长字符串
+    """
+    if not body:
+        return None
+    head = body[0]
+    if head == 59:                                  # CHR_LIST
+        i = 1
+    elif 192 <= head <= 255:                        # LIST_FIXED_START + len
+        i = 1
+    else:
+        return None
+    if i >= len(body):
+        return None
+    b = body[i]
+    if 128 <= b <= 191:                             # STR_FIXED_START + len
+        n = b - 128
+        return body[i + 1:i + 1 + n].decode("utf-8", "replace")
+    if 0x30 <= b <= 0x39:                           # "<len>:" 变长字符串
+        j = i
+        while j < len(body) and 0x30 <= body[j] <= 0x39:
+            j += 1
+        if j >= len(body) or body[j] != ord(":"):
+            return None
+        n = int(body[i:j])
+        return body[j + 1:j + 1 + n].decode("utf-8", "replace")
+    return None
+
+
+def screen(frame: bytes) -> tuple[bool, str]:
+    """一个上行帧过不过。返回 `(放行, 理由)` —— **理由是给日志的,不是给客户端的**。
+
+    拒绝的四种情况,每一种都不是"可能有问题",而是"我们的客户端不会这么发":
+    """
+    if len(frame) < HEADER.size:
+        return False, "帧比头还短"
+    magic, flags, level, index, size = HEADER.unpack_from(frame)
+    if magic != MAGIC:
+        return False, f"头一个字节不是 'P'({magic})"
+    if level != 0:
+        # 我们的客户端报 `compression_level: 0`,上行永远不压。
+        return False, f"上行带压缩(level={level}),我们的客户端不会这么发"
+    if index != 0:
+        # 大块二进制是**下行**才有的(像素)。上行没有需要分块的东西。
+        return False, f"上行带 chunk 下标({index}),没有该分块的上行包"
+    if size > MAX_UP or HEADER.size + size != len(frame):
+        return False, f"长度对不上(声明 {size},实到 {len(frame) - HEADER.size})"
+    t = packet_type(frame[HEADER.size:])
+    if t is None:
+        return False, "解不出包名"
+    if t not in ALLOWED:
+        return False, f"不在白名单里:{t}"
+    return True, t
+
+
+async def pump(request: web.Request, upstream_url: str, *,
+               on_reject: Callable[[str], None] | None = None) -> web.WebSocketResponse:
+    """把浏览器那条 WS 和 xpra 那条接起来。
+
+    **下行原样透传**(像素,一个字节都不动),**上行过白名单**。
+    """
+    # **`heartbeat=None`,不是 0。** aiohttp 拿到 0 会 `call_later(0, ping)`,
+    # 然后 pong 超时也是 0 —— 连上就立刻判定超时关掉。心跳由 xpra 自己的
+    # `ping` / `ping_echo` 做(works/12 §7),这一层不要再加一份。
+    ws = web.WebSocketResponse(heartbeat=None, max_msg_size=0,
+                               protocols=("binary",))
+    await ws.prepare(request)
+
+    rejected: dict[str, int] = {}
+
+    def reject(why: str) -> None:
+        rejected[why] = rejected.get(why, 0) + 1
+        if rejected[why] == 1:              # **一种理由只吵一次**
+            log.warning("xpra 上行丢弃:%s", why)
+            if on_reject:
+                on_reject(why)
+
+    session = aiohttp.ClientSession()
+    try:
+        async with session.ws_connect(upstream_url, protocols=("binary",),
+                                      max_msg_size=0, heartbeat=None) as up:
+            async def down() -> None:
+                async for msg in up:
+                    if msg.type is WSMsgType.BINARY:
+                        await ws.send_bytes(msg.data)
+                    elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                        break
+                with contextlib.suppress(Exception):
+                    await ws.close()
+
+            task = asyncio.create_task(down())
+            try:
+                async for msg in ws:
+                    if msg.type is not WSMsgType.BINARY:
+                        if msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                            break
+                        continue
+                    ok, why = screen(msg.data)
+                    if ok:
+                        await up.send_bytes(msg.data)
+                    else:
+                        reject(why)
+            finally:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+    except aiohttp.ClientError as e:
+        log.error("连不上 xpra(%s):%s", upstream_url, e)
+        with contextlib.suppress(Exception):
+            await ws.close(code=1011, message=b"xpra upstream unreachable")
+    finally:
+        await session.close()
+    if rejected:
+        log.info("这条 xpra 连接一共丢了 %d 个上行包:%s",
+                 sum(rejected.values()), rejected)
+    return ws

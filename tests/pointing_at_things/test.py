@@ -8,10 +8,10 @@ import asyncio
 
 import pytest
 
-from webmuxd.core.locate import (
+from webmuxd.locate import (
     FILTER_VERSION, Element, Snapshot, match_by_text, resolve, snapshot,
 )
-from webmuxd.errors import BadRequest, NotClickable, NotFound
+from webmuxd.exceptions import BadRequest, NotClickable, NotFound
 
 # 注意 href 里不能出现裸 `#` —— 那是 URL 的片段分隔符,
 # 会把后面整段 HTML 截掉,页面上就只剩第一个按钮了。踩过。

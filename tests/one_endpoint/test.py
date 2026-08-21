@@ -13,11 +13,16 @@ import time
 
 import pytest
 
-from webmuxd import Webmuxd, browser, runtime as rt
-from webmuxd.errors import PortInUse, RuntimeUnavailable
-from webmuxd.runtime.base import Handle, port_free, require_ports
-from webmuxd.runtime.process import ProcessRuntime, resolve_browser
-from webmuxd.runtime.remote import RemoteRuntime
+from webmuxd import Webmuxd
+from webmuxd import config
+from webmuxd import install as install_mod
+from webmuxd import sessions as rt
+from webmuxd.exceptions import PortInUse, RuntimeUnavailable
+from webmuxd.models import SessionInfo
+from webmuxd.processes import port_free, require_ports
+from webmuxd.processes import resolve_browser
+from webmuxd.sessions import ProcessRuntime
+from webmuxd.sessions import RemoteRuntime
 
 
 def _free() -> int:
@@ -66,15 +71,15 @@ def test_传进来的赢(monkeypatch, tmp_path):
 
 def test_钉死的版本号是包里的一个常量():
     """`tests/chrome_facts/` 那句"换大版本先跑它"要能执行,前提是版本确定。"""
-    assert browser.PINNED.count(".") == 3
-    assert browser.download_url().endswith(".zip")
-    assert browser.PINNED in browser.download_url()
+    assert config.PINNED.count(".") == 3
+    assert install_mod.download_url().endswith(".zip")
+    assert config.PINNED in install_mod.download_url()
 
 
 def test_换源只换前缀(monkeypatch):
-    monkeypatch.setenv("WEBMUXD_BROWSER_MIRROR", browser.CN_MIRROR)
-    u = browser.download_url()
-    assert u.startswith(browser.CN_MIRROR) and browser.PINNED in u
+    monkeypatch.setenv("WEBMUXD_BROWSER_MIRROR", install_mod.CN_MIRROR)
+    u = install_mod.download_url()
+    assert u.startswith(install_mod.CN_MIRROR) and config.PINNED in u
 
 
 # -------------------------------------------------------------- 不降级
@@ -87,7 +92,7 @@ def test_remote_没给_cdp_就拒绝():
 
 def test_remote_的_stop_不动对面():
     """**只停本地的 sessiond,对面一个字节都不动**(works/07 §6)。"""
-    h = Handle("remote", "prod", 7900, {"cdp": "http://elsewhere:9222"})
+    h = SessionInfo("remote", "prod", 7900, {"cdp": "http://elsewhere:9222"})
     RemoteRuntime().stop(h)          # 不该抛
     assert h.detail["cdp"] == "http://elsewhere:9222"
 
@@ -107,8 +112,8 @@ def test_端口被占了就说被占了_不替你换一个():
 
 
 def test_一个_session_一个口_画面和_api_都在它上面():
-    """v1 的 Handle 有 api_port 和 view_port 两个;v2 只有一个(works/04 §1)。"""
-    h = Handle("process", "work", 7900, {})
+    """v1 的 SessionInfo 有 api_port 和 view_port 两个;v2 只有一个(works/04 §1)。"""
+    h = SessionInfo("process", "work", 7900, {})
     assert h.api_url == "http://127.0.0.1:7900"
     assert h.view_url.startswith("http://127.0.0.1:7900/")
     # v1 里"没有画面"是空字符串 —— v2 画面是我们自己产的,只要活着就有
@@ -211,7 +216,7 @@ def test_root_下自动关沙箱_并且说出来(monkeypatch, tmp_path):
     默认就是 root。所以自动加上,**但要说出来**。
     """
     import os as _os
-    from webmuxd.runtime import process as proc_mod
+    from webmuxd import processes as proc_mod
 
     seen = {}
 
@@ -248,7 +253,7 @@ def test_默认只绑回环():
     import argparse
     import inspect
 
-    from webmuxd.serve import __main__ as serve_main
+    from webmuxd import serve as serve_main
     src = inspect.getsource(serve_main.main)
     assert '"--bind"' in src, "统一叫 --bind,不叫 --host"
     assert '"0.0.0.0"' not in src.split("--bind")[1].split("\n")[0], \
@@ -263,7 +268,7 @@ def test_默认只绑回环():
 
 def test_绑非回环要留一条警告(tmp_path, monkeypatch):
     """对外开放是**你的决定**,但不能悄悄发生。"""
-    from webmuxd.runtime import process as proc_mod
+    from webmuxd import processes as proc_mod
 
     class FakePopen:
         def __init__(self, args, **kw): self.pid = 1

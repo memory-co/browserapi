@@ -14,9 +14,9 @@ from pathlib import Path
 import pytest
 
 from webmuxd import xpra as xpra_mod
-from webmuxd.view import relay
+from webmuxd import xpra as relay
 
-STATIC = Path(__file__).resolve().parents[2] / "webmuxd" / "view" / "static"
+STATIC = Path(__file__).resolve().parents[2] / "webmuxd" / "_client"
 NODE = shutil.which("node")
 
 try:
@@ -172,7 +172,7 @@ class _FakeSession:
 
 
 def _caster(transport):
-    from webmuxd.view.cast import Screencaster
+    from webmuxd.screen import Screencaster
     return Screencaster(_FakeSession(), transport=transport)
 
 
@@ -219,24 +219,24 @@ def test_状态里报的出来现在走的是哪条():
 def test_旧名字还认_但一律归一到新词():
     """`--transport xpra` 已经写进别人的脚本了,**不能说不认就不认**;
     但归一之后全程只用新词,不让两套叫法在系统里并存。"""
-    from webmuxd.view import modes
+    from webmuxd import models
     for old, new in (("screencast", "jpg"), ("cdp", "jpg"), ("xpra", "vnc"),
                      ("rrweb", "dom"), ("JPG", "jpg"), (" vnc ", "vnc")):
-        assert modes.canon(old) == new, old
-    assert modes.canon("mp4") is None          # 不认识就说不认识,不猜
+        assert models.canon(old) == new, old
+    assert models.canon("mp4") is None          # 不认识就说不认识,不猜
 
 
 def test_能用哪几种是起的时候定的():
     """**VNC 要一个真实的 X 显示,无头浏览器没有。**
     所以那个选择不是"用哪种",是"以后能选哪几种"(c §9.3)。"""
-    from webmuxd.view import modes
-    assert modes.available_in(headed=True) == ("vnc", "jpg", "dom")
-    assert "vnc" not in modes.available_in(headed=False)
-    assert "vnc" not in modes.available_in(headed=True, remote=True)
+    from webmuxd import models
+    assert models.available_in(headed=True) == ("vnc", "jpg", "dom")
+    assert "vnc" not in models.available_in(headed=False)
+    assert "vnc" not in models.available_in(headed=True, remote=True)
     # 另外两条不依赖系统里的东西,**在哪都在**
     for where in (dict(headed=True), dict(headed=False),
                   dict(headed=True, remote=True)):
-        assert {"jpg", "dom"} <= set(modes.available_in(**where))
+        assert {"jpg", "dom"} <= set(models.available_in(**where))
 
 
 # ------------------------------------------------------------------ 起浏览器
@@ -397,8 +397,8 @@ def test_客户端只写了那六种包的发送代码():
 
 def test_remote_上没有_xpra_这条路_而且要说清为什么():
     """**悄悄给一个 screencast 的画面,等于让人以为自己在看 xpra 的画质。**"""
-    from webmuxd.errors import RuntimeUnavailable
-    from webmuxd.runtime.remote import RemoteRuntime
+    from webmuxd.exceptions import RuntimeUnavailable
+    from webmuxd.sessions import RemoteRuntime
     with pytest.raises(RuntimeUnavailable) as ei:
         RemoteRuntime().start("x", port=1, cdp="http://x", transport="xpra")
     assert "VNC" in ei.value.message
@@ -406,7 +406,7 @@ def test_remote_上没有_xpra_这条路_而且要说清为什么():
 
 
 def test_xpra_装不上时报错要指名道姓(monkeypatch):
-    from webmuxd.errors import RuntimeUnavailable
+    from webmuxd.exceptions import RuntimeUnavailable
     monkeypatch.setattr(xpra_mod.shutil, "which", lambda n: None)
     with pytest.raises(RuntimeUnavailable) as ei:
         xpra_mod.start(display=":99", ws_port=1, cdp_port=2, chrome_argv=["x"],
@@ -469,8 +469,8 @@ def test_没有_alpha_的格式要补成不透明():
 
 def test_dsf_在_xpra_上没用_就要报错而不是悄悄吃掉():
     """**给了却不起作用,比报错难查得多。**"""
-    from webmuxd.errors import RuntimeUnavailable
-    from webmuxd.runtime.process import ProcessRuntime
+    from webmuxd.exceptions import RuntimeUnavailable
+    from webmuxd.sessions import ProcessRuntime
     with pytest.raises(RuntimeUnavailable) as ei:
         # 参数校验在最前面,所以既不会去找浏览器也不会去占端口
         ProcessRuntime().start("x", port=65000, transport="xpra", dsf=2.0)
@@ -579,8 +579,7 @@ def test_起不来时先说清是哪一层没起来():
     真机上看到的是"xpra 起来了但浏览器的 CDP 没监听",而实际是虚拟显示没起来、
     xpra 自己就退了 —— 那句话把人往浏览器的方向指,问题在 X 那一层。
     """
-    src = (Path(__file__).resolve().parents[2] / "webmuxd" / "runtime" /
-           "process.py").read_text()
+    src = (Path(__file__).resolve().parents[2] / "webmuxd" / "sessions.py").read_text()
     assert "sess.proc.poll() is not None" in src, "没有区分 xpra 死没死"
     assert "xpra 自己退了" in src and "虚拟显示" in src
 
@@ -590,12 +589,12 @@ def test_起不来时先说清是哪一层没起来():
 def test_默认走_vnc():
     """VNC 按 damage 区域编码,滚动时 `scroll` 包零字节搬像素(c §4.1)——
     这是默认值该给的东西。"""
-    from webmuxd.runtime.process import resolve_transport
+    from webmuxd.sessions import resolve_transport
     assert resolve_transport(None) == "vnc"
 
 
 def test_显式给的赢():
-    from webmuxd.runtime.process import resolve_transport
+    from webmuxd.sessions import resolve_transport
     assert resolve_transport("jpg") == "jpg"
     assert resolve_transport("vnc") == "vnc"
     assert resolve_transport("dom") == "dom"
@@ -605,8 +604,8 @@ def test_显式给的赢():
 def test_不认识的画面名要报错_不能悄悄给一个默认():
     """**给了个我们不认识的词,就是写错了。** 悄悄换成默认的那条,
     等于让人以为自己在看另一种画面。"""
-    from webmuxd.errors import UsageError
-    from webmuxd.runtime.process import resolve_transport
+    from webmuxd.exceptions import UsageError
+    from webmuxd.sessions import resolve_transport
     with pytest.raises(UsageError) as ei:
         resolve_transport("mp4")
     for word in ("JPG", "VNC", "DOM"):                  # 报错里要写清有哪几种
@@ -619,8 +618,8 @@ def test_xpra_起不来时报错_不静默退回_screencast(monkeypatch):
     退路是显式说一声,不是我们替你决定 —— 所以那句话里既要有"怎么装",
     也要有"不想装走哪条"。
     """
-    from webmuxd.errors import RuntimeUnavailable
-    from webmuxd.runtime.process import resolve_transport
+    from webmuxd.exceptions import RuntimeUnavailable
+    from webmuxd.sessions import resolve_transport
     monkeypatch.setattr(xpra_mod.shutil, "which",
                         lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
     with pytest.raises(RuntimeUnavailable) as ei:
@@ -635,17 +634,17 @@ def test_remote_上少一个选项不是降级_是那条路上的全集():
     """**这不是"降级"。** 我们手里只有一个 CDP 端点,那台机器上的 X 显示
     碰不到 —— JPG 和 DOM 就是那条路上的全部(c §9.3)。"""
     import inspect
-    from webmuxd.runtime.remote import RemoteRuntime
+    from webmuxd.sessions import RemoteRuntime
     src = inspect.getsource(RemoteRuntime.start)
-    assert "modes.available_in(headed=False, remote=True)" in src
-    assert "modes.JPG" in src
+    assert "models.available_in(headed=False, remote=True)" in src
+    assert "models.JPG" in src
     assert inspect.signature(RemoteRuntime.start).parameters["transport"].default is None
 
 
 def test_dsf_报错要说清_xpra_是你选的还是默认来的(monkeypatch):
     """没说要 VNC 的人被告知"dsf 在 VNC 上没用",第一反应是"我什么时候要 VNC 了"。"""
-    from webmuxd.errors import RuntimeUnavailable
-    from webmuxd.runtime.process import ProcessRuntime
+    from webmuxd.exceptions import RuntimeUnavailable
+    from webmuxd.sessions import ProcessRuntime
     with pytest.raises(RuntimeUnavailable) as ei:
         ProcessRuntime().start("x", port=65010, dsf=2.0)
     assert "默认的 VNC" in ei.value.message
@@ -660,7 +659,7 @@ def test_dsf_报错要说清_xpra_是你选的还是默认来的(monkeypatch):
 def test_两个发行版家族的包名是真的不一样():
     """**这不是换个前缀就完了。** 撞了才知道:RHEL 那边 Xvfb 的包名是
     `xorg-x11-server-Xvfb`,Pillow 是 `python3-pillow`。"""
-    from webmuxd.cli import deps
+    from webmuxd import install as deps
     assert deps.APT.xpra == ("xpra", "xvfb", "python3-pil")
     assert deps.YUM.xpra == ("xpra", "xorg-x11-server-Xvfb", "python3-pillow")
     assert deps.DNF.xpra == deps.YUM.xpra
@@ -671,7 +670,7 @@ def test_两个发行版家族的包名是真的不一样():
 
 def test_装不上要分清是没这个包还是没权限(monkeypatch):
     """**两者的下一步完全不同**:前者要加软件源,后者要 sudo。"""
-    from webmuxd.cli import deps
+    from webmuxd import install as deps
 
     class R:
         def __init__(self, rc, err): self.returncode, self.stderr, self.stdout = rc, err, ""
@@ -691,7 +690,8 @@ def test_装不上要分清是没这个包还是没权限(monkeypatch):
 def test_没有_root_时只打印_而且给完整的那一行(monkeypatch):
     """**"装一下依赖"不是提示,一整行命令才是。**"""
     import io
-    from webmuxd.cli import deps, install as ins
+    from webmuxd import install as deps
+    ins = deps
     monkeypatch.setattr(deps, "can_root", lambda: False)
     monkeypatch.setattr(deps, "detect", lambda: deps.YUM)
     monkeypatch.setattr(deps, "apply", lambda *a, **k: pytest.fail("没 root 还去装了"))
@@ -707,7 +707,8 @@ def test_装完要重新探一遍_不看安装器的退出码(monkeypatch):
     """`apt-get` 返回 0 只说明命令没报错,不说明东西真的有了。
     **判据永远是探测结果。**"""
     import io
-    from webmuxd.cli import deps, install as ins
+    from webmuxd import install as deps
+    ins = deps
     monkeypatch.setattr(deps, "can_root", lambda: True)
     monkeypatch.setattr(deps, "detect", lambda: deps.APT)
     monkeypatch.setattr(deps, "apply", lambda *a, **k: (True, ""))   # 装"成功"了
@@ -721,7 +722,7 @@ def test_装完要重新探一遍_不看安装器的退出码(monkeypatch):
 
 def _fake_xpra_start(monkeypatch, tmp_path):
     """把 xpra 那条路上的三个外部动作都换掉,只留下"我们拼了什么参数"。"""
-    from webmuxd.runtime import process as proc_mod
+    from webmuxd import processes as proc_mod
     seen = {}
 
     class FakePopen:
@@ -740,8 +741,8 @@ def _fake_xpra_start(monkeypatch, tmp_path):
     monkeypatch.setattr(proc_mod, "wait_port", lambda *a, **k: True)
     monkeypatch.setattr(proc_mod, "wait_http", lambda *a, **k: True)
     monkeypatch.setattr(proc_mod, "spawn_sessiond", lambda *a, **k: FakePopen([]))
-    monkeypatch.setattr(proc_mod.browser, "missing_libs", lambda p: [])
-    monkeypatch.setattr(proc_mod.browser, "has_cjk_font", lambda: True)
+    monkeypatch.setattr(proc_mod.config, "missing_libs", lambda p: [])
+    monkeypatch.setattr(proc_mod.config, "has_cjk_font", lambda: True)
     return seen
 
 
@@ -750,7 +751,7 @@ def test_默认那条路上_root_也要自动关沙箱并且说出来(monkeypatc
     有测试守着,而 0.7.0 之后**默认走的是 xpra** —— 默认那条不能没人看着。
     """
     import os as _os
-    from webmuxd.runtime.process import ProcessRuntime
+    from webmuxd.sessions import ProcessRuntime
     seen = _fake_xpra_start(monkeypatch, tmp_path)
     monkeypatch.setattr(_os, "geteuid", lambda: 0)
     monkeypatch.delenv("WEBMUXD_NO_SANDBOX", raising=False)
@@ -764,7 +765,7 @@ def test_默认那条路上_root_也要自动关沙箱并且说出来(monkeypatc
 
 def test_默认那条路上_绑非回环也要留一条警告(monkeypatch, tmp_path):
     """对外开放是**你的决定**,但不能悄悄发生 —— 换了默认 transport 不改变这条。"""
-    from webmuxd.runtime.process import ProcessRuntime
+    from webmuxd.sessions import ProcessRuntime
     _fake_xpra_start(monkeypatch, tmp_path)
     h = ProcessRuntime().start("x", port=65021, browser_path="/bin/true",
                                data_dir=str(tmp_path), bind="0.0.0.0")
@@ -791,7 +792,7 @@ def test_有头下要显式指定软件_GL_否则_WebGL_整个是关的():
 # ------------------------------------------------------- 换一种画面(c §9)
 
 def _switchable(transport="jpg", *, has_xpra=True):
-    from webmuxd.view.cast import Screencaster
+    from webmuxd.screen import Screencaster
     return Screencaster(_FakeSession(), transport=transport, has_xpra=has_xpra)
 
 
@@ -821,7 +822,7 @@ async def test_切过去之后只有画面那一行变了():
 
 async def test_切到这台机器上没有的那种_要报错_不能悄悄留在原来那种():
     """**悄悄留着比报错难查得多** —— 使用者以为换了、画质却没变。"""
-    from webmuxd.errors import BadRequest
+    from webmuxd.exceptions import BadRequest
     c = _switchable("jpg", has_xpra=False)
     with pytest.raises(BadRequest) as ei:
         await c.switch("vnc")
@@ -833,7 +834,7 @@ async def test_切到这台机器上没有的那种_要报错_不能悄悄留在
 
 
 async def test_不认识的名字要报错():
-    from webmuxd.errors import BadRequest
+    from webmuxd.exceptions import BadRequest
     c = _switchable("jpg")
     with pytest.raises(BadRequest):
         await c.switch("mp4")

@@ -2,7 +2,7 @@
 
 import pytest
 
-from webmuxd import errors as E
+from webmuxd import exceptions as E
 
 
 def test_every_wire_code_has_a_class():

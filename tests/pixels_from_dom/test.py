@@ -7,7 +7,7 @@
 
 import json
 
-from webmuxd.view.dom import MAX_EVENTS, RECORD_JS, DomSource
+from webmuxd.rrweb import MAX_EVENTS, RECORD_JS, DomSource
 
 
 def _src():
@@ -171,7 +171,7 @@ def test_这条通道不承载输入_是结构上没有_不是过滤():
     """
     import inspect
 
-    from webmuxd.serve import app
+    from webmuxd import serve as app
 
     src = inspect.getsource(app.h_rrweb)
     assert "handle_input" not in src and "view.switch" not in src
@@ -182,7 +182,7 @@ def test_这条通道不承载输入_是结构上没有_不是过滤():
 def test_不是_dom_模式时这条通道要明说没有_并且说清怎么才有():
     import inspect
 
-    from webmuxd.serve import app
+    from webmuxd import serve as app
 
     src = inspect.getsource(app.h_rrweb)
     assert "--transport dom" in src, "得说清怎么才能有这条通道"
@@ -192,7 +192,7 @@ def test_内置页不往这条通道发东西():
     """**只读要在客户端也是结构性的。** 全文不该出现往它 send 的那一行。"""
     import pathlib
 
-    html = pathlib.Path("webmuxd/view/static/index.html").read_text()
+    html = pathlib.Path("webmuxd/_client/index.html").read_text()
     assert "/channel/rrweb" in html, "内置页得连这条通道"
     assert "domWs.send" not in html, "这条通道上不该有上行"
 
@@ -206,7 +206,7 @@ def test_版本钉死_不用_latest():
     "画面局部不更新"且不报错。这正是 d 篇那条"同一条命令在两台机器上
     结果不同"要防的事。
     """
-    from webmuxd.view import dom
+    from webmuxd import rrweb as dom
 
     assert "@latest" not in dom.RRWEB_URL
     assert dom.RRWEB_VERSION in dom.RRWEB_URL
@@ -220,7 +220,7 @@ def test_ready_只探不下():
     `webmuxd status` 这种只读命令会莫名其妙卡住。"""
     import inspect
 
-    from webmuxd.view import dom
+    from webmuxd import rrweb as dom
 
     src = inspect.getsource(dom.ready)
     assert "urlopen" not in src and "download" not in src
@@ -233,7 +233,7 @@ def test_没下过时报错要指向_install_不能偷偷下():
     """
     import inspect
 
-    from webmuxd.view import dom
+    from webmuxd import rrweb as dom
 
     src = inspect.getsource(dom._read)
     assert "webmuxd install" in src, "得告诉人去跑 install"
@@ -244,7 +244,7 @@ def test_记录器和观看端用的是同一份文件():
     """两边版本对不上的表现是"画面局部不更新"且不报错 —— 所以只有一份。"""
     import inspect
 
-    from webmuxd.view import dom
+    from webmuxd import rrweb as dom
 
     assert inspect.getsource(dom.viewer_js).count("_read(\"js\")") == 1
     assert inspect.getsource(dom.recorder_js).count("_read(\"js\")") == 1
@@ -253,7 +253,7 @@ def test_记录器和观看端用的是同一份文件():
 def test_install_会把它下下来_并记进路径表():
     import inspect
 
-    from webmuxd.cli import install
+    from webmuxd.install import install
 
     src = inspect.getsource(install)
     assert "dom_mod.download()" in src, "install 得负责下"
@@ -263,6 +263,6 @@ def test_install_会把它下下来_并记进路径表():
 
 
 def test_rrweb_是路径表认得的键():
-    from webmuxd import env
+    from webmuxd import config
 
-    assert "rrweb" in env.KEYS
+    assert "rrweb" in config.KEYS

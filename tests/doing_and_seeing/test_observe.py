@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from webmuxd.core.observe import DIGEST_CHARS, observe
+from webmuxd.observe import DIGEST_CHARS, observe
 
 pytestmark = pytest.mark.asyncio
 
@@ -30,8 +30,8 @@ async def test_one_call_gets_everything(cdp, page):
     obs = await observe(cdp, sid, tab="t_1")
 
     assert obs.id.startswith("obs_")
-    assert obs.page["title"] == "结算"
-    assert obs.page["viewport"]["w"] > 0
+    assert obs.page.title == "结算"
+    assert obs.page.viewport.w > 0
     assert [e.name for e in obs.elements][:2] == ["提交订单", "取消订单"]
     assert obs.screenshot and obs.plain_screenshot
     assert "正文内容" in obs.text
@@ -138,7 +138,7 @@ async def test_observation_reads_the_shape_the_api_actually_sends():
 
     所以这条**照抄真实响应的形状**。
     """
-    from webmuxd.client.observation import Observation
+    from webmuxd import Observation
 
     real = {                       # 从 GET /api/observe 实际抓的
         "observation_id": "obs_x", "tab": "t_1", "elements": [],
@@ -148,7 +148,7 @@ async def test_observation_reads_the_shape_the_api_actually_sends():
                  "viewport": {"w": 1015, "h": 676},
                  "screen": {"w": 1024, "h": 768}},
     }
-    o = Observation(None, real)
+    o = Observation.of(None, real)
     assert o.viewport == (1015, 676)
     assert o.screen == (1024, 768)
     # 两者不同才显示 —— 相同的时候那一行是噪音
@@ -159,7 +159,7 @@ async def test_page_info_keeps_the_screen_size_through_the_reshape():
     """服务端那半:重排的时候**别把 screen 丢了**。"""
     import json as _json
 
-    from webmuxd.core import observe as mod
+    from webmuxd import observe as mod
 
     class FakeCDP:
         async def send(self, method, params=None, session_id=None):
@@ -169,5 +169,5 @@ async def test_page_info_keeps_the_screen_size_through_the_reshape():
                 "screenW": 1024, "screenH": 768})}}
 
     page = await mod._page_info(FakeCDP(), "sid")
-    assert page["viewport"] == {"w": 1015, "h": 676}
-    assert page["screen"] == {"w": 1024, "h": 768}
+    assert page.viewport == (1015, 676)
+    assert page.screen == (1024, 768)

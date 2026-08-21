@@ -156,5 +156,5 @@
 | 输入为什么必然经过我们 | [b §1](b-input.md#1-收口在哪) |
 | 原生 UI 为什么也要进这条流 | [g §3](g-native-ui.md#3-日志里必须看得见) |
 | tab 层的接口 | [f §2.1](f-tabs.md#21-那张表的形状) |
-| 落地在 | [`core/act.py`](../../../webmuxd/core/act.py) · [`core/log.py`](../../../webmuxd/core/log.py) · [`core/shim.py`](../../../webmuxd/core/shim.py) |
+| 落地在 | [`core/act.py`](../../../webmuxd/act.py) · [`core/log.py`](../../../webmuxd/log.py) · [`core/shim.py`](../../../webmuxd/probe.py) |
 | 测试在 | [`tests/pointing_at_things/`](../../../tests/pointing_at_things/) · [`tests/the_scrollback/`](../../../tests/the_scrollback/) |

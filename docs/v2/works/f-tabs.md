@@ -196,5 +196,5 @@ per-观看者的状态、tab 条要按观看者渲染、`tab.activated` 要带�
 | 画面里为什么没有 bar | [c §11](c-view.md#11-画面里没有-bar) |
 | 帧头为什么带 `targetId` | [e1 §1.1](e1-wire-format.md#11-下行二进制28-字节头--一整张图) |
 | 内置观看页与外部用同一组接口 | [e §8](e-client.md#8-ui-层内置那个页面不是界面) |
-| 落地在 | [`core/tabs.py`](../../../webmuxd/core/tabs.py) · [`view/cast.py`](../../../webmuxd/view/cast.py) 的 `follow()` |
+| 落地在 | [`core/tabs.py`](../../../webmuxd/tabs.py) · [`view/cast.py`](../../../webmuxd/screen.py) 的 `follow()` |
 | 测试在 | [`tests/tab_identity/`](../../../tests/tab_identity/) · [`tests/chrome_facts/`](../../../tests/chrome_facts/) |

@@ -4,10 +4,10 @@ import asyncio
 
 import pytest
 
-from webmuxd.core.act import (
+from webmuxd.act import (
     MASK, Executor, PageDigest, describe_change,
 )
-from webmuxd.errors import BadRequest
+from webmuxd.exceptions import BadRequest
 
 FORM = (
     "data:text/html;charset=utf-8,"

@@ -31,8 +31,8 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
-from webmuxd.core.cdp import CDP
-from webmuxd.runtime.process import resolve_browser
+from webmuxd.cdp import CDP
+from webmuxd.processes import resolve_browser
 
 HERE = Path(__file__).parent
 SNAPSHOT_JS = (HERE.parent / "trace_export" / "snapshot.js").read_text(encoding="utf-8")

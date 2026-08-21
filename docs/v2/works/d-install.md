@@ -195,5 +195,5 @@ xpra 在 RHEL 系**不在基础仓库中**,安装失败时须区分「仓库中�
 | --- | --- |
 | 为什么需要一整套 X | [c §8](c-view.md#8-那一套-x-是什么) |
 | 那条腿起不来时报什么 | [c §13](c-view.md#13-默认走哪条) |
-| 落地在 | [`browser.py`](../../../webmuxd/browser.py) · [`env.py`](../../../webmuxd/env.py) · [`cli/install.py`](../../../webmuxd/cli/install.py) · [`cli/deps.py`](../../../webmuxd/cli/deps.py) |
+| 落地在 | [`browser.py`](../../../webmuxd/install.py) · [`env.py`](../../../webmuxd/config.py) · [`cli/install.py`](../../../webmuxd/install.py) · [`cli/deps.py`](../../../webmuxd/install.py) |
 | 测试在 | [`tests/installing/`](../../../tests/installing/) |

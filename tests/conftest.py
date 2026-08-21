@@ -16,10 +16,11 @@ import time
 
 import pytest
 
-from webmuxd import browser
-from webmuxd.core.cdp import CDP
+from webmuxd import config
+from webmuxd import install as install_mod
+from webmuxd.cdp import CDP
 
-CHROMIUM = browser.find() or browser.find_system()
+CHROMIUM = config.find() or config.find_system()
 
 
 def _free_port() -> int:
