@@ -3,8 +3,8 @@
 **一句话**:顶层按**语言**分成两棵树 —— `webmuxd/` 是 Python 的全部,
 `webmuxjs/` 是 JS 的全部;JS 那棵里再分服务端和客户端,
 **服务端不实现,只放协议文档**,客户端是真正在浏览器里跑的那一半。
-Python 树里往下,每个目录的名字都必须回答"它是什么",
-不能是 `core` / `view` 这类"填什么都对"的词。
+Python 那棵照 requests **平铺**:一个文件一件事,文件名就是那件事 ——
+没有 `core` / `view` 这类"填什么都对"的目录。
 
 `webmuxjs/client/` 按前端工程搞(分层、构建、测试),**产物直接打进 wheel** ——
 `pip install` 的人不需要 Node。
@@ -17,6 +17,8 @@ Python 树里往下,每个目录的名字都必须回答"它是什么",
 
 - `core/` `view/` 这类名字**填什么都对**,没法用一句话说清里面是什么
 - **数据结构散在五个模块里**,`Tab` 还有两份定义(服务端记录一份、SDK 一份)
+- **起进程的代码有两套**(chrome 一套、xpra 一套),各写各的"起、等、收" ——
+  这一轮真漏过一百多个进程
 - `client/` 是 Python SDK,而"客户端"在这个项目里指浏览器那一半 —— **一个词两个意思**
 - 唯一的 JS 埋在 `view/static/`,而 `view/` 里还混着输入 ——
   **目录把"画面可以多条、输入只有一条"那条接缝糊掉了**
@@ -58,49 +60,68 @@ Python 树里往下,每个目录的名字都必须回答"它是什么",
 **tmux 会做这个吗?** 它不会为了"也许有人喜欢别的语言"维护两份实现。
 `server/TODO.md` 里记什么时候才值得做,以及真要做时从哪一步开始。
 
-## 3. `webmuxd/` 里面:照 requests 的样子
+## 3. `webmuxd/` 里面:一个文件一件事
 
-Python 这一份有**两种用法**:命令行,和代码里 `import`。两个入口平级。
-
-结构参考 [requests](https://github.com/psf/requests) —— 它那套的要点不是"扁平",
-而是:**数据结构集中在一处定义,别的模块只传不定义**。
+参考 [requests](https://github.com/psf/requests):**平铺,一个文件一件事,
+文件名就是那件事。** 没有子包 —— 子包是用来藏东西的,而这儿没有要藏的东西。
 
 ```
 webmuxd/
-├── __init__.py
-├── models.py       ← **所有跨边界的数据结构。唯一的定义处**(§3.1)
-├── exceptions.py   异常树(今天叫 errors.py —— requests 用 exceptions,跟它)
-├── api.py          便捷入口:Webmuxd() / session()
-├── sessions.py     SDK 的 Session / Tab —— **行为**,持有 models
-├── transport.py    SDK 走 HTTP 的那一层(对应 requests 的 adapters)
+│  ── 谁都要用的 ──────────────────────────────────────────
+├── models.py       **所有跨边界的数据结构。唯一的定义处**(§3.1)
+├── exceptions.py   异常树(今天叫 errors.py)
 │
-├── cli/            用法一:命令行(webmuxd new / install / log …)
-├── sessiond/       一个 session 一个进程 —— HTTP 壳 + 编排
-├── launch/         浏览器从哪来:本机起一个,或者你给一个 CDP 端点
-├── browser/        对浏览器做事:CDP 连接、tab 表、动作、定位、观测、探针
-├── browser_ui/     浏览器自己弹的那些:对话框、下载、文件选择、权限、认证
-├── screen/         画面:三种来源 + 编排 + 画质
-│   └── source/     jpg.py · vnc.py · dom.py —— **一种画面一个文件**
-├── input/          输入翻译 + 光标同步 —— **和 screen 分开,那是接缝**
-├── record/         log.jsonl:做过的事记下来
+│  ── 对外部世界做事 ────────────────────────────────────
+├── processes.py    **所有进程都归它**:起、等、看活、收干净(§3.2)
+├── browser.py      浏览器从哪来:下载、定位、拼启动参数
+├── cdp.py          一条到 Chromium 的连接
+├── env.py          `~/.webmuxd.json` 那份路径表
+├── log.py          `log.jsonl`
+│
+│  ── 对浏览器做事 ──────────────────────────────────────
+├── tabs.py         tab 表 —— sessiond 那份唯一真相
+├── act.py          动作执行
+├── locate.py       元素定位
+├── observe.py      观测
+├── probe.py        页面里的探针(今天叫 shim.py)
+│
+│  ── 浏览器自己弹的(一类一个文件)────────────────────
+├── dialogs.py      alert / confirm / prompt / beforeunload
+├── downloads.py    下载
+├── filechooser.py  文件选择框
+├── permissions.py  定位 / 通知 / 摄像头 / 剪贴板
+├── auth.py         HTTP Basic
+│
+│  ── 画面(一条腿一个文件)──────────────────────────
+├── screen.py       编排:跟 tab、管观看者、背压、切换
+├── jpg.py          JPG 那条:`Page.startScreencast`
+├── xpra.py         VNC 那条:起 xpra + 8 字节头协议 + 上行白名单
+├── rrweb.py        DOM 那条:注入记录器 + 事件流 + 资源转发
+├── frames.py       28 字节头、上行消息白名单
+├── quality.py      RTT 自适应
+│
+│  ── 输入(接缝的另一侧,§3.4)────────────────────────
+├── input.py        DOM 事件 → `Input.*`
+├── cursor.py       光标同步 + 白名单
+│
+│  ── 会话与服务 ────────────────────────────────────────
+├── sessions.py     **所有会话都归它**:建、找、关;一个 session 的编排(§3.3)
+├── serve.py        **真正对外那个口** —— 人打开的网页、画面、`/api/*`
+│
+│  ── 给人用的两个面 ────────────────────────────────────
+├── api.py          `Webmuxd()` / `session()` —— 代码里 import 的门面
+├── transport.py    SDK 走 HTTP 那一层(对应 requests 的 adapters)
+├── cli.py          命令行 + **只有 CLI 用的那套调用代码**(§3.5)
+├── install.py      `webmuxd install`
+├── deps.py         系统包
+│
 └── _client/        浏览器端那份的构建产物 —— **不在 git 里**(§4.3)
 ```
-
-**顶上五个文件是平的,下面才分包。** 这一层照 requests ——
-`models` / `exceptions` / `api` / `sessions` / `transport` 是"谁都要用"的东西,
-藏进包里只会让 import 变长。而 `screen/` `browser/` 这些是**真的子系统**,
-各有好几个文件,该有自己的目录。
-
-> 类比在一处不成立,得说清楚:**requests 只有客户端一半**,
-> 而 webmuxd 还有服务端(`sessiond/` 往下那一串)。
-> 所以照搬的是"数据集中、行为分散"这条,不是它的文件清单。
 
 ### 3.1 `models.py`:所有跨边界的数据,在这儿定义一次
 
 **判据只有一条:它会不会跨过一条边界。**
 跨 HTTP、跨 WS、跨进程、跨语言的,都在这儿;只在一个模块里活着的,不在。
-
-大致是这些:
 
 | | 是什么 |
 | --- | --- |
@@ -111,56 +132,82 @@ webmuxd/
 | `FrameHeader` | 28 字节头:castSessionId / frameId / targetId |
 | `LogEntry` | `log.jsonl` 里的一行 |
 | `Pending*` | 挡着页面的那些:对话框 / 下载 / 文件选择 / 权限 / 认证 |
-| `SessionHandle` | 起起来的 session:kind / id / port |
+| `SessionInfo` | 一个 session:id / port / 状态 / 能切哪几种画面 |
 
 **为什么非要集中。** 现在同一个概念有两份定义 ——
 服务端的 tab 记录在 `core/tabs.py`,SDK 的 `Tab` 在 `client/tab.py`,
-**又是一个词两个意思**(和 `client/` 那个毛病同源)。集中之后:
+**又是一个词两个意思**。集中之后:
 
 - **一个概念一处定义**,改字段时不会漏掉另一份
 - **协议文档有了 Python 对应物** —— `webmuxjs/server/protocol/` 里写的形状,
-  就是 `models.py` 里的类。两边对不上是能测出来的(§4.2)
-- 读代码的人有个入口:**想知道"这个系统里流动的是什么",看这一个文件**
+  就是 `models.py` 里的类,两边对不上是能测出来的(§4.2)
+- 想知道"这系统里流动的是什么",看这**一个**文件
 
 三条规矩:
 
-1. **`models.py` 里只有数据,没有行为。** 序列化 / 反序列化 / 校验可以有,
-   "去做一件事"不可以 —— 一旦它开始 import `browser/`,它就不再是模型层了
-2. **它不 import 本项目的任何东西**(除了 `exceptions`)。这条保证它永远在最底下
-3. **凡是出现在 HTTP / WS 上的形状,必须在这儿定义一次**,别处只 `import`。
-   别的模块里再定义一个"临时的 dict 形状",就是下一个两份定义
+1. **只有数据,没有行为。** 序列化 / 校验可以有;
+   一旦它开始 import `cdp.py`,它就不再是模型层了
+2. **不 import 本项目任何东西**(除 `exceptions`)—— 保证它永远在最底下
+3. **凡是出现在 HTTP / WS 上的形状,必须在这儿定义一次**,别处只 `import`
 
-> `sessions.py` 里的 `Tab` 是**行为**,不是数据 —— 它带着 `.click()` `.type()`,
-> 通过 HTTP 干活,对应 requests 的 `Session`。它**持有** `models.TabInfo`,
-> 不重新定义一份。这条区分是这次改名的核心:
-> **数据叫 `TabInfo`,能操作的那个叫 `Tab`。**
+> 最容易混的那条区分:**数据叫 `TabInfo`,能操作的那个叫 `Tab`。**
+> 后者带着 `.click()`,通过 HTTP 干活,住在 `api.py`;
+> 它**持有** `TabInfo`,不重新定义一份 —— 对应 requests 里 `Session` 和 `Response`。
 
-### 3.2 为什么 `sdk` 那几样直接摆在顶层,而不是 `sdk/`
+### 3.2 `processes.py`:所有进程都归它
 
-上一版写的是 `sdk/`。改成平铺,因为照 requests 之后它们已经**就是**顶层那几个文件:
-`api.py`(便捷入口)、`sessions.py`(干活的对象)、`transport.py`(传输)。
-再套一层 `sdk/` 等于说"这几个文件属于 SDK" —— 而顶层本来就是给人 import 的那一面。
+chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个文件出去**。
 
-**`sessions.py` 不许 import `sessiond/`。** 这条不是洁癖 ——
-SDK 要能连**别的机器上**的 sessiond,一旦它 import 了进程内的实现,那条路就断了。
-它只经 `transport.py` 走 HTTP,和外部使用者同一条路。
+它买到的是一件很具体的事:**孤儿进程只有一个地方会漏。**
+今天起进程的代码散在 `runtime/process.py` 和 `xpra.py` 两处,
+各写各的"起、等端口、看活、收拾" —— 而这一轮做例子的时候真漏过:
+一百多个 chrome 留在机器上,把 CDP 压到连不上。
 
-### 3.3 为什么 `screen/` 和 `input/` 必须分开
+**它不知道 chrome 是什么。** 它只会:
 
-设计稿里最硬的一条是:**画面来源可以有多条,输入永远只有一条**
+```
+起一个 → 等它就绪(端口 / HTTP / 日志)→ 看它还活着吗 → 收干净(含子进程)
+```
+
+"要起什么命令"由别人给:`browser.py` 拼 chrome 的参数,`xpra.py` 拼 xpra 的。
+**这条分开之后,"怎么收进程"只有一份实现,补一次所有人都补上。**
+
+### 3.3 `sessions.py`:所有会话都归它
+
+建一个、找一个、关一个;以及**一个 session 内部的编排** ——
+把 tab 表、动作执行、画面、原生 UI 那几块接起来。
+
+"浏览器从哪来"这个决定也在这儿:本机起一个(叫 `processes.py`),
+还是你给一个 CDP 端点(直接连)。**它不值得单独一个文件** ——
+那就是一个 if,而且只有 `sessions.py` 会问这个问题。
+
+### 3.4 为什么 `screen.py` 和 `input.py` 必须是两个文件
+
+设计稿里最硬的一条:**画面来源可以有多条,输入永远只有一条**
 ([b §1](b-input.md#1-收口在哪) · [c §7](c-view.md#7-接缝切在哪))。
-三种画面已经验过这条 —— 画面整个换成 rrweb 重排的 DOM 之后,输入那一侧一个字没改。
+三种画面已经验过 —— 画面整个换成 rrweb 重排的 DOM 之后,输入那一侧一个字没改。
 
-**目录要让这条接缝看得见。** 混在一个 `view/` 里的时候,
-"往 screen 里加一条来源"和"往 input 里加一种意图"看起来是同一类改动 ——
+**文件要让这条接缝看得见。** 混在一起的时候,
+"加一条画面来源"和"加一种输入意图"看起来是同一类改动 ——
 而后者是安全边界,前者不是。
 
-### 3.4 `screen/source/` 一种画面一个文件
+同理:`jpg.py` · `xpra.py` · `rrweb.py` **三条腿三个文件,而且互不 import**。
+"加第四条腿要动哪些文件"因此是个能一眼回答的问题 ——
+加一个文件,在 `models.ViewMode` 那张表里加一行。
 
-`source/jpg.py` · `source/vnc.py` · `source/dom.py`,编排留在 `screen.py`。
+### 3.5 `serve.py` 和 `cli.py`:两个面,一个服务端
 
-好处很具体:**"加第四条腿要动哪些文件"变成一个能一眼回答的问题** ——
-加一个 `source/*.py`,在 `modes.py` 那张表里加一行。同一类东西一种摆法。
+- **`serve.py` 是唯一的服务端** —— 人打开的那个网页、画面、`/api/*` 全在它上面。
+  这条不能动:**一个 session 一个口**,画面和 API 在同一个口上,是既定的
+- **`cli.py` 里放它自己那套调用代码**,不再抽一个"共享的 API 客户端" ——
+  **只有 CLI 会用它**,而 CLI 的需要和 SDK 不一样(它要打印、要退出码、要人话报错)
+
+> 这里有一处我按理解定的,写出来好让人纠:**不为 CLI 再起第二个 HTTP 服务。**
+> 再起一个就违反"一个口"那条。所以是"CLI 自己那套**请求**代码住在 `cli.py`",
+> 不是"CLI 的服务端住在 `cli.py`"。
+
+`transport.py` 是 SDK 那一侧的,两边**故意各写各的** ——
+共用一层的话,CLI 的人话报错和 SDK 的异常树会互相拉扯。
 
 ## 4. `webmuxjs/client/`:按前端工程搞
 
@@ -256,59 +303,76 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 - ❌ **不引前端框架。** 内置页是验链路的调试页,框架买不到任何东西
 - ❌ **不上 monorepo 工具。** 就一个 JS 工程
 
-## 5. 依赖方向:这才是不再腐烂的那条
+## 5. 依赖方向:扁平之后,层要靠规矩守
+
+没有子目录了,所以"谁能 import 谁"不再有目录挡着 —— **只能靠规矩,而规矩要有测试。**
 
 ```
-cli/ ──┐
-       ├──▶ sessions.py ──transport.py──HTTP──▶ sessiond/
-       │                                            └─▶ screen/  input/  browser_ui/
-       │                                                  └────┴────┴─▶ browser/  launch/  record/
-       └──────────────────────── 谁都可以用 ─────────────▶ models.py  exceptions.py
-
-webmuxjs/client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
-   src/channel/ ──▶ src/protocol/  src/flow/        ← 上面两层不碰浏览器
+第 0 层   models.py  exceptions.py          谁都能用;它们谁都不用
+第 1 层   processes.py  browser.py  cdp.py  env.py  log.py     对外部世界做事
+第 2 层   tabs.py  act.py  locate.py  observe.py  probe.py     对浏览器做事
+          dialogs.py  downloads.py  filechooser.py  permissions.py  auth.py
+          frames.py  quality.py  input.py  cursor.py
+          jpg.py  xpra.py  rrweb.py
+第 3 层   screen.py  sessions.py            编排
+第 4 层   serve.py                          对外那个口
+第 5 层   api.py  transport.py  cli.py  install.py  deps.py    给人用的
 ```
 
 五条硬规矩:
 
-1. **`models.py` 不 import 本项目任何东西**(除 `exceptions`)—— 它永远在最底下(§3.1)
-2. **`sessions.py` 不 import `sessiond/`** —— 否则连不了远程的那一个(§3.2)
-3. **`screen/` 不 import `input/`** —— 那是接缝,不是分层(§3.3)
-4. **`browser/` / `launch/` / `record/` 不 import 上面任何一层** —— 它们是被用的,不是用人的
-5. **`webmuxjs/` 和 `webmuxd/` 不共享一行代码** —— 只有协议,而协议写在
-   `webmuxjs/server/protocol/`
+1. **只能往下 import,不能往上。** `cdp.py` 不认识 `sessions.py`
+2. **`models.py` 不 import 本项目任何东西**(除 `exceptions`)—— 它永远在最底下
+3. **`api.py` / `transport.py` 不 import `serve.py`** ——
+   SDK 要能连**别的机器上**的服务端,一旦 import 了进程内的实现,那条路就断了
+4. **`screen.py` 不 import `input.py`** —— 那是接缝,不是分层(§3.4)
+5. **`jpg.py` / `xpra.py` / `rrweb.py` 互不 import** —— 三条并列的腿,
+   谁也不是谁的基础;一旦串起来,"换一条"就不再是换一条
 
-**这五条要有测试守。** 目录改名是一次性的,依赖方向不守住就会慢慢长回来 ——
-今天的 `core/` 就是这么来的。
+**这五条要有测试守**,而且很好写:用 `ast` 扫一遍 import 就行。
+扁平结构的代价就在这儿 —— 目录不再帮你挡,那就让测试挡。
 
-## 6. 每个包必须能用一句话说清自己
+## 6. 每个文件必须能用一句话说清自己
 
-- 每个包的 `__init__.py` **必须有 docstring**,第一行说"它是什么"
+- 每个 `.py` **必须有 docstring**,第一行说"它是什么" ——
+  文件名说了一半,另一半在这句话里
 - 里面引用的设计稿**必须存在** —— 指向已删掉的编号篇比不指更坏,它看着像依据
 
 这两条也加测试。现在已经有 `the_docs_are_true/` 守文档里的链接,
 再加一条守代码里的。
 
-## 7. 改名对照表
+> 这条在扁平结构下更要紧:三十来个文件平铺,**docstring 第一行就是目录**。
 
-| 现在 | 改成 | 一句话理由 |
+## 7. 搬去哪
+
+| 现在 | 搬去 | 一句话 |
 | --- | --- | --- |
-| `client/manager.py` `session.py` `tab.py` | `api.py` + `sessions.py` | 顶层就是给人 import 的那一面,不用再套一层 `sdk/`;"客户端"这个词让给浏览器那一半 |
+| `client/manager.py` `session.py` `tab.py` | `api.py` | 给人 import 的那一面 |
 | `client/transport.py` | `transport.py` | 对应 requests 的 adapters |
-| `client/observation.py` `mirror.py` · `core/tabs.Tab` · `runtime/base.Handle` · `view/modes.Mode` | **`models.py`** | 跨边界的数据集中一处 —— 今天散在五个模块里,`Tab` 还有两份(§3.1) |
+| `client/observation.py` `mirror.py` · `core/tabs.Tab` · `runtime/base.Handle` · `view/modes.Mode` | **`models.py`** | 跨边界的数据集中一处 —— 今天散在五个模块,`Tab` 还有两份(§3.1) |
 | `errors.py` | `exceptions.py` | 跟 requests 的叫法 |
-| `core/act.py` `locate.py` `observe.py` `cdp.py` `tabs.py` `shim.py` | `browser/` | 共同点是**对浏览器做事** |
-| `core/log.py` | `record/` | 它记的是**做过的事**,和"对浏览器做事"不是一回事 |
-| `native/` | `browser_ui/` | 浏览器**自己的** UI —— 六样东西的共同点 |
-| `runtime/` | `launch/` | 它自己写着"只回答一个问题:CDP 端点从哪来" |
-| `serve/` | `sessiond/` | 它就是那个进程,文档里一直这么叫 |
-| `view/cast.py` `dom.py` `relay.py` `modes.py` `quality.py` `viewer.py` `protocol.py` | `screen/` | 画面这一半 |
-| `view/input.py` `cursor.py` | `input/` | **接缝的另一侧**(§3.2) |
-| `view/static/` | `webmuxjs/client/src/` | 它是这个项目里唯一的 JS,不该埋在服务端目录下 |
-| `xpra.py` | `screen/source/vnc.py` 的一部分 | 三种画面摆法要一致(§3.3) |
+| `runtime/process.py` 里起进程那部分 + `xpra.py` 里起进程那部分 | **`processes.py`** | 两处各写一套"起、等、看活、收" —— 合成一份(§3.2) |
+| `runtime/` 剩下的(选本机还是 remote) | `sessions.py` | 那就是一个 if,不值得一个文件 |
+| `serve/session.py` | `sessions.py` | 会话的编排本来就该和会话在一起 |
+| `serve/app.py` `serve/__main__.py` | `serve.py` | 对外那个口 |
+| `cli/__main__.py` `cli/registry.py` | `cli.py` | 连同它自己那套调用代码(§3.5) |
+| `cli/install.py` `cli/deps.py` | `install.py` `deps.py` | 平铺 |
+| `core/cdp.py` `tabs.py` `act.py` `locate.py` `observe.py` | 同名平铺 | |
+| `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
+| `core/log.py` | `log.py` | |
+| `native/dialogs.py` `downloads.py` `files.py` `permissions.py` `auth.py` | 同名平铺(`files` → `filechooser`) | 一类一个文件;`native/base.py` 化进各自 |
+| `view/cast.py` | `screen.py` + `jpg.py` | 编排和"JPG 那条"是两件事(§3.4) |
+| `view/relay.py` + `xpra.py` | `xpra.py` | **一个协议一个文件** |
+| `view/dom.py` | `rrweb.py` | 同上 |
+| `view/protocol.py` | `frames.py` | 它是帧头和上行白名单,不是"协议"这么大 |
+| `view/viewer.py` | `screen.py` | 观看者和背压是编排的一部分 |
+| `view/modes.py` | `models.py`(`ViewMode`)+ `screen.py` | 数据进 models,选哪条的逻辑进 screen |
+| `view/input.py` `cursor.py` | `input.py` `cursor.py` | 平铺,**和 screen 分开** |
+| `view/quality.py` | `quality.py` | |
+| `view/static/` | `webmuxjs/client/src/` | 这项目唯一的 JS,不该埋在服务端目录下 |
 
-**设计稿也要跟着对齐两处**:`g-native-ui.md` 对应 `browser_ui/`(名字已经一致),
-`h-runtime.md` 对应 `launch/` —— 那一篇的篇名该跟着改。
+**设计稿跟着对齐两处**:`g-native-ui.md` 现在对应五个平铺文件;
+`h-runtime.md` 对应 `processes.py` + `sessions.py` 里那个 if —— 篇名该跟着改。
 
 ## 8. 怎么搬
 
@@ -317,10 +381,11 @@ webmuxjs/client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
 
 顺序:
 
-1. `git mv` 全部到位,**只动位置不动内容**(这一步的 diff 应该全是路径)
+1. `git mv` 全部到位,**只动位置不动内容**(这一步的 diff 应该全是路径)。
+   要拆的(`cast.py` → `screen.py` + `jpg.py`)先原样搬过去,**下一步再拆**
 2. 修 import,跑全套测试
-3. 每个包补 `__init__.py` 的一句话,顺手把指向已删文档的 docstring 修掉
-4. 加 §5 那四条依赖规矩的测试、§6 那两条的测试
+3. 拆该拆的、合该合的(`processes.py` 那两份合一份是重点)
+4. 补每个文件那句 docstring;加 §5 五条依赖规矩的测试、§6 两条的测试
 5. 把客户端搬到 `webmuxjs/client/` 并按 §4 拆开;`npm run build` 的产物
    落到 `webmuxd/_client/`(**不进 git**),加上那条"缺失或过期就红"的守卫
 6. **验 wheel 里的东西一样不少** —— 这项目栽过一次(`.js` 没进包);
