@@ -83,7 +83,7 @@ webmuxd/
 │   └── source/     jpg.py · vnc.py · dom.py —— **一种画面一个文件**
 ├── input/          输入翻译 + 光标同步 —— **和 screen 分开,那是接缝**
 ├── record/         log.jsonl:做过的事记下来
-└── web/            webmuxjs/client 的构建产物(§4.3)
+└── _client/        浏览器端那份的构建产物 —— **不在 git 里**(§4.3)
 ```
 
 **顶上五个文件是平的,下面才分包。** 这一层照 requests ——
@@ -224,13 +224,27 @@ JS 侧测试     → 读同一份,断言自己编出来一样、解出来也一�
 ### 4.3 构建怎么接进 wheel
 
 ```
-npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/web/ → 进 wheel
+npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ → 进 wheel
 ```
 
-- **`webmuxd/web/` 进 gitignore。** git 里只有 `src/` 一份,漂移不可能发生
-- 开发时 `npm run dev`,Vite 把 `/api` 和 `/channel` 代理到本机 sessiond
-- **必须加一个守卫**:`webmuxd/web/` 缺失、或者比 `src/` 旧,就让测试红。
+**`webmuxd/_client/` 不需要在 git 里。** 它是构建产物 ——
+打包前由构建脚本建出来,`package-data` 是在**打包那一刻**去匹配的,
+所以仓库里根本不用有这个目录。git 里只有 `webmuxjs/client/src/` 一份,
+**漂移不可能发生**。
+
+> 名字:下划线说"这是生成的,别手改";`client` 说"浏览器端那份"。
+> 上一版叫 `web/` —— 那个名字既没说它是产物,也没说它是什么。
+
+**为什么产物非得落在包里面。** 装完之后机器上只有 `webmuxd` 这一个包,
+`webmuxjs/` 不存在 —— sessiond 要读得到,就只能在包内。
+
+三件配套的事:
+
+- **开发时不用先构建**:`_client/` 不在就回退读 `webmuxjs/client/dist/`;
+  再不在就提示跑 `npm run dev`(Vite 把 `/api` 和 `/channel` 代理到本机 sessiond)
+- **守卫**:`_client/` 缺失、或者比 `src/` 旧 → **测试红**。
   这项目栽过一次 `.js` 没进 wheel,**不能靠"记得先构建"**
+- 发布前验 wheel 里那几个文件在(现在的发布流程已经这么做了)
 
 用 TypeScript —— Vite 原生支持,几乎不额外要什么;类型管 API 面,
 **边界仍然要运行时校验**(类型过不了网络)。
@@ -308,7 +322,7 @@ webmuxjs/client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
 3. 每个包补 `__init__.py` 的一句话,顺手把指向已删文档的 docstring 修掉
 4. 加 §5 那四条依赖规矩的测试、§6 那两条的测试
 5. 把客户端搬到 `webmuxjs/client/` 并按 §4 拆开;`npm run build` 的产物
-   落到 `webmuxd/web/`,加上那条"缺失或过期就红"的守卫
+   落到 `webmuxd/_client/`(**不进 git**),加上那条"缺失或过期就红"的守卫
 6. **验 wheel 里的东西一样不少** —— 这项目栽过一次(`.js` 没进包);
    然后干净 venv 装一遍再发
 
