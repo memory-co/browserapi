@@ -1,56 +1,66 @@
 # j · 代码摆在哪
 
-**一句话**:顶层先分**服务端**和**客户端** —— 客户端一定是 JS,服务端今天是
-Python、以后可能有 JS 版;服务端有两种用法,**命令行**和**代码里 import**。
-往下每个目录的名字都必须回答"它是什么",不能是 `core` / `view` 这类
-"填什么都对"的词。
+**一句话**:顶层按**语言**分成两棵树 —— `webmuxd/` 是 Python 的全部,
+`webmuxjs/` 是 JS 的全部;JS 那棵里再分服务端和客户端,
+**服务端不实现,只放协议文档**,客户端是真正在浏览器里跑的那一半。
+Python 树里往下,每个目录的名字都必须回答"它是什么",
+不能是 `core` / `view` 这类"填什么都对"的词。
 
 这一篇只管**代码摆在哪**,不改任何行为。
 
-## 1. 现在的问题不是"乱",是"名字不承载信息"
+## 1. 为什么要动
 
-逐条摆出来,每一条都能对着代码验:
+三句话,不展开:
 
-| | 毛病 |
-| --- | --- |
-| `core/` | **连 docstring 都没有** —— 不是忘了写,是"核心"本来就没法写。里面装着 CDP 连接、tab 表、动作执行、元素定位、页面观测、注入探针、操作日志 —— 七样东西的唯一共同点是"都挺重要" |
-| `client/` | **它是 Python SDK。** 而这个项目里"客户端"指的是浏览器里那一半([e](e-client.md))—— **同一个词指着两样东西**,这是最坏的一种命名 |
-| `view/static/` | **唯一真正的客户端(`index.html` / `xpra.js` / `rencode.js`)埋在服务端目录往下三层。** 它是这个项目里唯一的 JS,却藏得最深 |
-| `view/` | 里面混着 `input.py` 和 `cursor.py`。而设计稿的接缝恰恰是**画面可以有多条、输入永远只有一条**([c §7](c-view.md#7-接缝切在哪))—— 目录把这条接缝糊掉了 |
-| `native/` | "原生"什么?那六样(对话框 / 下载 / 文件选择 / 权限 / 认证)的共同点是**浏览器自己弹出来、挡在页面前面、必须有人应答** |
-| `runtime/` | 这个词在别处指语言运行时。而它自己的 `base.py` 第一行写着:"**只回答一个问题:这个 session 的 CDP 端点从哪来**" —— 名字该说这个 |
-| `serve/` | 和 server 撞词。它其实就是 sessiond,文档里一直这么叫 |
+- `core/` `view/` 这类名字**填什么都对**,没法用一句话说清里面是什么
+- `client/` 是 Python SDK,而"客户端"在这个项目里指浏览器那一半 —— **一个词两个意思**
+- 唯一的 JS 埋在 `view/static/`,而 `view/` 里还混着输入 ——
+  **目录把"画面可以多条、输入只有一条"那条接缝糊掉了**
 
-还有一处腐烂:**docstring 大面积指向 `docs/v1/` 和已经删掉的编号篇**
-(`works/06`、`works/07`、`works/11`)。指向不存在的设计稿比不指更坏 ——
-它看着像依据。
+下面全是目标。
 
-## 2. 顶层:服务端 / 客户端
+## 2. 顶层:两棵树,按语言分
 
 ```
-webmuxd/                     ← 仓库根
-├── client/                  ← 浏览器里跑的那一半。**只有这里是 JS**
-├── server/
-│   └── python/              ← 今天唯一的实现
+仓库根
+├── webmuxd/          ← Python 的全部。**包名不变,位置不动**
+├── webmuxjs/         ← JS 的全部
+│   ├── client/       浏览器里跑的接收端 —— 真的在跑,是产品的一部分
+│   └── server/       另一个服务端实现 —— **不实现**,只放完整的协议文档
 └── docs/
 ```
 
-**为什么这一刀要切在最外面。** 这两半之间只有协议,没有共享代码 ——
-客户端只经 `/channel/*`(帧、事件)和 `/api/*`(REST)说话
-([e §6](e-client.md#6-通道模型))。既然连接口都只有协议,那就不该混在一个目录树里。
+**为什么按语言分,而不是按"服务端 / 客户端"分。**
+先按角色分的话会出现 `server/python/webmuxd/` 这种路径 ——
+中间那两层什么信息都没多给:`webmuxd` 本来就是 Python 的,
+`webmuxjs` 本来就是 JS 的。**语言已经写在名字里了,不用再写一遍目录。**
 
-**`server/python/` 而不是 `server/`。** 以后可能有 `server/node/` ——
-把语言写进路径,是为了那一天不用再动一次目录。今天只有一个实现,
-但这一层现在加是免费的,以后加要动打包配置。
+**两棵树之间只有协议,没有共享代码。** 客户端只经 `/channel/*`(帧、事件)
+和 `/api/*`(REST)说话([e §6](e-client.md#6-通道模型))。
 
-> 代价说清楚:Python 包从仓库根挪到 `server/python/` 之后,
-> `pyproject.toml` 要跟着搬,CI 里的路径也要改。**这是一次性的**,
-> 而且换来的是"打开仓库就知道有哪两半"。
+### 2.1 `webmuxjs/server/` 为什么是空的,却要留着
 
-## 3. 服务端里面:先按"两种用法"分,再按"对谁做事"分
+它是**协议文档的去处**。
+
+`webmuxjs/server/protocol/` 那几篇写的是**契约** —— 不是"JS 版怎么设计",
+而是两边都得满足的东西。`webmuxd/` 已经实现了它。这么摆是为了将来:
+**要写 JS 版服务端的人,照着那几篇实现就行,不用去读 Python 代码反推。**
+
+> 有一处得说清楚,否则会腐烂:**契约由 Python 那份先实现,却放在 JS 那棵树下。**
+> 规矩是 —— **两边不一致时以文档为准**;文档写错了就改文档,
+> 不允许实现悄悄跑偏。一份对不上实现的契约,比没有契约更坏。
+
+至于要不要真写 JS 版服务端:今天**不写**。判据还是那句 ——
+**tmux 会做这个吗?** 它不会为了"也许有人喜欢别的语言"维护两份实现。
+`server/TODO.md` 里记什么时候才值得做,以及真要做时从哪一步开始。
+
+## 3. `webmuxd/` 里面:先按"两种用法"分,再按"对谁做事"分
+
+Python 这一份有**两种用法**:命令行,和代码里 `import`。
+两个入口平级,往下走到同一处。
 
 ```
-server/python/webmuxd/
+webmuxd/
 ├── cli/            用法一:命令行(webmuxd new / install / log …)
 ├── sdk/            用法二:代码里 import(Webmuxd / Session / Tab)
 ├── sessiond/       一个 session 一个进程 —— HTTP 壳 + 编排
@@ -62,8 +72,12 @@ server/python/webmuxd/
 │   └── source/     jpg.py · vnc.py · dom.py —— **一种画面一个文件**
 ├── input/          输入翻译 + 光标同步 —— **和 screen 分开,那是接缝**
 ├── record/         log.jsonl:做过的事记下来
-└── web/            client/ 的构建产物,sessiond 拿它当静态文件
+└── web/            webmuxjs/client 的构建产物,sessiond 拿它当静态文件
 ```
+
+> `web/` 里是**构建产物,不是源码** —— 源码在 `webmuxjs/client/src/`。
+> 发布时拷进来,这样 wheel 自带客户端、装完就能用。
+> **不要在这个目录里改东西**,下次构建会盖掉。
 
 ### 3.1 为什么 `sdk/` 和 `cli/` 是平级的两个入口
 
@@ -86,17 +100,15 @@ server/python/webmuxd/
 
 ### 3.3 `screen/source/` 一种画面一个文件
 
-今天三种画面的代码是这么分布的:JPG 在 `cast.py` 里(和编排混在一起)、
-VNC 在 `xpra.py` + `relay.py`、DOM 在 `dom.py`。**同一类东西三种摆法。**
+`source/jpg.py` · `source/vnc.py` · `source/dom.py`,编排留在 `screen.py`。
 
-拆成 `source/jpg.py` · `source/vnc.py` · `source/dom.py`,编排留在 `screen.py`。
-好处很具体:**"加第四条腿要动哪些文件"变成一个能一眼回答的问题**
-—— 加一个 `source/*.py`,在 `modes.py` 那张表里加一行。
+好处很具体:**"加第四条腿要动哪些文件"变成一个能一眼回答的问题** ——
+加一个 `source/*.py`,在 `modes.py` 那张表里加一行。同一类东西一种摆法。
 
 ## 4. 客户端里面:按通道分
 
 ```
-client/
+webmuxjs/client/
 ├── src/
 │   ├── channel/         一条通道一个文件 —— 和服务端的 /channel/* 一一对应
 │   │   ├── cdp.js       帧(28 字节头)+ 输入上行 + 光标 + tab
@@ -105,7 +117,7 @@ client/
 │   ├── screen.js        三种画面各自往哪画;切换
 │   ├── input.js         DOM 事件 → 上行消息(25ms 聚批在这儿)
 │   └── viewer.html      内置那个页面 —— **不是产品界面,是验链路的**
-└── dist/                构建产物 → 拷进 server/python/webmuxd/web/
+└── dist/                构建产物 → 拷进 webmuxd/web/
 ```
 
 **一条通道一个文件,和服务端路由一一对应。** 通道模型的三个问题
@@ -122,7 +134,7 @@ client/
 cli/ ──┐
        ├──▶ sdk/ ──HTTP──▶ sessiond/ ──▶ screen/  input/  browser_ui/
        │                                    └──────┴──────┴──▶ browser/  launch/  record/
-client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
+webmuxjs/client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
 ```
 
 四条硬规矩:
@@ -130,14 +142,13 @@ client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
 1. **`sdk/` 不 import `sessiond/`** —— 否则连不了远程的那一个(§3.1)
 2. **`screen/` 不 import `input/`** —— 那是接缝,不是分层(§3.2)
 3. **`browser/` / `launch/` / `record/` 不 import 上面任何一层** —— 它们是被用的,不是用人的
-4. **`client/` 和服务端不共享一行代码** —— 只有协议
+4. **`webmuxjs/` 和 `webmuxd/` 不共享一行代码** —— 只有协议,而协议写在
+   `webmuxjs/server/protocol/`
 
 **这四条要有测试守。** 目录改名是一次性的,依赖方向不守住就会慢慢长回来 ——
 今天的 `core/` 就是这么来的。
 
 ## 6. 每个包必须能用一句话说清自己
-
-`core/__init__.py` 和 `serve/__init__.py` 今天是空的。改完之后:
 
 - 每个包的 `__init__.py` **必须有 docstring**,第一行说"它是什么"
 - 里面引用的设计稿**必须存在** —— 指向已删掉的编号篇比不指更坏,它看着像依据
@@ -157,7 +168,7 @@ client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
 | `serve/` | `sessiond/` | 它就是那个进程,文档里一直这么叫 |
 | `view/cast.py` `dom.py` `relay.py` `modes.py` `quality.py` `viewer.py` `protocol.py` | `screen/` | 画面这一半 |
 | `view/input.py` `cursor.py` | `input/` | **接缝的另一侧**(§3.2) |
-| `view/static/` | 顶层 `client/src/` | 它是这个项目里唯一的 JS |
+| `view/static/` | `webmuxjs/client/src/` | 它是这个项目里唯一的 JS,不该埋在服务端目录下 |
 | `xpra.py` | `screen/source/vnc.py` 的一部分 | 三种画面摆法要一致(§3.3) |
 
 **设计稿也要跟着对齐两处**:`g-native-ui.md` 对应 `browser_ui/`(名字已经一致),
@@ -174,9 +185,13 @@ client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
 2. 修 import,跑全套测试
 3. 每个包补 `__init__.py` 的一句话,顺手把指向已删文档的 docstring 修掉
 4. 加 §5 那四条依赖规矩的测试、§6 那两条的测试
-5. `pyproject.toml` 搬到 `server/python/`,**验 wheel 里的东西一样不少**
-   —— 这项目栽过一次(`.js` 没进包)
-6. 干净 venv 装一遍再发
+5. 把客户端搬到 `webmuxjs/client/`,给它一条最小的构建(拷贝也算构建),
+   产物落到 `webmuxd/web/`
+6. **验 wheel 里的东西一样不少** —— 这项目栽过一次(`.js` 没进包);
+   然后干净 venv 装一遍再发
+
+**`pyproject.toml` 不用动。** Python 包还在仓库根,位置和包名都没变 ——
+这是按语言分树换来的:比 `server/python/` 那个方案少一整类打包风险。
 
 **包名不变。** 外面 `import webmuxd` 不受影响,`pip install webmuxd` 不受影响,
 CLI 名字不变,HTTP 路径不变。**这一次只动代码摆在哪。**
@@ -185,7 +200,7 @@ CLI 名字不变,HTTP 路径不变。**这一次只动代码摆在哪。**
 
 - ❌ **不改行为。** 每一步都该是"测试照样绿",不绿就是搬坏了
 - ❌ **不重写。** 搬完之后文件内容和现在逐字一样(除了 import 和那句 docstring)
-- ❌ **不做 JS 版服务端。** 只是把位置留出来,`server/node/` 今天不存在
+- ❌ **不做 JS 版服务端。** `webmuxjs/server/` 只放协议文档和一份 TODO
 - ❌ **不动公开接口。** 包名、CLI、HTTP 路径、SDK 的类名一个不改
 
 ## 10. ↔ 别处
