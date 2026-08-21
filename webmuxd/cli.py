@@ -260,8 +260,14 @@ def cmd_info(args: argparse.Namespace) -> int:
                     f"runtime   " + ", ".join(
                         f"{k}{'' if v else '(不可用)'}"
                         for k, v in info["runtimes"].items()),
-                    ("画面      xpra(默认),screencast" if xpra_ok else
-                     f"画面      screencast —— **默认的 xpra 用不了**:{xpra_why}"),
+                    # **使用者看到的是那三个词**,不是实现名
+                    # ([c §9.1](../docs/v2/works/c-view.md#91-使用者看到的是三个词))
+                    (f"画面      {models.label(models.VNC)}(默认),"
+                     f"{models.label(models.JPG)},{models.label(models.DOM)}"
+                     if xpra_ok else
+                     f"画面      {models.label(models.JPG)},"
+                     f"{models.label(models.DOM)} —— "
+                     f"**默认的 {models.label(models.VNC)} 用不了**:{xpra_why}"),
                     f"session   {info['sessions']['ready']} 在跑,"
                     f"{info['sessions']['dead']} 死了",
                     (f"记录      {rec['at']}(webmuxd install 探的)" if rec

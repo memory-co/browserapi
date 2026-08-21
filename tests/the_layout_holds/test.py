@@ -131,3 +131,54 @@ def test_引到的设计稿都在(path):
         if not (path.parent / rel).resolve().exists():
             missing.append(rel)
     assert not missing, f"{path.name} 指向不存在的设计稿:{missing}"
+
+
+# --------------------------------------------------------------------------
+# 一件事一个词,三层贯通
+# --------------------------------------------------------------------------
+
+FACES = ["cli.py", "serve.py", "api.py"]
+
+
+@pytest.mark.parametrize("name", FACES)
+def test_给人看的那几个文件里不出现实现名(name):
+    """**使用者看到的是 JPG / VNC / DOM。**
+
+    `screencast` / `xpra` / `rrweb` 是实现名,只该出现在日志和代码里
+    ([c §9.1](../../docs/v2/works/c-view.md#91-使用者看到的是三个词))。
+    这条以前是靠自觉的,`webmuxd info` 就悄悄印过 "xpra(默认),screencast"。
+
+    只看**会被印出去的字符串**。三类不算:
+
+    - `import xpra` / `xpra_ok` —— 那是代码,不是给人看的字
+    - docstring —— 写给读代码的人的
+    - 路由和文件名(`/channel/rrweb`、`/api/rrweb.js`)—— 那是**线上的名字**,
+      协议的一部分,改它是另一件事
+    """
+    src = (PKG / name).read_text()
+    tree = ast.parse(src)
+    docs = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            d = node.body[0] if node.body else None
+            if (isinstance(d, ast.Expr) and isinstance(d.value, ast.Constant)
+                    and isinstance(d.value.value, str)):
+                docs.add(id(d.value))
+
+    def is_wire(v: str) -> bool:
+        return (v.startswith("/") or "://" in v
+                or v.endswith((".js", ".css", ".json")))
+
+    bad = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        if id(node) in docs or is_wire(node.value):
+            continue
+        for impl in ("screencast", "rrweb"):
+            # 旧名字要继续认,所以别名表里出现是对的
+            if impl in node.value and "别名" not in node.value:
+                bad.append((node.lineno, impl, node.value[:60]))
+    assert not bad, "\n".join(f"{name}:{ln} 里印了实现名 {impl}:{v}"
+                              for ln, impl, v in bad)
