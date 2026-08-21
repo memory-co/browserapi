@@ -85,12 +85,7 @@ webmuxd/
 ├── observe.py      观测
 ├── probe.py        页面里的探针(今天叫 shim.py)
 │
-│  ── 浏览器自己弹的(一类一个文件)────────────────────
-├── dialogs.py      alert / confirm / prompt / beforeunload
-├── downloads.py    下载
-├── filechooser.py  文件选择框
-├── permissions.py  定位 / 通知 / 摄像头 / 剪贴板
-├── auth.py         HTTP Basic
+├── browser_ui.py   浏览器自己弹的那五类:对话框 / 下载 / 文件选择 / 权限 / 认证
 │
 │  ── 画面(一条腿一个文件)──────────────────────────
 ├── screen.py       编排:跟 tab、管观看者、背压、切换
@@ -181,7 +176,26 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 还是你给一个 CDP 端点(直接连)。**它不值得单独一个文件** ——
 那就是一个 if,而且只有 `sessions.py` 会问这个问题。
 
-### 3.4 为什么 `screen.py` 和 `input.py` 必须是两个文件
+### 3.4 什么时候拆成两个文件
+
+只有两条理由,别的一律合在一起:
+
+**① 它们是"选一个"的关系。** `jpg.py` / `xpra.py` / `rrweb.py` ——
+任何时刻只有一条在跑,**分开才能换**;它们互不 import,就是并列的证据。
+
+**② 它是纯逻辑,能单独测。** `frames.py`(编解 28 字节头)、
+`quality.py`(RTT → 画质)不碰 CDP、不碰网络,是普通函数 ——
+这类东西单独一个文件,是为了让它有自己的测试。
+
+**"全都要"的合在一起。** `browser_ui.py` 里那五类是**同时全开**的,
+没有"换一类"这回事,而且它们共用一套规矩(今天那个 `native/base.py` 就是证据)。
+拆成五个文件只会让共用的部分无家可归 —— 要么再开一个 `base.py`
+(等于承认它们本来是一件事),要么复制。
+
+> 体量不构成理由:那五类合起来约六百行,和 `act.py`(675)同量级。
+> **真长到读不动了再拆,那时会有真实的信号,而不是现在猜。**
+
+### 3.5 为什么 `screen.py` 和 `input.py` 仍然必须是两个文件
 
 设计稿里最硬的一条:**画面来源可以有多条,输入永远只有一条**
 ([b §1](b-input.md#1-收口在哪) · [c §7](c-view.md#7-接缝切在哪))。
@@ -191,11 +205,12 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 "加一条画面来源"和"加一种输入意图"看起来是同一类改动 ——
 而后者是安全边界,前者不是。
 
-同理:`jpg.py` · `xpra.py` · `rrweb.py` **三条腿三个文件,而且互不 import**。
-"加第四条腿要动哪些文件"因此是个能一眼回答的问题 ——
-加一个文件,在 `models.ViewMode` 那张表里加一行。
+这一条是 §3.4 那两条理由之外的**第三条**,而且只此一条:
+**接缝两侧不合并,哪怕它们"全都要"。**
+`cursor.py` 也留着不并进 `input.py` —— 一个是观看端往页面去,
+一个是页面往观看端来,**方向相反**。
 
-### 3.5 `serve.py` 和 `cli.py`:两个面,一个服务端
+### 3.6 `serve.py` 和 `cli.py`:两个面,一个服务端
 
 - **`serve.py` 是唯一的服务端** —— 人打开的那个网页、画面、`/api/*` 全在它上面。
   这条不能动:**一个 session 一个口**,画面和 API 在同一个口上,是既定的
@@ -311,7 +326,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 第 0 层   models.py  exceptions.py          谁都能用;它们谁都不用
 第 1 层   processes.py  browser.py  cdp.py  env.py  log.py     对外部世界做事
 第 2 层   tabs.py  act.py  locate.py  observe.py  probe.py     对浏览器做事
-          dialogs.py  downloads.py  filechooser.py  permissions.py  auth.py
+          browser_ui.py
           frames.py  quality.py  input.py  cursor.py
           jpg.py  xpra.py  rrweb.py
 第 3 层   screen.py  sessions.py            编排
@@ -325,7 +340,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 2. **`models.py` 不 import 本项目任何东西**(除 `exceptions`)—— 它永远在最底下
 3. **`api.py` / `transport.py` 不 import `serve.py`** ——
    SDK 要能连**别的机器上**的服务端,一旦 import 了进程内的实现,那条路就断了
-4. **`screen.py` 不 import `input.py`** —— 那是接缝,不是分层(§3.4)
+4. **`screen.py` 不 import `input.py`** —— 那是接缝,不是分层(§3.5)
 5. **`jpg.py` / `xpra.py` / `rrweb.py` 互不 import** —— 三条并列的腿,
    谁也不是谁的基础;一旦串起来,"换一条"就不再是换一条
 
@@ -360,7 +375,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `core/cdp.py` `tabs.py` `act.py` `locate.py` `observe.py` | 同名平铺 | |
 | `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
 | `core/log.py` | `log.py` | |
-| `native/dialogs.py` `downloads.py` `files.py` `permissions.py` `auth.py` | 同名平铺(`files` → `filechooser`) | 一类一个文件;`native/base.py` 化进各自 |
+| `native/` 整个包(六个文件) | **`browser_ui.py` 一个文件** | 五类是"全都要"不是"选一个",而且共用一套规矩(§3.4) |
 | `view/cast.py` | `screen.py` + `jpg.py` | 编排和"JPG 那条"是两件事(§3.4) |
 | `view/relay.py` + `xpra.py` | `xpra.py` | **一个协议一个文件** |
 | `view/dom.py` | `rrweb.py` | 同上 |
