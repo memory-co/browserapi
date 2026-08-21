@@ -14,7 +14,7 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 带数字后缀的是**参考篇**:[c1](c1-quality.md) 与 [e1](e1-wire-format.md)
 只回答「具体是什么值、长什么样」,不做论证 —— 论证在它们对应的主篇里。
 
-## 十三篇
+## 十四篇
 
 | | | |
 | --- | --- | --- |
@@ -29,7 +29,8 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 | **[g](g-native-ui.md)** | 浏览器自己的 UI | 对话框、下载、文件选择、权限、认证 —— 在画面里**要么不存在,要么存在但点不动**,必须逐类接管。不替使用者决定,超时一律偏向取消 |
 | **[h](h-runtime.md)** | 浏览器从哪来 | runtime 只产出**一个 CDP 端点**;不碰容器(把 webmuxd 放进去,而不是反过来);root 下自动关沙箱但必须说出来 |
 | **[j](j-layout.md)** | 代码摆在哪 | 顶层按语言分两棵树:`webmuxd/`(Python)· `webmuxjs/`(JS,再分 client 和只放协议文档的 server)。Python 那棵照 requests **平铺**:一个文件一件事。`models.py` 装下所有跨边界的数据、`processes.py` 管住所有进程、一条画面腿一个文件;**接缝要看得见** —— `screen.py` 和 `input.py` 必须是两个文件 |
-| **[i](i-agent-surface.md)** | agent 的操作面与行为流 | 三层操作面(`open` 为什么不在动词表里)、封闭动词表与 `js` 逃生舱;人和 agent 进**同一条流**且标明是谁做的 —— **记控件身份,不记控件内容** |
+| **[i](i-agent-surface.md)** | agent 的操作面与行为流 | 三层操作面(`open` 为什么不在动词表里)、封闭动词表与 `js` 逃生舱;人和 agent 进**同一条流**且标明是谁做的 —— **记控件身份,不记控件内容**。§3:读的那一面只剩**一张图和正文** —— 那一包筛过的元素表是「关于 agent 该怎么用浏览器的意见」,该留在调用方那边 |
+| **[k](k-one-server.md)** | 一个 server 一个口 | 端口从 session 收回到 server:`start --port` 起服务、`new --id` 加 session。「一个 session 一个端口」是 **kasm 留下的历史包袱** —— 画面换成我们自己产的之后那条硬约束就没了。`/s/<id>/` 前缀,一个进程持有全部 session |
 
 ## 明确不做
 
