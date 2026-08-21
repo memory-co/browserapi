@@ -129,3 +129,69 @@ def test_页面里抛的错要报出来_不能吞():
     d._on_binding({"name": "__wm_dom_emit",
                    "payload": json.dumps({"type": -1, "err": "boom"})}, None)
     assert d.events == [], "出错那条不该进缓冲"
+
+
+# ------------------------------------------------- 自己那条通道(e §6.1)
+
+def test_事件发给通道上的每一个观看者():
+    """一条数据一条路 —— 事件只往 `/channel/rrweb` 的订阅者发。"""
+    import asyncio
+
+    d = _src()
+    got: list[dict] = []
+
+    async def sink(m):
+        got.append(m)
+
+    async def run():
+        d.listeners.add(sink)
+        d._on_binding({"name": "__wm_dom_emit",
+                       "payload": json.dumps({"type": 4})}, None)
+        await asyncio.sleep(0)          # 让 create_task 跑起来
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+    assert [m["type"] for m in got] == ["dom"]
+
+
+def test_新来的从最近一张全量快照接上_不从半路接():
+    """**从半路接重放出来的是一棵错的 DOM,而且不报错**(c §5.5)。"""
+    d = _src()
+    for ev in ({"type": 4}, {"type": 2}, {"type": 3}, {"type": 3}):
+        d._on_binding({"name": "__wm_dom_emit", "payload": json.dumps(ev)}, None)
+    first = json.loads(d.snapshot_for_new_viewer()[0])
+    assert first["type"] == 4, "补发的第一条必须是 Meta"
+
+
+def test_这条通道不承载输入_是结构上没有_不是过滤():
+    """**输入永远只走 /channel/cdp**(b §1)。
+
+    这里查的不是"有没有过滤",是**这个 handler 里根本没有接收端** ——
+    过滤是黑名单模型,漏一类就是一个缺口;没有接收端才是收口。
+    """
+    import inspect
+
+    from webmuxd.serve import app
+
+    src = inspect.getsource(app.h_rrweb)
+    assert "handle_input" not in src and "view.switch" not in src
+    # 收到的消息除了判断断开,不做任何事
+    assert "读完就丢" in src
+
+
+def test_不是_dom_模式时这条通道要明说没有_并且说清怎么才有():
+    import inspect
+
+    from webmuxd.serve import app
+
+    src = inspect.getsource(app.h_rrweb)
+    assert "--transport dom" in src, "得说清怎么才能有这条通道"
+
+
+def test_内置页不往这条通道发东西():
+    """**只读要在客户端也是结构性的。** 全文不该出现往它 send 的那一行。"""
+    import pathlib
+
+    html = pathlib.Path("webmuxd/view/static/index.html").read_text()
+    assert "/channel/rrweb" in html, "内置页得连这条通道"
+    assert "domWs.send" not in html, "这条通道上不该有上行"

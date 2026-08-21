@@ -187,7 +187,6 @@
     ws.onmessage = (e) => {
       if (typeof e.data !== "string") return onFrame(e.data);
       const m = JSON.parse(e.data);
-      if (m.type === "dom") { return feedDom(JSON.parse(m.e)); }
       if (m.type === "hello") {
         writable = !!m.writable;
         $("ro").hidden = writable;
@@ -282,7 +281,10 @@
     // 接上新那条的接收端;旧那条的自己会停
     if (curMode === "vnc") { if (!xpra) startXpra(); }
     else if (curMode === "dom") { dom3.hidden = false; cvs.hidden = true; startDom(); }
-    else { img.hidden = false; cvs.hidden = true; dom3.hidden = true; screenEl = img; }
+    else {
+      img.hidden = false; cvs.hidden = true; dom3.hidden = true; screenEl = img;
+      if (domWs) { domWs.close(); domWs = null; }   // 切走了就别占着那条连接
+    }
   }
 
   // ------------------------------------------------------------ DOM 那条画面路
@@ -292,10 +294,32 @@
   // 重放出来的那棵 DOM 整个 `pointer-events: none`(见 style)——
   // **点不到、选不中、链接也点不开**,事件全落在 #screen3 上,
   // 再翻译成 `Input.*`。只读是结构性的,不是靠自觉。
-  let rrLoaded = null;
+  let rrLoaded = null, domWs = null;
+
+  // **DOM 事件走自己那条通道,不搭在 /channel/cdp 上**(e §6.1)。
+  // 一条数据只该有一条路 —— 两条都发的话客户端会重放两遍,
+  // 而增量链重放两遍出来的是一棵错的 DOM。
+  //
+  // 这条连接**只下行**:下面没有任何一处往它 send —— 输入永远走 /channel/cdp。
+  function connectDom() {
+    if (domWs && domWs.readyState <= 1) return;
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    domWs = new WebSocket(proto + "//" + location.host + "/channel/rrweb" + auth);
+    domWs.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === "dom") feedDom(JSON.parse(m.e));
+    };
+    domWs.onclose = () => {
+      // 断了只是画面停住,**输入照常送达**(e §6.5)——
+      // 所以这儿只重连,不把整个会话判成不可用。
+      if (curMode === "dom") setTimeout(connectDom, 1000);
+    };
+  }
+
   function startDom() {
     img.hidden = true; dom3.hidden = false; screenEl = dom3;
     $("s-q").textContent = "DOM";
+    connectDom();
     if (!rrLoaded) {
       rrLoaded = new Promise((res, rej) => {
         const css = document.createElement("link");

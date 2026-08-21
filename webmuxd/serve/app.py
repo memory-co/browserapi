@@ -158,6 +158,7 @@ def build(session: Session, *, xpra_ws: str = "") -> web.Application:
     r.add_get("/channel/cdp", h_view)
     r.add_get("/api/view", h_view)                  # 旧名,别删
     # xpra 那条画面路。**和 API 同一个口**,而且上行过白名单(works/11 §2.2)
+    r.add_get("/channel/rrweb", h_rrweb)
     r.add_get("/channel/xpra", h_xpra)
     r.add_get("/xpra", h_xpra)                      # 旧名,别删
     r.add_get("/static/{name}", h_static)
@@ -503,6 +504,50 @@ async def h_static(request: web.Request) -> web.FileResponse:
         raise BadRequest(f"没有这个文件:{name}", code="not_found")
     return web.FileResponse(_INDEX.parent / name,
                             headers={"Cache-Control": "no-store"})
+
+
+async def h_rrweb(request: web.Request) -> web.WebSocketResponse:
+    """DOM 那条画面 —— rrweb 事件流,**只下行**。
+
+    **这条通道不承载输入。** 不是"我们没实现",是结构上做死的:
+    这个 handler 里没有任何一条路把收到的东西送出去 —— 上行的字节读完就丢。
+    输入永远只走 `/channel/cdp`
+    ([b §1](../../docs/v2/works/b-input.md#1-收口在哪))。
+
+    通道名跟的是**上游**(rrweb),不是使用者看到的那个词(DOM)——
+    `/channel/x` 说的是"这条连接接的是哪个上游系统"
+    ([e §6.1](../../docs/v2/works/e-client.md#61-通道--一个上游系统的连接))。
+    """
+    s = _s(request)
+    src = s.view.dom
+    if src is None:
+        raise BadRequest("这个 session 不是 DOM 模式,没有这条画面路",
+                         code="not_found",
+                         details={"how": "起的时候加 --transport dom,"
+                                         "或者在界面上切到 DOM"})
+    ws = web.WebSocketResponse(heartbeat=20, max_msg_size=0)
+    await ws.prepare(request)
+
+    async def send(msg: dict) -> None:
+        if not ws.closed:
+            await ws.send_str(_dumps(msg))
+
+    # **新来的要从最近一张全量快照接上,不能从半路接。**
+    # 增量链从中间开始重放出来的是一棵错的 DOM,而且不报错
+    # ([c §5.5](../../docs/v2/works/c-view.md#55-背压不能沿用丢旧保新))。
+    for e in src.snapshot_for_new_viewer():
+        with contextlib.suppress(Exception):
+            await ws.send_str(_dumps({"type": "dom", "e": e}))
+    src.listeners.add(send)
+    try:
+        async for msg in ws:
+            # **读完就丢。** 这条通道上没有"上行"这回事 ——
+            # 不是过滤,是根本没有接收端。
+            if msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
+                break
+    finally:
+        src.listeners.discard(send)
+    return ws
 
 
 async def h_xpra(request: web.Request) -> web.WebSocketResponse:

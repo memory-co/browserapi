@@ -83,7 +83,7 @@ class Screencaster:
         self.dom = None
         if self.mode == modes.DOM:
             from webmuxd.view.dom import DomSource
-            self.dom = DomSource(push=self._tell_raw)
+            self.dom = DomSource()
         self._warned_resize = False
         self.width, self.height = width, height
         self.format = fmt
@@ -124,13 +124,7 @@ class Screencaster:
         self.viewers.add(v)
         if len(self.viewers) == 1:
             await self.follow(self.session.tabs.active, force=True)
-        if self.dom is not None:
-            # **新来的要从最近一张全量快照接上,不能从半路接** ——
-            # 增量链从中间开始重放出来的是一棵错的 DOM,而且不报错
-            # ([c §5.5](../../docs/v2/works/c-view.md#55-背压不能沿用丢旧保新))。
-            for e in self.dom.snapshot_for_new_viewer():
-                with contextlib.suppress(Exception):
-                    await v.tell("dom", e=e)
+
 
     async def remove_viewer(self, v: Viewer) -> None:
         v.closed = True
@@ -334,12 +328,6 @@ class Screencaster:
             self.session.note_human_activity(str(msg.get("type")))
         await Translator(self.session.cdp, self._sid).handle(msg)
 
-    async def _tell_raw(self, msg: dict[str, Any]) -> None:
-        """DOM 那条的事件直接发给所有观看者。**不进帧的额度环** ——
-        它不是帧,丢一条就断链(§5.5),那套"留最新丢最旧"在这儿是错的。"""
-        kind = msg.pop("type", "dom")
-        await self._tell_all(kind, **msg)
-
     async def _tell_all(self, type_: str, **payload: Any) -> None:
         for v in list(self.viewers):
             with contextlib.suppress(Exception):
@@ -386,7 +374,7 @@ class Screencaster:
         self.own_viewport = want != modes.VNC
         if want == modes.DOM and self.dom is None:
             from webmuxd.view.dom import DomSource
-            self.dom = DomSource(push=self._tell_raw)
+            self.dom = DomSource()
             # **中途切到 DOM,当前这一页是没有记录器的。**
             # 注入只对之后的文档生效 —— 这一条还没解,见
             # docs/v2/issues/dom-注入登记了但不执行.md

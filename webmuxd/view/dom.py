@@ -122,7 +122,12 @@ class DomSource:
     """
 
     def __init__(self, push: Callable[[dict], Awaitable[None]] | None = None) -> None:
+        #: 兼容留着,现在不用 —— 事件走自己的通道,不搭在 `/channel/cdp` 上。
         self.push = push
+        #: 接在 `/channel/rrweb` 上的那些观看者。
+        #: **一条数据只该有一条路** —— 同时往两条通道发的话,
+        #: 客户端会重放两遍,而增量链重放两遍出来的是一棵错的 DOM。
+        self.listeners: set[Callable[[dict], Awaitable[None]]] = set()
         self.events: list[str] = []
         #: url -> (mime, 字节)。页面加载过的资源留一份,重放时从这儿出。
         self.res: dict[str, tuple[str, bytes]] = {}
@@ -226,8 +231,9 @@ class DomSource:
             if len(self.events) > MAX_EVENTS:
                 self._trim()
         self.bytes["events"] += len(payload)
-        if self.push:
-            asyncio.create_task(self.push({"type": "dom", "e": payload}))
+        msg = {"type": "dom", "e": payload}
+        for fn in list(self.listeners):
+            asyncio.create_task(fn(msg))
 
     def _trim(self) -> None:
         """砍历史时**必须从一张全量快照砍起**。
@@ -350,7 +356,7 @@ class DomSource:
 
     def stats(self) -> dict:
         return {"events": len(self.events), "bytes": dict(self.bytes),
-                "resources": len(self.res)}
+                "resources": len(self.res), "listeners": len(self.listeners)}
 
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
