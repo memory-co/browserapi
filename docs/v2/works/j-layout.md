@@ -73,9 +73,8 @@ webmuxd/
 │
 │  ── 对外部世界做事 ────────────────────────────────────
 ├── processes.py    **所有进程都归它**:起、等、看活、收干净(§3.2)
-├── browser.py      浏览器从哪来:下载、定位、拼启动参数
+├── config.py       **读**那份路径表(`~/.webmuxd.json`)—— 只有 `install.py` 写(§3.3)
 ├── cdp.py          一条到 Chromium 的连接
-├── env.py          `~/.webmuxd.json` 那份路径表
 ├── log.py          `log.jsonl`
 │
 │  ── 对浏览器做事 ──────────────────────────────────────
@@ -163,10 +162,41 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 起一个 → 等它就绪(端口 / HTTP / 日志)→ 看它还活着吗 → 收干净(含子进程)
 ```
 
-"要起什么命令"由别人给:`browser.py` 拼 chrome 的参数,`xpra.py` 拼 xpra 的。
+**"要起什么命令"由调用方给** —— kiosk 那套在 `xpra.py`(它是"VNC 那条怎么起"
+的一部分),无头那几个参数在 `sessions.py` 建会话的地方;可执行文件的路径
+从 `config.py` 读(§3.3)。
+
 **这条分开之后,"怎么收进程"只有一份实现,补一次所有人都补上。**
 
-### 3.3 `sessions.py`:所有会话都归它
+### 3.3 `install.py` 写配置,`config.py` 读配置 —— 没有"browser.py"
+
+**装完之后,"浏览器在哪"就是配置里的一行。** 谁要起它,从配置读路径就行 ——
+不需要一个模块专门代表"浏览器"这个概念。
+
+原来那个 `browser.py` 拆开看全是安装期的事,**归 `install.py`**:
+
+- 版本钉死、镜像表、**并发测速挑最快的源**(量吞吐不量 RTT)
+- 下载、解压、写 `INSTALLATION_COMPLETE` 标记(**标记是最后一步** ——
+  目录里有个 `chrome` 不代表装完了)
+- 中文字体探测和提示
+
+剩下唯一可能留住它的是"拼 chrome 的命令行"。这条也不成立:
+**无头那套和 kiosk 那套本来就是分开的,而且是有意的** ——
+今天 `xpra.py` 里写着"不复用 `process.BASE_ARGS`,硬凑只会让两边都看不懂"。
+所以 kiosk 那套留在 `xpra.py`(它是"VNC 那条怎么起"的一部分),
+无头那几个参数跟着起它的地方走。
+
+`config.py` 只做一件事:**读**。三条老规矩不变 ——
+
+> **键在 = 探到了,键不在 = 没探到**(不写 `ok:false` 一类空值);
+> **显式传入优先**(命令行给了路径就不读记录);
+> **记录会撒谎**(缓存目录被删了它不知道),所以按记录去起、起不来就报错
+> **并提示重跑 install**,不静默重探。
+
+名字从 `env.py` 换成 `config.py` —— 大家会去找的就是这个词。
+但它**不是给人手写的设置**,是 `install` 探完写下来的事实;这条要留在 docstring 里。
+
+### 3.4 `sessions.py`:所有会话都归它
 
 建一个、找一个、关一个;以及**一个 session 内部的编排** ——
 把 tab 表、动作执行、画面、原生 UI 那几块接起来。
@@ -175,7 +205,7 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 还是你给一个 CDP 端点(直接连)。**它不值得单独一个文件** ——
 那就是一个 if,而且只有 `sessions.py` 会问这个问题。
 
-### 3.4 什么时候拆成两个文件
+### 3.5 什么时候拆成两个文件
 
 只有两条理由,别的一律合在一起:
 
@@ -194,7 +224,7 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 > 体量不构成理由:那五类合起来约六百行,和 `act.py`(675)同量级。
 > **真长到读不动了再拆,那时会有真实的信号,而不是现在猜。**
 
-### 3.5 为什么 `screen.py` 和 `input.py` 仍然必须是两个文件
+### 3.6 为什么 `screen.py` 和 `input.py` 仍然必须是两个文件
 
 设计稿里最硬的一条:**画面来源可以有多条,输入永远只有一条**
 ([b §1](b-input.md#1-收口在哪) · [c §7](c-view.md#7-接缝切在哪))。
@@ -204,15 +234,15 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 "加一条画面来源"和"加一种输入意图"看起来是同一类改动 ——
 而后者是安全边界,前者不是。
 
-这一条是 §3.4 那两条理由之外的**第三条**,而且只此一条:
+这一条是 §3.5 那两条理由之外的**第三条**,而且只此一条:
 **接缝两侧不合并,哪怕它们"全都要"。**
 `cursor.py` 也留着不并进 `input.py` —— 一个是观看端往页面去,
 一个是页面往观看端来,**方向相反**。
 
-### 3.6 `install.py` 一个文件够了
+### 3.7 `install.py` 一个文件够了
 
 今天分成 `install.py`(流程)和 `deps.py`(发行版包名)两个。合起来 ——
-按 §3.4 那两条判据它一条都不占:不是"选一个",也不是纯逻辑
+按 §3.5 那两条判据它一条都不占:不是"选一个",也不是纯逻辑
 (`apply()` 直接跑 subprocess 装包)。而且 **`deps.py` 只有一个调用方,
 也没有任何测试单独 import 它**;合起来 395 行,比 `browser_ui.py` 和 `act.py` 都小。
 
@@ -230,7 +260,7 @@ install.py  说"apt 装 xvfb / yum 装 xorg-x11-server-Xvfb"  ← 只有它认�
 
 **低层报缺什么,高层说怎么装。** 这样包名只有一处,而且方向和依赖层一致。
 
-### 3.7 `serve.py` 和 `cli.py`:两个面,一个服务端
+### 3.8 `serve.py` 和 `cli.py`:两个面,一个服务端
 
 - **`serve.py` 是唯一的服务端** —— 人打开的那个网页、画面、`/api/*` 全在它上面。
   这条不能动:**一个 session 一个口**,画面和 API 在同一个口上,是既定的
@@ -344,7 +374,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 
 ```
 第 0 层   models.py  exceptions.py          谁都能用;它们谁都不用
-第 1 层   processes.py  browser.py  cdp.py  env.py  log.py     对外部世界做事
+第 1 层   processes.py  config.py  cdp.py  log.py               对外部世界做事
 第 2 层   tabs.py  act.py  locate.py  observe.py  probe.py     对浏览器做事
           browser_ui.py
           frames.py  quality.py  input.py  cursor.py
@@ -360,7 +390,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 2. **`models.py` 不 import 本项目任何东西**(除 `exceptions`)—— 它永远在最底下
 3. **`api.py` / `transport.py` 不 import `serve.py`** ——
    SDK 要能连**别的机器上**的服务端,一旦 import 了进程内的实现,那条路就断了
-4. **`screen.py` 不 import `input.py`** —— 那是接缝,不是分层(§3.5)
+4. **`screen.py` 不 import `input.py`** —— 那是接缝,不是分层(§3.6)
 5. **`jpg.py` / `xpra.py` / `rrweb.py` 互不 import** —— 三条并列的腿,
    谁也不是谁的基础;一旦串起来,"换一条"就不再是换一条
 
@@ -391,11 +421,13 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `serve/session.py` | `sessions.py` | 会话的编排本来就该和会话在一起 |
 | `serve/app.py` `serve/__main__.py` | `serve.py` | 对外那个口 |
 | `cli/__main__.py` `cli/registry.py` | `cli.py` | 连同它自己那套调用代码(§3.5) |
-| `cli/install.py` + `cli/deps.py` | **`install.py` 一个文件** | 只有一个调用方,没有单独的测试(§3.6) |
+| `cli/install.py` + `cli/deps.py` | **`install.py` 一个文件** | 只有一个调用方,没有单独的测试(§3.7) |
 | `core/cdp.py` `tabs.py` `act.py` `locate.py` `observe.py` | 同名平铺 | |
 | `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
 | `core/log.py` | `log.py` | |
-| `native/` 整个包(六个文件) | **`browser_ui.py` 一个文件** | 五类是"全都要"不是"选一个",而且共用一套规矩(§3.4) |
+| `browser.py` | **`install.py`**(下载 / 镜像 / 版本 / 字体)+ 配置里的一行路径 | 装完之后"浏览器在哪"就是配置,不需要一个模块代表这个概念(§3.3) |
+| `env.py` | `config.py` | 大家会去找的就是这个词;**只有 install 写,别人只读** |
+| `native/` 整个包(六个文件) | **`browser_ui.py` 一个文件** | 五类是"全都要"不是"选一个",而且共用一套规矩(§3.5) |
 | `view/cast.py` | `screen.py` + `jpg.py` | 编排和"JPG 那条"是两件事(§3.4) |
 | `view/relay.py` + `xpra.py` | `xpra.py` | **一个协议一个文件** |
 | `view/dom.py` | `rrweb.py` | 同上 |
