@@ -507,6 +507,19 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 **包名不变。** 外面 `import webmuxd` 不受影响,`pip install webmuxd` 不受影响,
 CLI 名字不变,HTTP 路径不变。**这一次只动代码摆在哪。**
 
+> **搬完了**(2026-08-21):`webmuxd/` 26 个文件平铺,`webmuxjs/client/`
+> 是一个真的前端工程(vite + vitest + 和 Python 对拍的 fixture),
+> 构建接在 `build_wheel` 之前。
+>
+> 一并记下**验的时候才发现的两件事**:
+>
+> - 真浏览器抓到一个所有单测都碰不到的 bug:`setTimeout` 当裸函数传进构造器,
+>   浏览器里是 `Illegal invocation` —— **环 B 整个死掉**。
+>   单测总喂假定时器,那条默认路径一次都没走过
+> - **DOM 那条画面其实早就死了**,而且旧代码同样死
+>   ([issue](../issues/dom-binding-不活过导航.md))——
+>   搬代码本身没碰它,是"搬完之后拿真浏览器跑一遍"这个动作把它照出来的
+
 ## 9. 这次不做的
 
 - ❌ **不改行为。** 每一步都该是"测试照样绿",不绿就是搬坏了
