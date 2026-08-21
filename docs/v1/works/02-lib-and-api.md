@@ -11,6 +11,10 @@ HTTP API 是把它导出去的一层壳,为两件事而加:**调试**,和**非 P
 - **语义只定义一次**:定位规则、元素筛选、`candidates`、`settle`、日志格式,
   都是 lib 的行为。[`api/`](../api/) 那几篇**描述**它们,但不**拥有**它们。
 
+> **后来推翻了。** `observe` 整个砍了 —— 读只剩「一张图和正文」两个口子,
+> 元素表跟着定位走,不单独开口子。见
+> [api/act.md §1](../api/act.md#1-读--一张图和正文)。
+
 ## 1. 为什么是 lib 而不是 API
 
 写 agent 的地方是 Python。主体放在这儿,循环才短、错误才能是异常、
@@ -56,7 +60,7 @@ JSON 里没有对象、没有异常、没有惰性求值,于是 `favicon` 只能
 **HTTP 壳里没有业务逻辑**,它只做序列化和鉴权。所以 `/api/openapi.json`
 能从核心的方法签名生成 —— 一份东西,不是两份([api/README §6](../api/README.md#6-版本))。
 
-这也解释了为什么 API 长成那个样子:`observe` 返回一大坨而不是拆成五个端点,
+这也解释了为什么 API 曾经长成那个样子:`observe` 返回一大坨而不是拆成五个端点,
 是因为它在 lib 里本来就是一次调用。
 
 ## 3. 用起来什么样
@@ -98,7 +102,7 @@ tab.screenshot("cart.png")
 ```python
 tab.click("提交订单")                  # 可见文字(最常用)
 tab.click(role="button", name="登录")  # role + 名字,消歧
-tab.click(el)                          # observe() 拿到的元素对象
+tab.click(cand)                        # 定位失败回的候选里的一项
 tab.click(css="#pay")                  # CSS 选择器,逃生舱
 tab.click(at=(890, 632))               # 坐标,最后手段
 ```
@@ -118,7 +122,7 @@ except NotFound as e:
 ### 给 Agent 用
 
 ```python
-obs = tab.observe()        # 一次调用拿到喂给模型的全部东西
+img = tab.screenshot()     # 一张图;正文是 tab.text()
 
 obs.screenshot             # PNG bytes,已经在图上标好了元素编号
 obs.elements               # 元素列表
@@ -131,7 +135,7 @@ action = my_llm(goal, image=obs.screenshot, elements=obs.as_prompt())
 tab.click(obs[action.index])        # 按模型给的编号点
 ```
 
-`observe()` 做的事:抓可访问性树 → 筛出能交互又看得见的元素 → 编号 → 拍一张。
+当时 `observe()` 做的事:抓可访问性树 → 筛出能交互又看得见的元素 → 编号 → 拍一张。
 这是让多模态模型能直接用的最小观测层,不需要你自己解析 DOM。
 
 **图上不画框。** 编号在 `el.id`、位置在 `el.bbox` —— 要一张 Set-of-Mark 图,
@@ -151,7 +155,7 @@ tab.click(obs[action.index])        # 按模型给的编号点
 | --- | --- |
 | `sess.status()` | `GET /api/status` |
 | `tab.act([...])` | `POST /api/act` |
-| `tab.observe()` | `GET /api/observe` |
+| `tab.screenshot()` | `GET /api/screenshot` |
 | `tab.screenshot()` | `GET /api/screenshot` |
 | `tab.text()` | `GET /api/text` |
 | `sess.log()` | `GET /api/log` |
@@ -199,7 +203,7 @@ lib 的方法在前,因为那是定义的地方:
 | `tab.wait_for(...)` | `wait_for` | `text` / `css` / `url_contains` / `ms` |
 | `tab.extract(...)` | `extract` | 定位 + `mode`(text/html/table/attr) |
 | `tab.screenshot()` | `screenshot` | `full_page` |
-| `tab.observe()` | `observe` | — |
+| `tab.screenshot()` | `screenshot` | — |
 | `sess.open()` `tab.activate()` `tab.close()` | `tab_new` / `tab_activate` / `tab_close` | |
 | `tab.js(...)` | `js` | `expression` |
 

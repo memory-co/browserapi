@@ -126,42 +126,46 @@ async def test_act_without_actions_is_a_bad_request(client):
     assert r.status == 400 and (await r.json())["error"]["code"] == "bad_request"
 
 
-# ---------------------------------------------------------------- observe
+# ------------------------------------------------------------------ 读一眼
 
-async def test_observe_returns_everything_at_once(client):
+async def test_读的口子只有两个(client):
+    """**一张图,和正文。**
+
+    `/api/observe` 砍了 —— 那是一包"agent 该怎么用浏览器"的意见
+    ([capture.py](../../webmuxd/capture.py))。这条同时守着**它别悄悄回来**。
+    """
     tab = await _tab_with_form(client)
-    d = await (await client.get(f"/api/observe?tab={tab}")).json()
 
-    assert d["observation_id"].startswith("obs_")
-    assert d["page"]["title"] == "结算"
-    assert d["elements"][0]["name"] == "提交订单"
-    assert d["screenshot"]["format"] == "webp"
-    assert "tabs" in d and "notes" in d
-
-    shot = await client.get(d["screenshot"]["url"])
-    assert shot.status == 200 and shot.content_type == "image/webp"
-    # **只有一张。** `?annotate=false` 那个版本没有了 —— 标注不再进页面,
-    # 于是"干净版"和它就是同一张(issues/标注层会被人看见.md)
-    same = await client.get(d["screenshot"]["url"] + "?annotate=false")
-    assert await same.read() == await shot.read()
-
-
-async def test_screenshot_and_text(client):
-    tab = await _tab_with_form(client)
     r = await client.get(f"/api/screenshot?tab={tab}")
-    assert r.status == 200 and (await r.read())[:4] == b"RIFF"
+    assert r.status == 200 and r.content_type == "image/webp"
+    assert (await r.read())[:4] == b"RIFF"
 
     t = await client.get(f"/api/text?tab={tab}")
-    assert "提交订单" in await t.text()
+    assert t.content_type == "text/plain" and "提交订单" in await t.text()
+
+    gone = await client.get(f"/api/observe?tab={tab}")
+    assert gone.status == 404, "/api/observe 又回来了"
 
 
-async def test_observing_a_background_tab_says_it_switched(client):
-    """要像素就得在前台 —— 而且**得说出来**,因为画面跳了
-    (sdk/tab/read.md §3)。"""
+async def test_读一眼会把后台_tab_切到前台_而且不吭声(client):
+    """**这是当前行为,不是当前该有的行为。**
+
+    要像素就得在前台(Chromium 不渲染后台 tab),所以读一眼会切 tab ——
+    **它改状态,却不走那把动作锁**
+    ([issue](../../docs/v2/issues/读一眼会改状态却不排队.md))。
+
+    原来那个 `/api/observe` 至少还在 notes 里说一句;砍成裸字节之后
+    连那句话都没地方放。这条测试钉住现状,**修的时候它会红**,
+    红了就去看那篇 issue。
+    """
     first = await _tab_with_form(client)
     await client.post("/api/tabs", json={"url": "about:blank"})   # 变成 active
-    d = await (await client.get(f"/api/observe?tab={first}")).json()
-    assert any("前台" in n for n in d["notes"]), d["notes"]
+    before = (await (await client.get("/api/tabs")).json())["active"]
+    assert before != first
+
+    await client.get(f"/api/screenshot?tab={first}")
+    after = (await (await client.get("/api/tabs")).json())["active"]
+    assert after == first, "读一眼没把 tab 切到前台,那图应该是白的"
 
 
 # ------------------------------------------------------------------- log

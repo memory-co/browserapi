@@ -29,8 +29,10 @@ GET  /api/rrweb.js  /api/rrweb.css     DOM 那条的重放器
  created_at, crashed, dialog}
 ```
 
-`GET /api/observe` 回的是 [`models.Observation`](../../../webmuxd/models.py) ——
-观看端不用它,**agent 用**([i](../../../docs/v2/works/i-agent-surface.md))。
+**读只有两个口子**,而且都不回 JSON:`GET /api/screenshot` 回 `image/webp`,
+`GET /api/text` 回 `text/plain`。观看端两个都不用 ——
+它要的是那条连续的画面流,不是一张一张地问
+([i §3](../../../docs/v2/works/i-agent-surface.md#3-读的那一面一张图和正文))。
 
 ## 一条规矩
 

@@ -88,7 +88,7 @@ web = Webmuxd("https://browser.internal:7800", token=TOKEN)   # 连一个远端�
 
 | 在内存里(读属性,0 往返) | 要发请求 |
 | --- | --- |
-| `url` `title` `loading` `favicon` | `observe()` 元素表和标注截图 |
+| `url` `title` `loading` `favicon` | `screenshot()` 那一刻的页面、`text()` 正文 |
 | `active` `index` `security` `crashed` | `text()` 页面正文 |
 | `can_go_back` `can_go_forward` `opener` | `screenshot()` |
 | 整张 `sess.tabs` 表 | `log()` 操作日志 |
@@ -233,7 +233,7 @@ except BusyHuman as e:
 | `sess.tabs` `sess.active` `tab.url` `tab.title` | **不请求** —— 内存,由 `WS /api/events` 维护 |
 | `sess.sync()` | `GET /api/tabs` + `GET /api/status` |
 | `tab.click/type/key/...`、`tab.act()` | `POST /api/act`(带 `tab`、`user`) |
-| `tab.observe()` `tab.text()` `tab.screenshot()` | `GET /api/observe` `/api/text` `/api/screenshot` |
+| `tab.text()` `tab.screenshot()` | `GET /api/text` `/api/screenshot` |
 | `sess.log()` `tab.log()` `sess.bundle()` | `GET /api/log[?tab=]` `/api/log/bundle`,见 [log/](log/) |
 | `sess.status()` `sess.viewport()` `sess.reset()` | `GET /api/status` `/api/viewport` `POST /api/reset` |
 | `sess.share()` `sess.view_url` `sess.api_url` | `POST /api/live-token` |

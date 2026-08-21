@@ -29,7 +29,7 @@
 | `tmux attach -t work` | 浏览器打开 `http://localhost:6901` |
 | detach(`Ctrl-b d`) | 关掉网页,容器继续跑 |
 | `tmux send-keys` | `tab.click("登录")`(或 `POST /api/act`) |
-| `tmux capture-pane` | `tab.observe()`(或 `GET /api/observe`) |
+| `tmux capture-pane` | `tab.screenshot()` / `tab.text()` |
 | scrollback 回滚历史 | 页面右侧的**操作日志** |
 | 多个 client 同时 attach | 人和 API 同时操作,互不阻塞 |
 | `tmux kill-session` | `docker rm -f work` |

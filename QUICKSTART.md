@@ -80,7 +80,7 @@ $ webmuxd click -t demo "Learn more"
 这就是这东西的全部意义:人和代码看的是同一个画面,不是两份。
 
 ```console
-$ webmuxd observe -t demo          # 喂给模型的元素表
+$ webmuxd capture -t demo          # 正文(--shot 存图)
 $ webmuxd log     -t demo          # 它都干了什么
 $ webmuxd kill    -t demo          # 收工
 ```
@@ -98,7 +98,7 @@ print(sess.view_url)                            # 人从这儿进去看
 
 tab = sess.open("https://example.com")          # 一个页面
 tab.click("Learn more")                         # 按人看得见的字操作
-print(tab.observe().as_prompt())
+print(tab.text())
 ```
 
 `session(id=...)` 是幂等的 —— 同一个 id 再调一次拿到同一个 session,不会起第二个。

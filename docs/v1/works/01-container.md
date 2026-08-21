@@ -132,7 +132,7 @@ docker run -d --name webmuxd-work \
 
 ```
 webmuxd/serve/     app.py(路由) session.py(编排) __main__.py(入口)
-webmuxd/core/      cdp.py tabs.py locate.py act.py observe.py log.py shim.py
+webmuxd/core/      cdp.py tabs.py locate.py act.py observe.py log.py shim.py   ← v1 的摆法,今天是平铺(v2/works/j-layout.md)
 ```
 
 **它跑在调用方那边,不在容器里** —— 容器里一行我们的代码都没有。

@@ -81,7 +81,7 @@ webmuxd/
 ├── tabs.py         tab 表 —— sessiond 那份唯一真相
 ├── act.py          动作执行
 ├── locate.py       元素定位
-├── observe.py      观测
+├── capture.py      读一眼:一张图,和正文
 ├── probe.py        页面里的探针(今天叫 shim.py)
 │
 ├── browser_ui.py   浏览器自己弹的那五类:对话框 / 下载 / 文件选择 / 权限 / 认证
@@ -234,8 +234,8 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 `deps.py`、`transport.py`、`browser.py` 三个都是这么并的。
 
 反过来 `locate.py` 留着:它有**两个**调用方(`act.py` 拿它解析目标、
-`observe.py` 拿它抓元素表),而且是"抓元素表"这件事本身 ——
-和"拍一张给 agent 看的"(`observe.py`)不是一件事。
+`act.py` 是**唯一**的调用方)。留着不是因为调用方多,是因为
+"把一句人话变成一个元素"本身就是一件事,而 `act.py` 已经六百多行。
 
 ### 3.6 为什么 `screen.py` 和 `input.py` 仍然必须是两个文件
 
@@ -402,7 +402,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 ```
 第 0 层   models.py  exceptions.py          谁都能用;它们谁都不用
 第 1 层   processes.py  config.py  cdp.py  log.py               对外部世界做事
-第 2 层   tabs.py  act.py  locate.py  observe.py  probe.py     对浏览器做事
+第 2 层   tabs.py  act.py  locate.py  capture.py  probe.py     对浏览器做事
           browser_ui.py
           frames.py  quality.py  input.py  cursor.py
           jpg.py  xpra.py  rrweb.py
@@ -446,7 +446,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | --- | --- | --- |
 | `client/manager.py` `session.py` `tab.py` | `api.py` | 给人 import 的那一面,连同它自己那套 HTTP 调用 |
 | `client/transport.py` | **`api.py`**(并进去) | 唯一调用方就是它;异常映射本来就在 `exceptions.py`(§3.8) |
-| `client/observation.py` · `core/tabs.Tab` · `runtime/base.Handle` · `view/modes.py` **整个** | **`models.py`** | 跨边界的数据集中一处 —— 今天散在五个模块,`Tab` 还有两份(§3.1) |
+| `core/tabs.Tab` · `runtime/base.Handle` · `view/modes.py` **整个** | **`models.py`** | 跨边界的数据集中一处 —— 今天散在五个模块,`Tab` 还有两份(§3.1) |
 | `client/mirror.py` | **`api.py`** | 它是带后台线程的 WS 订阅,不是数据 —— 里面装的才是 `TabInfo` |
 | `errors.py` | `exceptions.py` | 跟 requests 的叫法;`unavailable()` 这个构造函数也跟过去 —— 它只是造一个异常,留在 `processes.py` 会让 `xpra.py` 反向 import |
 | `runtime/process.py` 里起进程那部分 + `xpra.py` 里起进程那部分 | **`processes.py`** | 两处各写一套"起、等、看活、收" —— 合成一份(§3.2) |
@@ -455,7 +455,8 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `serve/app.py` `serve/__main__.py` | `serve.py` | 对外那个口 |
 | `cli/__main__.py` `cli/registry.py` | `cli.py` | 连同它自己那套调用代码(§3.5) |
 | `cli/install.py` + `cli/deps.py` | **`install.py` 一个文件** | 只有一个调用方,没有单独的测试(§3.7) |
-| `core/cdp.py` `tabs.py` `act.py` `locate.py` `observe.py` | 同名平铺 | |
+| `core/cdp.py` `tabs.py` `act.py` `locate.py` | 同名平铺 | |
+| `core/observe.py` | **`capture.py`**,而且只剩两个函数 | 那一包东西砍了 —— 读只剩「一张图和正文」([api/act.md §1](../../v1/api/act.md#1-读--一张图和正文)) |
 | `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
 | `core/log.py` | `log.py` | |
 | `browser.py` | **`install.py`**(下载 / 镜像 / 测速)+ **`config.py`**(路径在哪 / 这台机器缺什么) | 装完之后"浏览器在哪"就是配置(§3.3)。**探测那半要跟着配置走**,因为第 1 层的 `processes.py` 要用它,而 `install.py` 在第 5 层 |

@@ -10,7 +10,7 @@
 二是那些**"跨模块才成立"的规矩**:
 
 - **一个 session 同时只跑一个动作**,并发调返回 `409 busy`,不排队、不交错。
-- **要像素就得在前台**:`observe` / `screenshot` 指向非激活 tab 时先切过去 ——
+- **要像素就得在前台**:`screenshot` / `text` 指向非激活 tab 时先切过去 ——
   Chromium 不渲染后台 tab,拍出来是白的或旧的(sdk/tab/read.md §3)。
 - **`seq` 一个计数器**,日志和事件共用,所以两边对得齐。
 - **凭证不进日志**:明文在执行层解开,记账时看到的是掩码。
@@ -31,7 +31,7 @@ from typing import Any, Protocol
 
 from webmuxd import config, models, processes, xpra as xpra_mod
 from webmuxd import cursor as cursor_probe
-from webmuxd import observe as observe_mod, probe
+from webmuxd import capture, probe
 from webmuxd.act import MASK, Executor
 from webmuxd.browser_ui import Natives
 from webmuxd.cdp import CDP
@@ -39,7 +39,6 @@ from webmuxd.exceptions import (Busy, BusyHuman, TabGone, UsageError,
                                 unavailable)
 from webmuxd.log import Log, Seq
 from webmuxd.models import SessionInfo
-from webmuxd.observe import Observation
 
 from webmuxd.screen import Screencaster
 from webmuxd.tabs import TabTable
@@ -423,18 +422,22 @@ class Session:
             out["log_from"] = log_from
         return out
 
-    async def observe(self, *, tab: str | None = None, **kw: Any) -> Observation:
+    async def read(self, tab: str | None = None) -> tuple[str, bytes]:
+        """读一眼:**正文和一张图,就这两样。**
+
+        **要像素就得在前台** —— Chromium 不渲染后台 tab,拍出来是白的或旧的。
+        所以这一下会切 tab,而且它**改状态**
+        ([issue](../docs/v2/issues/读一眼会改状态却不排队.md))。
+        """
+        sid = await self._reading_session(tab)
+        return await capture.text(self.cdp, sid), await capture.screenshot(self.cdp, sid)
+
+    async def _reading_session(self, tab: str | None) -> str:
         tab_id = self.resolve_tab(tab)
-        activated = await self.bring_to_front(tab_id)   # 要像素就得在前台
-        ex_sid = self._sessions.get(tab_id)
-        if ex_sid is None:
+        await self.bring_to_front(tab_id)          # 要像素就得在前台
+        if self._sessions.get(tab_id) is None:
             await self.executor_for(tab_id)
-            ex_sid = self._sessions[tab_id]
-        obs = await observe_mod.observe(
-            self.cdp, ex_sid, tab=tab_id, tabs=self.tabs.list(), **kw)
-        if activated:
-            obs.notes.append("为了拍这张图,这个 tab 被切到了前台")
-        return obs
+        return self._sessions[tab_id]
 
     def mint_token(self, *, read_only: bool = True, ttl_s: int = 3600) -> str:
         """一次性观看 token。

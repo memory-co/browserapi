@@ -157,7 +157,7 @@ async def _boxes(cdp: CDP, session_id: str,
 # ---------------------------------------------------------------------------
 
 #: 定位的六种写法(api/act.md §4)。
-LOCATOR_KEYS = ("text", "role", "name", "label", "element", "observation", "css",
+LOCATOR_KEYS = ("text", "role", "name", "label", "css",
                 "point", "nth")
 
 
@@ -188,20 +188,20 @@ def match_by_text(elements: list[Element], text: str) -> list[Element]:
     return [el for el, n in names if lo in n.lower()]
 
 
-def resolve(spec: dict[str, Any], snap: Snapshot,
-            *, observation_id: str | None = None) -> Element:
-    """把一个定位描述变成唯一一个元素,或者抛 NotFound(带候选)。"""
+def resolve(spec: dict[str, Any], snap: Snapshot) -> Element:
+    """把一个定位描述变成唯一一个元素,或者抛 NotFound(带候选)。
+
+    **没有"按编号定位"。** 编号只在一次快照里有意义,而快照是 `act` 每次
+    自己抓的、没有名字 —— 拿上一次的编号来点,点到的可能是另一个东西,
+    而且不报错。定位失败回的候选里带着 `role` 和 `name`,
+    **重试用那两样**(必要时加 `nth`),那是跨快照仍然成立的说法。
+
+    以前有 `element` + `observation` 两个键,靠"这个编号是哪次观测的"来挡。
+    `observe` 砍掉之后没有"一次观测"了,那道挡板也就没了落点 ——
+    **留着键而挡不住,比没有这个键更坏。**
+    """
     if not isinstance(spec, dict) or not any(k in spec for k in LOCATOR_KEYS):
         raise BadRequest(f"看不懂的定位:{spec!r}", code="bad_request")
-
-    # 按编号定位:必须带上是哪次观测的编号
-    if "element" in spec:
-        obs = spec.get("observation")
-        if observation_id is not None and obs is not None and obs != observation_id:
-            raise NotFound(
-                "这个编号来自另一次观测,页面可能已经变了 —— 重新 observe 一次",
-                code="not_found", details={"candidates": [], "stale_observation": obs})
-        return snap[int(spec["element"])]
 
     # css / point 是逃生舱,交给调用方直接执行,这里只做形状检查
     if "css" in spec or "point" in spec:

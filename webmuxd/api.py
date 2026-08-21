@@ -31,7 +31,6 @@ from typing import Any, Callable
 
 import websockets
 
-from webmuxd import models
 from webmuxd import sessions as rt
 from webmuxd.exceptions import (BadRequest, ChromeGone, TabGone,
                                 WebmuxdError, from_response)
@@ -43,18 +42,16 @@ _LOCATOR_KEYS = ("text", "role", "name", "label", "element", "observation",
 
 def _locator(target: Any = None, **kw: Any) -> dict[str, Any]:
     """把 `tab.click("提交订单")` / `tab.click(role=..., name=...)` /
-    `tab.click(el)` 统一成一个定位字典。"""
+    `tab.click(候选里的那一项)` 统一成一个定位字典。"""
     spec: dict[str, Any] = {}
     if target is not None:
         if isinstance(target, str):
             spec["text"] = target
-        elif isinstance(target, dict) and "id" in target:
-            spec["element"] = target["id"]           # observe() 拿到的元素
-        elif hasattr(target, "id"):
-            spec["element"] = target.id
-            obs = getattr(target, "observation", None)
-            if obs:
-                spec["observation"] = obs
+        elif isinstance(target, dict):
+            # 定位失败回的候选:**拿 role + name 重试**,不是拿编号 ——
+            # 编号只在那一次快照里成立(locate.resolve 的 docstring)
+            spec.update({k: v for k, v in target.items()
+                         if k in ("role", "name")})
         else:
             raise BadRequest(f"看不懂的定位:{target!r}", code="bad_request")
     for k, v in kw.items():
@@ -327,10 +324,6 @@ class Tab:
                           **_locator(target, **kw)})
 
     # ------------------------------------------------------------- 观测
-
-    def observe(self, **kw: Any) -> "Observation":
-        d = self._s._t.get("/api/observe", tab=self.id, **kw)
-        return Observation.of(self._s, d)
 
     def text(self) -> str:
         return self._s._t.get_bytes("/api/text", tab=self.id).decode()
@@ -962,44 +955,3 @@ class Webmuxd:
             impl.stop(handle)
             self._handles.pop(id_, None)
         self._live.clear()
-
-
-# ---------------------------------------------------------------------------
-# 观测 —— 数据在 models.Observation,这儿只加"图用到才取"
-# ---------------------------------------------------------------------------
-
-class Observation(models.Observation):
-    """SDK 这一侧的观测。
-
-    **数据形状不在这儿定义** —— 它就是 `models.Observation`,和服务端同一个类
-    ([j §3.1](../docs/v2/works/j-layout.md#31-modelspy所有跨边界的数据在这儿定义一次))。
-    这层只多一件事:**截图是用到才去取的**,不是每次 observe 都拖一张图回来。
-
-    靠的是"属性覆盖字段":父类 `__init__` 里那句 `self.screenshot = …`
-    会落到下面这个 setter 上,于是字节存进 `_shot`,而读的时候才去发请求。
-    """
-
-    _session: Any = None
-
-    @classmethod
-    def of(cls, session: Any, d: dict) -> "Observation":
-        obs = cls.from_json(d)
-        obs._session = session
-        return obs
-
-    @property
-    def screenshot(self) -> bytes:
-        """这次观测那一刻的页面。**用到才去取。**
-
-        **就是页面本身,没有画框的第二个版本。** 编号在 `el.id`,
-        位置在 `el.bbox` —— 要 Set-of-Mark 图,拿这两样自己叠
-        ([issue](../docs/v2/issues/标注层会被人看见.md))。
-        """
-        if not self._shot and self._session is not None and self.shot_url:
-            self._shot = self._session._t.get_bytes(self.shot_url)
-        return self._shot
-
-    @screenshot.setter
-    def screenshot(self, v: bytes) -> None:
-        self._shot = v
-

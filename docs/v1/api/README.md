@@ -45,8 +45,8 @@
 ```jsonc
 POST /api/act  { "actions": [...] }                // 当前 tab
 POST /api/act  { "tab": "t_7", "actions": [...] }  // 指定 tab
-GET  /api/observe                                   // 当前 tab
-GET  /api/observe?tab=t_7                           // 指定 tab
+GET  /api/screenshot                                // 当前 tab
+GET  /api/screenshot?tab=t_7                        // 指定 tab
 ```
 
 Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
@@ -55,7 +55,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 所以后台 tab 照样能点。但 VNC 画面只显示激活的那个,所以后台操作**人看不见**,
 日志里会标 `background: true`。
 
-**要像素的接口是例外。** Chromium 不渲染后台 tab,所以 `GET /api/observe` 和
+**要像素的接口是例外。** Chromium 不渲染后台 tab,所以
 `GET /api/screenshot` 指向非激活 tab 时,sessiond **会先把它切到前台再拍**
 (响应里带 `activated: true`,并发一条 `tab.activated` 事件)。
 不这么做就只能拿到空白或上一帧,而"截图和人看到的画面对不上"是这东西最不能出的错。
@@ -82,16 +82,13 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/observe` | **观测**:截图 + 元素表 + tab 列表 |
 | `POST` | `/api/act` | **执行动作**(单个或一串) |
 | `GET` | `/api/screenshot` | 截图,`?full_page=` 要整页 |
 | `GET` | `/api/text` | 页面正文 |
 | `GET` | `/api/log` | 操作日志,详见 [log.md](log.md) |
 | `GET` | `/api/log/bundle` | 日志 + 截图 + 离线 HTML 的 zip |
 | `GET` | `/api/log/{seq}/shot` | 某一步动作后的截图 |
-| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图 |
 | `GET` | `/api/log/{seq}/shot` | 某一步动作后的截图 |
-| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图 |
 | `POST` | `/api/upload` | 传文件进去给 `upload` 动作用 |
 | `GET` | `/api/download/{name}` | 取下载的文件 |
 
@@ -125,7 +122,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 它存在,但它是**上层 UI 和 Python lib 用的同步机制**,不是给你调的接口:
 
 - 写脚本、写 agent 的**碰不到** —— lib 已经替你订好了,`sess.tabs` / `tab.url` 直接读内存
-- 模型**碰不到** —— 它的输入是 `observe()` 和[日志](log.md)
+- 模型**碰不到** —— 它的输入是 `screenshot()` / `text()` 和[日志](log.md)
 - 要回看发生过什么,**读[日志](log.md)** —— 事件会丢、只留 1000 条、重启就没
 
 用别的语言画自己的 tab 条:**轮询 `GET /api/tabs` 就够用**;想要实时再订那条 WS,

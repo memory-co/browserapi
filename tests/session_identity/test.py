@@ -244,30 +244,44 @@ def test_closed_tab_keeps_its_last_values_but_refuses_actions(sess, page_url):
         tab.goto("about:blank")
 
 
-# ---------------------------------------------------------------- observe
+# ------------------------------------------------------------------ 读一眼
 
-def test_observation_is_an_object_not_a_dict(sess, page_url):
-    """线上是一坨 JSON,这边是个能下标、能 find、能进 prompt 的东西 ——
-    这个落差就是"主体在 lib"的样子(works/02 §1)。"""
+def test_读一眼只有两样(sess, page_url):
+    """**一张图,和正文。** 以前这儿是 `tab.observe()` 回一整包东西 ——
+    砍了([capture.py](../../webmuxd/capture.py))。"""
     tab = sess.open(page_url)
-    obs = tab.observe()
-
-    assert len(obs) >= 2
-    assert obs[1].role == "button"
-    assert obs.find(role="button", name="取消订单").id
-    assert '[1] button   "提交订单"' in obs.as_prompt()
-    assert obs.page.title == "结算"
-    assert obs.screenshot[:4] == b"RIFF"
-    assert isinstance(obs.notes, list)
+    assert tab.screenshot()[:4] == b"RIFF"
+    assert "提交订单" in tab.text()
     tab.close()
 
 
-def test_clicking_an_element_object_binds_the_observation(sess, page_url):
+def test_按人看得见的文字点(sess, page_url):
+    """**定位就是"人看得见的那几个字"。** 没有"先观测拿编号,再按编号点" ——
+    编号只在一次快照里成立,而快照现在是 act 自己抓的、不对外
+    ([locate.resolve](../../webmuxd/locate.py))。"""
     tab = sess.open(page_url)
-    obs = tab.observe()
-    r = tab.click(obs.find(role="button", name="提交订单"))
+    r = tab.click("提交订单")
     assert r.ok
     assert tab.js("document.getElementById('out').textContent") == "订单已提交"
+    tab.close()
+
+
+def test_歧义回候选_候选够拿来重试(sess, page_url):
+    """**定位失败不是异常,是候选**(i §2②)。而候选要带着
+    `role` + `name` —— 那是**跨快照仍然成立**的说法,编号不是。"""
+    from webmuxd import NotFound
+
+    tab = sess.open(page_url)
+    try:
+        tab.click("订单")            # 提交订单 / 取消订单,两个都含"订单"
+    except NotFound as e:
+        cands = e.details.get("candidates") or []
+        assert len(cands) >= 2, cands
+        assert all("role" in c and "name" in c for c in cands), cands
+        # 拿候选直接重试:_locator 只取 role + name
+        assert tab.click(cands[0]).ok
+    else:
+        raise AssertionError("两个都含「订单」,该报歧义")
     tab.close()
 
 
@@ -297,7 +311,7 @@ def test_session_has_no_page_actions(sess, page_url):
     """`sess.click(...)` **故意不给** —— 一个 session 有多个 tab,
     "在哪个 tab 上点"不该靠隐式的当前值(sdk/session.md §2)。"""
     assert not hasattr(sess, "click")
-    assert not hasattr(sess, "observe")
+    assert not hasattr(sess, "screenshot")
 
 
 def test_status_and_sync(sess, page_url):

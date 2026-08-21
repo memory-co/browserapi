@@ -28,8 +28,8 @@ from typing import Any
 from webmuxd.exceptions import NotFound
 
 __all__ = [
-    "Size", "Scroll", "PageInfo",
-    "Element", "Snapshot", "Observation",
+    "Size",
+    "Element", "Snapshot",
     "ActionResult", "PageDigest",
     "TabInfo",
     "ViewMode", "JPG", "VNC", "DOM", "MODES",
@@ -75,55 +75,8 @@ class Size:
         return hash((self.w, self.h))
 
 
-@dataclass(frozen=True)
-class Scroll:
-    y: float = 0
-    max_y: float = 0
-
-    def to_json(self) -> dict[str, float]:
-        return {"y": self.y, "max_y": self.max_y}
-
-    @classmethod
-    def from_json(cls, d: Any) -> "Scroll":
-        d = d or {}
-        return cls(d.get("y") or 0, d.get("max_y") or 0)
-
-
-@dataclass
-class PageInfo:
-    """观测里"页面本身"那一段。
-
-    `screen` 和 `viewport` 是**两个数**,不是一个:观看者一连上来就可能
-    remote-resize 改掉桌面分辨率(Xvnc 那边 `-AcceptSetDesktopSize` 开着),
-    一变响应式站点就重排、上一次观测的坐标作废。**两个都带出来**,
-    调用方才能发现"地动了"。
-    """
-
-    url: str = ""
-    title: str = ""
-    loading: bool = False
-    scroll: Scroll = field(default_factory=Scroll)
-    viewport: Size = field(default_factory=Size)
-    screen: Size = field(default_factory=Size)
-
-    def to_json(self) -> dict[str, Any]:
-        return {"url": self.url, "title": self.title, "loading": self.loading,
-                "scroll": self.scroll.to_json(),
-                "viewport": self.viewport.to_json(),
-                "screen": self.screen.to_json()}
-
-    @classmethod
-    def from_json(cls, d: Any) -> "PageInfo":
-        d = d or {}
-        return cls(url=d.get("url", ""), title=d.get("title", ""),
-                   loading=bool(d.get("loading")),
-                   scroll=Scroll.from_json(d.get("scroll")),
-                   viewport=Size.from_json(d.get("viewport")),
-                   screen=Size.from_json(d.get("screen")))
-
-
 # ---------------------------------------------------------------------------
-# 元素与观测
+# 元素
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -195,8 +148,10 @@ def _not_found(what: str, elements: list[Element]) -> NotFound:
 
 @dataclass
 class Snapshot:
-    """一次元素快照。observe 和 act 共用同一份 ——
-    **定位和给模型看的必须是同一套编号。**"""
+    """一次元素快照 —— **`act` 定位用的,不是一个读的口子**。
+
+    一批动作共用同一份:同一次 `/api/act` 里的几步说的是同一个页面状态。
+    但**编号不跨批**,所以没有"按编号定位"([locate.resolve](locate.py))。"""
 
     elements: list[Element] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -217,117 +172,6 @@ class Snapshot:
 
     def as_prompt(self) -> str:
         return "\n".join(e.as_line() for e in self.elements)
-
-
-@dataclass
-class Observation:
-    """一次观测。
-
-    `id` 是给按编号定位用的 —— 页面变了就该抛,而不是点到编号相同的另一个东西。
-
-    **服务端和 SDK 是同一个类。** 差别只在两个字段谁填:服务端填
-    `screenshot` 的字节,SDK 填 `shot_url` 的地址,由 `api.py` 那层按需去取。
-
-    > **只有一张图,就是页面本身。** 编号活在 `elements[].id`,
-    > 位置活在 `elements[].bbox` —— 要一张画好框的 Set-of-Mark 图,
-    > 拿这两样自己叠。以前是在**活页面上**铺一层框再拍,于是观看的人会
-    > 看到一闪,DOM 模式下那层还会被录进重放流
-    > ([issue](../docs/v2/issues/标注层会被人看见.md))。
-    """
-
-    id: str = ""
-    tab: str | None = None
-    at: str = ""
-    page: PageInfo = field(default_factory=PageInfo)
-    elements: list[Element] = field(default_factory=list)
-    text: str = ""
-    tabs: list["TabInfo"] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
-    filter_version: int = 0
-
-    #: 服务端填字节;SDK 填地址,由 `api.Observation` 用到才去取。
-    screenshot: bytes = b""
-    shot_url: str = ""
-
-    def __getitem__(self, n: int) -> Element:
-        for e in self.elements:
-            if e.id == n:
-                return e
-        raise _not_found(f"这次观测里没有 [{n}]", self.elements)
-
-    def __iter__(self):
-        return iter(self.elements)
-
-    def __len__(self) -> int:
-        return len(self.elements)
-
-    def find(self, *, role: str | None = None, name: str | None = None) -> Element:
-        for e in self.elements:
-            if (role is None or e.role == role) and (name is None or e.name == name):
-                return e
-        raise _not_found(f"这次观测里没有 role={role} name={name}", self.elements)
-
-    @property
-    def viewport(self) -> Size:
-        """页面视口 —— **元素坐标就活在这个尺寸里**。"""
-        return self.page.viewport
-
-    @property
-    def screen(self) -> Size:
-        """桌面分辨率。**它会被"有人打开观看页面"改掉**(见 `PageInfo`)。"""
-        return self.page.screen
-
-    def as_prompt(self) -> str:
-        """紧凑排版,**纯本地,不请求网络**。直接进 prompt。"""
-        out = []
-        vw, vh = self.page.viewport
-        sw, sh = self.page.screen
-        if vw and vh:
-            head = f"视口 {vw}x{vh}"
-            if sw and sh and (sw, sh) != (vw, vh):
-                head += f"(桌面 {sw}x{sh})"
-            out.append(head)
-        out += [e.as_line() for e in self.elements]
-        return "\n".join(out)
-
-    def to_json(self, *, shot_url: str | None = None) -> dict[str, Any]:
-        out: dict[str, Any] = {
-            "observation_id": self.id, "tab": self.tab, "at": self.at,
-            "page": self.page.to_json(),
-            "elements": [e.to_json() for e in self.elements],
-            "tabs": [t.to_json() if isinstance(t, TabInfo) else t for t in self.tabs],
-            "notes": self.notes,
-            "filter_version": self.filter_version,
-        }
-        if self.text:
-            out["text"] = self.text
-        if shot_url:
-            out["screenshot"] = {
-                "url": shot_url,
-                "w": self.page.viewport.w or None,
-                "h": self.page.viewport.h or None,
-                "format": "webp",
-            }
-        return out
-
-    @classmethod
-    def from_json(cls, d: dict) -> "Observation":
-        oid = d.get("observation_id", "")
-        shot = d.get("screenshot") or {}
-        return cls(
-            id=oid, tab=d.get("tab"), at=d.get("at", ""),
-            page=PageInfo.from_json(d.get("page")),
-            elements=[Element.from_json(e, oid) for e in d.get("elements") or []],
-            text=d.get("text", ""),
-            tabs=[TabInfo.from_json(t) for t in d.get("tabs") or []],
-            #: **要往 prompt 里放。** 它写的是这次观测的盲区;不给模型看,
-            #: 模型会把"没看见"当成"不存在",然后自信地做错决定。
-            notes=d.get("notes") or [],
-            filter_version=d.get("filter_version", 0),
-            shot_url=shot.get("url", ""))
-
-    def __repr__(self) -> str:
-        return f"<Observation {self.id} {len(self.elements)} 个元素 {self.page.url}>"
 
 
 # ---------------------------------------------------------------------------

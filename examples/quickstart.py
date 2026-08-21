@@ -80,7 +80,7 @@ def main() -> None:
         print("   候选:" + "、".join(repr(c["name"]) for c in miss.candidates))
 
         print("⑥ 观测 —— 一次调用拿到喂给模型的全部东西")
-        obs = tab.observe()
+        shot = tab.screenshot()
         print("   " + obs.as_prompt().replace("\n", "\n   "))
         print(f"   标注截图 {len(obs.screenshot)} 字节")
         if obs.notes:

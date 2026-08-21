@@ -15,7 +15,7 @@ tab.key("Enter")
 ```python
 tab.click("提交订单")                  # 可见文字(最常用)
 tab.click(role="button", name="登录")  # role + 名字,消歧
-tab.click(el)                          # observe() 拿到的元素对象,见 read.md
+tab.click(cand)                        # 定位失败回的候选里的一项,见 read.md
 tab.click(css="#pay")                  # CSS 选择器,逃生舱
 tab.click(at=(890, 632))               # 坐标,最后手段
 tab.click("下一页", nth=1)             # 多个匹配时指定第几个
@@ -57,7 +57,7 @@ except NotFound as e:
 | `tab.js(expr)` | — | `js`,逃生舱,日志标黄 |
 
 导航类(`goto` `back` `forward` `reload` `stop`)见 [navigate.md](navigate.md),
-观测类(`observe` `screenshot` `extract`)见 [read.md](read.md) ——
+读的那几样(`screenshot` `text` `extract`)见 [read.md](read.md) ——
 它们在线上是同一张动作表里的条目,在 lib 里按用途分开放。
 
 ## 3. `act()` —— 一次往返一串动作
@@ -154,7 +154,7 @@ sess.download("report.xlsx", to="/tmp/")
 | --- | --- |
 | `tab.act(actions, settle=, note=, user=, idempotency_key=)` | `POST /api/act` |
 | `tab.click/type/key/select/check/scroll/...` | `POST /api/act`,一个动作 |
-| `tab.click(el)` | `{"element": id, "observation": obs.id}` |
+| `tab.click(cand)` | `{"role": …, "name": …}` —— **候选里那两样**,不是编号 |
 | `tab.type(loc, secret=)` | `text_ref: "secret://..."` |
 | `r.new_tabs` | 由响应的 `after.new_tabs` 转成句柄 |
 | `sess.upload_file()` `sess.download()` | `POST /api/upload` `GET /api/download/{name}` |

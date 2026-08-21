@@ -466,19 +466,6 @@ def cmd_capture(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_observe(args: argparse.Namespace) -> int:
-    t = _tab(args)
-    obs = t.observe()
-    if args.shot:
-        with open(args.shot, "wb") as fh:
-            fh.write(obs.screenshot)
-    _out(args, obs._d, obs.as_prompt())
-    if not args.json:
-        for n in obs.notes:
-            print(f"  ⚠ {n}", file=sys.stderr)
-    return 0
-
-
 # ---------------------------------------------------------------------------
 # 日志
 # ---------------------------------------------------------------------------
@@ -643,9 +630,6 @@ def _parser() -> argparse.ArgumentParser:
     cap = add("capture", cmd_capture, help="抓正文或截图")
     cap.add_argument("--text", action="store_true")
     cap.add_argument("--shot", default=None)
-    ob = add("observe", cmd_observe, help="元素表")
-    ob.add_argument("--shot", default=None)
-
     lg = add("log", cmd_log, help="操作日志")
     lg.add_argument("-n", type=int, default=50)
     lg.add_argument("--failed", action="store_true")

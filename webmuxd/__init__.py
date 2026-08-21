@@ -8,7 +8,7 @@
 """
 
 from webmuxd.api import (  # noqa: F401
-    ActResult, Observation, Session, Tab, Webmuxd,
+    ActResult, Session, Tab, Webmuxd,
 )
 from webmuxd.exceptions import (  # noqa: F401
     WebmuxdError,
@@ -32,7 +32,6 @@ from webmuxd.exceptions import (  # noqa: F401
     SessionExists,
     SessionNotFound,
 )
-from webmuxd.models import Element                    # noqa: F401
 
 #: **版本号只有这一处。** pyproject.toml 用 `dynamic = ["version"]` 读它
 #: (setuptools 静态解析这行,不 import 这个包)。
@@ -40,8 +39,7 @@ from webmuxd.models import Element                    # noqa: F401
 #: 0.5.0 发版时踩过一次:两处各写一份,只改了 pyproject,装出来的包
 #: `webmuxd info` 报的是上一版的号 —— 而且只有在**干净 venv 里装完**才看得出来。
 __version__ = "0.8.0"
-__all__ = ["__version__", "Webmuxd", "Session", "Tab", "ActResult",
-           "Observation", "Element"] + [
+__all__ = ["__version__", "Webmuxd", "Session", "Tab", "ActResult"] + [
     "WebmuxdError", "ActionError", "PlatformError", "UsageError",
     "NotFound", "NotClickable", "Timeout", "NavFailed", "TabGone",
     "Busy", "BusyHuman", "ChromeGone", "SessionDead", "RuntimeUnavailable",

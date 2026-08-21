@@ -213,7 +213,7 @@ class Settler:
 class Executor:
     """在一个 tab 上跑动作。
 
-    `snapshot_fn` 拿元素表 —— 由外面传进来,因为 observe 和 act **必须共用同一份**,
+    `snapshot_fn` 拿元素表 —— 由外面传进来,因为一批动作里的几步**必须共用同一份**,
     否则模型看到的编号和点到的东西对不上。
     """
 
@@ -222,7 +222,6 @@ class Executor:
         self._secrets = secrets
         self._settler = Settler(cdp, session_id)
         self._snap: Snapshot | None = None
-        self._snap_id: str | None = None
 
     async def start(self) -> None:
         await self._settler.start()
@@ -480,10 +479,6 @@ class Executor:
 
     # ------------------------------------------------------------- 定位/辅助
 
-    def use_snapshot(self, snap: Snapshot, snap_id: str | None = None) -> None:
-        """让 act 和 observe 共用同一份元素表 —— 编号必须指同一个东西。"""
-        self._snap, self._snap_id = snap, snap_id
-
     async def _fresh_snapshot(self) -> Snapshot:
         self._snap = await locate.snapshot(self._cdp, self._sid)
         return self._snap
@@ -507,13 +502,13 @@ class Executor:
             spec = self._locator_of(kind, spec)
         snap = self._snap or await self._fresh_snapshot()
         try:
-            el = locate.resolve(spec, snap, observation_id=self._snap_id)
+            el = locate.resolve(spec, snap)
         except locate._Escape:
             raise
         except NotFound:
             # 元素表可能过期了 —— 重抓一次再判,免得把"刚出现的按钮"报成不存在
             snap = await self._fresh_snapshot()
-            el = locate.resolve(spec, snap, observation_id=None)
+            el = locate.resolve(spec, snap)
         self._last_hit = el.to_json()
         return el
 

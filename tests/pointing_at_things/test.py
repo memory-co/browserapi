@@ -8,6 +8,7 @@ import asyncio
 
 import pytest
 
+from webmuxd import locate
 from webmuxd.locate import (
     FILTER_VERSION, Element, Snapshot, match_by_text, resolve, snapshot,
 )
@@ -138,14 +139,29 @@ def test_disabled_element_is_not_clickable_not_not_found():
         resolve({"text": "已停用"}, snap)
 
 
-def test_element_number_needs_the_right_observation():
-    """页面变了就该抛,而不是点到编号相同的另一个东西(api/act.md §4)。"""
+def test_没有按编号定位这回事():
+    """**编号只在一次快照里成立**,而快照是 `act` 每次自己抓的、不对外。
+
+    以前有 `element` + `observation` 两个键,靠"这个编号是哪次观测的"来挡。
+    `observe` 砍掉之后没有"一次观测"了,那道挡板也就没了落点 ——
+    **留着键而挡不住,比没有这个键更坏**:拿上一次的编号来点,
+    点到的可能是另一个东西,而且不报错。
+    """
     snap = Snapshot([_el(1, "button", "提交")])
-    assert resolve({"element": 1, "observation": "obs_a"}, snap,
-                   observation_id="obs_a").id == 1
+    for gone in ("element", "observation"):
+        assert gone not in locate.LOCATOR_KEYS, f"{gone} 又回来了"
+    with pytest.raises(BadRequest):
+        resolve({"element": 1}, snap)
+
+
+def test_候选带的是_role_和_name_不是编号():
+    """**那才是跨快照仍然成立的说法。** 重试拿它,不拿编号。"""
+    snap = Snapshot([_el(1, "button", "提交订单"), _el(2, "link", "提交说明")])
     with pytest.raises(NotFound) as ei:
-        resolve({"element": 1, "observation": "obs_OLD"}, snap, observation_id="obs_a")
-    assert "另一次观测" in str(ei.value)
+        resolve({"text": "提交"}, snap)
+    cands = ei.value.details["candidates"]
+    assert len(cands) == 2
+    assert all("role" in c and "name" in c for c in cands), cands
 
 
 def test_nonsense_locator_is_a_usage_error():

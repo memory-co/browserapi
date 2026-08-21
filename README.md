@@ -62,7 +62,8 @@ web = Webmuxd()
 sess = web.session(id="work", port=7900)
 tab = sess.open("https://news.ycombinator.com")
 
-print(tab.observe().as_prompt())      # 元素表,直接喂多模态模型
+print(tab.text())                     # 正文
+open("p.webp", "wb").write(tab.screenshot())   # 那一刻的页面
 tab.click("new")
 ```
 
@@ -75,7 +76,7 @@ tab.click("new")
 webmuxd new      --id work --port 7900
 webmuxd new-tab  -t work -u https://example.com
 webmuxd click    -t work "Learn more"
-webmuxd observe  -t work                  # 喂给模型的元素表
+webmuxd capture  -t work                  # 正文(--shot 存图)
 webmuxd log      -t work                  # 它都干了什么
 webmuxd kill     -t work
 ```
@@ -95,7 +96,8 @@ webmuxd kill     -t work
   一模一样([works/c](docs/v2/works/c-view.md))。
 - **按人看得见的字操作。** `click("提交订单")`,不写选择器。分档匹配(精确 → 子串 →
   忽略大小写),**有歧义就给候选,绝不替你挑一个** —— 挑错了你永远不会知道。
-- **"看见"= 元素表 + 标注截图。** `observe()` 一次给全,直接喂多模态模型;
+- **"看见"= 一张图,和正文。** 就这两样 —— 元素表跟着 `click("登录")` 走,
+  不单独开一个口子;
   拿不到的东西写进 `notes`,而不是假装看全了。
 - **tab 表就是浏览器那张表。** 不是黑盒:`reason` 分得清是人点开的还是代码开的
   (靠 CDP 的 `openerId`);逃生舱是**你自己拿 DevTools 连上去**,看到的和它一样。

@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | **tmux** | 多路复用 + 持久化 + attach/detach | server / session / tab,关掉网页只是 detach |
 | **ttyd** | 把它暴露成一个网页,能看能操作能分享 | KasmVNC 那个口,token 分享,只读模式 |
-| **webmuxd 自己加的** | 程序化操作 + 给智能体的观测层 | `/api/act`、`/api/observe`、操作日志 |
+| **webmuxd 自己加的** | 程序化操作 + 读一眼 | `/api/act`、`/api/screenshot`、操作日志 |
 
 终端世界里这两件事是分开的,经典用法是 `ttyd tmux new -A -s work` 把它们拼起来。
 webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页——暴露不是可选项,是本体**。
@@ -19,7 +19,7 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 安全控制点是绑定地址和 token,不是"开不开"([api/server.md §1](../api/server.md))。
 
 第三块是终端世界没有的:tmux 有 `send-keys` 和 `capture-pane`,但没人把它们做成
-给程序和模型用的接口。`/api/act` 和 `/api/observe` 大致就是这两个命令的 HTTP 版本,
+给程序和模型用的接口。`/api/act` 和 `/api/screenshot` 大致就是这两个命令的 HTTP 版本,
 外加一层专门为多模态模型准备的元素表。
 
 凡是拿不准的地方,先问"tmux 或 ttyd 在这儿是怎么做的",除非有明确理由,否则照抄。
@@ -40,7 +40,7 @@ webmuxd 把它们合成一个,**因为浏览器的渲染层本来就是网页—
 | scrollback | 操作日志 | |
 | `~/.tmux.conf` | **不做** | 见 §7 |
 | `send-keys` | `click` / `type` / `key` / `POST /api/act` | |
-| `capture-pane` | `capture` / `observe` / `GET /api/observe` | |
+| `capture-pane` | `capture` / `GET /api/screenshot` / `GET /api/text` | |
 | fork + exec 一个 shell | **runtime** | **唯一多出来的概念**,见 §4 |
 | 一个 socket 复用全部 session | **一个 session 两个端口** | kasm 复用不了,见表下 |
 | **ttyd** `-p PORT` | server `:7800` / session `:6901`+`:7900` | |

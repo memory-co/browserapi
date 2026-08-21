@@ -17,11 +17,11 @@ from typing import Any, Awaitable, Callable
 
 from aiohttp import WSMsgType, web
 
-from webmuxd import locate
 from webmuxd import models
 from webmuxd import xpra as relay
 from webmuxd.cdp import CDP
 from webmuxd.exceptions import BadRequest, ReadOnly, WebmuxdError
+from webmuxd import capture
 from webmuxd import input as input_leg
 from webmuxd.frames import HEADER_SIZE, UPSTREAM
 from webmuxd.screen import Viewer
@@ -126,8 +126,6 @@ def build(session: Session, *, xpra_ws: str = "") -> web.Application:
         r.add_post(f"/api/tabs/{{id}}/{verb}", _nav_handler(verb))
 
     r.add_post("/api/act", h_act)
-    r.add_get("/api/observe", h_observe)
-    r.add_get("/api/observe/{obs}/screenshot", h_obs_shot)
     r.add_get("/api/screenshot", h_screenshot)
     r.add_get("/api/res", h_res)
     r.add_get("/api/view/mode", h_mode_get)
@@ -365,7 +363,7 @@ async def h_dialog(request: web.Request) -> web.Response:
         by=body.get("user", "api")))
 
 
-# ---------------------------------------------------------------- act/observe
+# --------------------------------------------------------------- act / 读一眼
 
 async def h_act(request: web.Request) -> web.Response:
     body = await _body(request)
@@ -377,51 +375,25 @@ async def h_act(request: web.Request) -> web.Response:
         note=body.get("note"), user=body.get("user", "api")))
 
 
-def _obs_kwargs(q) -> dict[str, Any]:
-    return {
-        "viewport_only": q.get("viewport_only") == "true",
-        "max_elements": int(q.get("max_elements", locate.MAX_ELEMENTS)),
-        "text": q.get("text", "digest"),
-    }
-
-
-async def h_observe(request: web.Request) -> web.Response:
-    s = _s(request)
-    obs = await s.observe(tab=request.query.get("tab"), **_obs_kwargs(request.query))
-    request.app.setdefault("shots", {})[obs.id] = obs.screenshot
-    return _json(obs.to_json(shot_url=f"/api/observe/{obs.id}/screenshot"))
-
-
-async def h_obs_shot(request: web.Request) -> web.Response:
-    """那次观测的截图 —— **就是页面本身,没有第二个版本**。
-
-    编号在 `elements[].id`,位置在 `elements[].bbox`;要一张画好框的
-    Set-of-Mark 图,拿这两样自己叠。以前这儿有个 `?annotate=false` ——
-    那是因为标注是铺在**活页面上**再拍的,而那会让观看的人看到一闪
-    ([issue](../docs/v2/issues/标注层会被人看见.md))。
-    """
-    shot = request.app.get("shots", {}).get(request.match_info["obs"])
-    if not shot:
-        raise BadRequest("这次观测的截图已经不在了", code="bad_request")
-    return web.Response(body=shot, content_type="image/webp")
-
-
 async def h_screenshot(request: web.Request) -> web.Response:
-    from webmuxd.observe import _capture
+    """那一刻的页面。**"读"这一面只有这个和 `/api/text` 两个口子。**
+
+    以前还有 `/api/observe` —— 一次调用回一包筛过的元素表和编号。
+    砍了:那是一套关于 agent 该怎么用浏览器的意见,该留在调用方那边
+    ([capture.py](../webmuxd/capture.py))。
+    """
     s = _s(request)
-    tab_id = s.resolve_tab(request.query.get("tab"))
-    await s.bring_to_front(tab_id)
-    await s.executor_for(tab_id)
-    data = await _capture(s.cdp, s._sessions[tab_id],
-                          full_page=request.query.get("full_page") == "true")
+    sid = await s._reading_session(request.query.get("tab"))
+    data = await capture.screenshot(
+        s.cdp, sid, full_page=request.query.get("full_page") == "true")
     return web.Response(body=data, content_type="image/webp")
 
 
 async def h_text(request: web.Request) -> web.Response:
     s = _s(request)
-    obs = await s.observe(tab=request.query.get("tab"),
-                          text="full", max_elements=0)
-    return web.Response(text=obs.text, content_type="text/plain")
+    sid = await s._reading_session(request.query.get("tab"))
+    return web.Response(text=await capture.text(s.cdp, sid),
+                        content_type="text/plain")
 
 
 # ---------------------------------------------------------------------- log
