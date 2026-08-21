@@ -107,8 +107,7 @@ webmuxd/
 ├── api.py          `Webmuxd()` / `session()` —— 代码里 import 的门面
 ├── transport.py    SDK 走 HTTP 那一层(对应 requests 的 adapters)
 ├── cli.py          命令行 + **只有 CLI 用的那套调用代码**(§3.5)
-├── install.py      `webmuxd install`
-├── deps.py         系统包
+├── install.py      `webmuxd install` —— 探、下、装、写记录,**包名表也在这儿**
 │
 └── _client/        浏览器端那份的构建产物 —— **不在 git 里**(§4.3)
 ```
@@ -210,7 +209,28 @@ chrome、xpra、sessiond —— **凡是我们拉起来的进程,都从这一个
 `cursor.py` 也留着不并进 `input.py` —— 一个是观看端往页面去,
 一个是页面往观看端来,**方向相反**。
 
-### 3.6 `serve.py` 和 `cli.py`:两个面,一个服务端
+### 3.6 `install.py` 一个文件够了
+
+今天分成 `install.py`(流程)和 `deps.py`(发行版包名)两个。合起来 ——
+按 §3.4 那两条判据它一条都不占:不是"选一个",也不是纯逻辑
+(`apply()` 直接跑 subprocess 装包)。而且 **`deps.py` 只有一个调用方,
+也没有任何测试单独 import 它**;合起来 395 行,比 `browser_ui.py` 和 `act.py` 都小。
+
+合的时候要顺手修一处:**包名现在有两份。**
+`deps.py` 里有完整的发行版表,而 `xpra.py` 的报错里又硬写了一遍
+("Debian/Ubuntu:`xvfb`;RHEL:`xorg-x11-server-Xvfb`")。
+
+这两份没法靠 import 消掉 —— `xpra.py` 在第 2 层,`install.py` 在第 5 层,
+往上 import 是违规的(§5)。**正确的分法是按层切:**
+
+```
+xpra.py     报"缺 Xvfb"                        ← 它只知道自己要哪个可执行文件
+install.py  说"apt 装 xvfb / yum 装 xorg-x11-server-Xvfb"  ← 只有它认识包管理器
+```
+
+**低层报缺什么,高层说怎么装。** 这样包名只有一处,而且方向和依赖层一致。
+
+### 3.7 `serve.py` 和 `cli.py`:两个面,一个服务端
 
 - **`serve.py` 是唯一的服务端** —— 人打开的那个网页、画面、`/api/*` 全在它上面。
   这条不能动:**一个 session 一个口**,画面和 API 在同一个口上,是既定的
@@ -331,7 +351,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
           jpg.py  xpra.py  rrweb.py
 第 3 层   screen.py  sessions.py            编排
 第 4 层   serve.py                          对外那个口
-第 5 层   api.py  transport.py  cli.py  install.py  deps.py    给人用的
+第 5 层   api.py  transport.py  cli.py  install.py            给人用的
 ```
 
 五条硬规矩:
@@ -371,7 +391,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `serve/session.py` | `sessions.py` | 会话的编排本来就该和会话在一起 |
 | `serve/app.py` `serve/__main__.py` | `serve.py` | 对外那个口 |
 | `cli/__main__.py` `cli/registry.py` | `cli.py` | 连同它自己那套调用代码(§3.5) |
-| `cli/install.py` `cli/deps.py` | `install.py` `deps.py` | 平铺 |
+| `cli/install.py` + `cli/deps.py` | **`install.py` 一个文件** | 只有一个调用方,没有单独的测试(§3.6) |
 | `core/cdp.py` `tabs.py` `act.py` `locate.py` `observe.py` | 同名平铺 | |
 | `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
 | `core/log.py` | `log.py` | |
