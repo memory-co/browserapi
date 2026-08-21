@@ -1,0 +1,13 @@
+# sdist 里要带上**打包本身需要的东西**,不然从 sdist 建 wheel 会失败。
+#
+# 两样:in-tree 的构建后端,和浏览器端的源码。
+# 建好的 `webmuxd/_client/` 由 package-data 带进来 ——
+# **所以从 sdist 装的人不需要 Node**(见 _build/backend.py)。
+include _build/backend.py
+recursive-include webmuxjs *.ts *.json *.html *.md *.gitignore
+exclude webmuxjs/client/package-lock.json
+prune webmuxjs/client/node_modules
+prune webmuxjs/client/dist
+
+recursive-include docs *.md
+include tests/README.md

@@ -16,7 +16,11 @@ import pytest
 from webmuxd import xpra as xpra_mod
 from webmuxd import xpra as relay
 
-STATIC = Path(__file__).resolve().parents[2] / "webmuxd" / "_client"
+#: 浏览器端那份的**源码**在这儿 —— 构建产物(webmuxd/_client/)不在 git 里。
+CLIENT = Path(__file__).resolve().parents[2] / "webmuxjs" / "client"
+XPRA_TS = CLIENT / "src" / "channel" / "xpra.ts"
+RENCODE_TS = CLIENT / "src" / "protocol" / "xpra" / "rencode.ts"
+BUILT = Path(__file__).resolve().parents[2] / "webmuxd" / "_client" / "index.js"
 NODE = shutil.which("node")
 
 try:
@@ -292,17 +296,19 @@ def _script_of(html: Path) -> str:
     return m.group(1)
 
 
-JS_FILES = ["xpra.js", "rencode.js"]
+def _strip_comments(src: str) -> str:
+    """`//` 和 `/* */` 都去掉 —— 只看真正会执行的那部分。"""
+    return re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", "", src, flags=re.S))
 
 
 def test_注释里不许藏着代码():
     """**0.5.5 真的发生过**:删一个分支时,`} else if (...) {` 被写进了上一行注释,
     整个 `<script>` 变成语法错,画面页彻底不工作 —— 而且发了两个版本没人发现。
 
-    这一条不依赖 node,永远会跑。
+    今天 `tsc` 和 `vite build` 也会抓到,但**那两个要先 npm install**;
+    这一条不依赖任何东西,永远会跑。
     """
-    files = [STATIC / "index.html"] + [STATIC / f for f in JS_FILES]
-    for f in files:
+    for f in sorted((CLIENT / "src").rglob("*.ts")):
         for i, line in enumerate(f.read_text().splitlines(), 1):
             s = line.strip()
             if not s.startswith("//"):
@@ -312,22 +318,12 @@ def test_注释里不许藏着代码():
 
 
 @pytest.mark.skipif(not NODE, reason="本机没有 node —— 语法这一层只剩上面那条启发式")
-def test_观看页和客户端的_js_能被解析():
-    """`node --check`。**这是上一条测不到的那部分。**"""
-    src = _script_of(STATIC / "index.html")
-    p = Path(subprocess.run(["mktemp", "--suffix=.js"], capture_output=True,
-                            text=True).stdout.strip())
-    try:
-        p.write_text(src)
-        r = subprocess.run([NODE, "--check", str(p)], capture_output=True, text=True)
-        assert r.returncode == 0, r.stderr
-    finally:
-        p.unlink(missing_ok=True)
-    for f in JS_FILES:                      # 这两个是 ES module
-        r = subprocess.run([NODE, "--input-type=module", "-e",
-                            f"await import('{STATIC / f}')"],
-                           capture_output=True, text=True)
-        assert r.returncode == 0, f + ": " + r.stderr
+def test_构建出来的那份能被解析():
+    """`node --check` 那个 bundle。**这是上一条测不到的那部分。**"""
+    if not BUILT.exists():
+        pytest.skip("还没构建 —— tests/two_implementations/ 会为这个报")
+    r = subprocess.run([NODE, "--check", str(BUILT)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
 
 
 @pytest.mark.skipif(not NODE or rdumps is None, reason="要 node 和 xpra 的 python 包")
@@ -343,8 +339,8 @@ def test_js_编的包_python_解得开(obj):
     而且报错会指向完全不相干的地方。"""
     from xpra.net.rencodeplus.rencodeplus import loads
     r = subprocess.run(
-        [NODE, "--input-type=module", "-e",
-         f"const m=await import('{STATIC / 'rencode.js'}');"
+        [NODE, "--experimental-strip-types", "--input-type=module", "-e",
+         f"const m=await import('{RENCODE_TS}');"
          f"console.log(JSON.stringify(Array.from(m.rencode({json.dumps(obj)}))))"],
         capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
@@ -364,8 +360,8 @@ def test_python_编的包_js_解得开():
     ]
     blobs = json.dumps([list(rdumps(c)) for c in cases])
     r = subprocess.run(
-        [NODE, "--input-type=module", "-e",
-         f"const m=await import('{STATIC / 'rencode.js'}');"
+        [NODE, "--experimental-strip-types", "--input-type=module", "-e",
+         f"const m=await import('{RENCODE_TS}');"
          f"const bs={blobs};"
          "console.log(JSON.stringify(bs.map(b=>m.rdecode(Uint8Array.from(b))),"
          "(k,v)=>v instanceof Uint8Array?'<bytes>':v))"],
@@ -380,15 +376,17 @@ def test_python_编的包_js_解得开():
 
 def test_客户端不报视频编码_所以不用背_webcodecs():
     """服务端只发客户端报过的(works/12 §8)。这条声明就是"要写多少代码"的开关。"""
-    src = (STATIC / "xpra.js").read_text()
-    assert "full_csc_modes" not in src.split("//")[0] or "不报 full_csc_modes" in src
-    assert "h264" not in re.sub(r"//.*", "", src)
-    assert "VideoDecoder" not in src
+    src = XPRA_TS.read_text()
+    code = _strip_comments(src)
+    assert "full_csc_modes" not in code, "客户端报了 full_csc_modes"
+    assert "h264" not in code and "VideoDecoder" not in code
+    # 注释里得写着为什么 —— 这是个**决定**,不是漏了
+    assert "不报 full_csc_modes" in src or "不报视频编码" in src
 
 
 def test_客户端只写了那六种包的发送代码():
     """**少写一行发送代码,那边就少一条能过的路。**"""
-    src = re.sub(r"//.*", "", (STATIC / "xpra.js").read_text())
+    src = _strip_comments(XPRA_TS.read_text())
     sent = set(re.findall(r'_send\(\["([a-z_-]+)"', src))
     assert sent == set(relay.ALLOWED), sent
 
@@ -420,7 +418,7 @@ def test_xpra_装不上时报错要指名道姓(monkeypatch):
 
 RGB_PROBE = """
 globalThis.ImageData = class {{ constructor(d,w,h){{ this.data=d; this.width=w; this.height=h; }} }};
-const {{ XpraClient }} = await import("{static}/xpra.js");
+const {{ XpraClient }} = await import("{xpra_ts}");
 const c = new XpraClient("ws://x", {{ width:0, height:0, getContext: () => ({{}}) }}, {{}});
 const out = c._rgb(Uint8Array.from({data}), {w}, {h}, {{rgb_format:"{fmt}"}}, {stride});
 console.log(JSON.stringify(Array.from(out.data)));
@@ -428,8 +426,9 @@ console.log(JSON.stringify(Array.from(out.data)));
 
 
 def _rgb(data, w, h, fmt, stride):
-    r = subprocess.run([NODE, "--input-type=module", "-e",
-                        RGB_PROBE.format(static=STATIC, data=list(data), w=w, h=h,
+    r = subprocess.run([NODE, "--experimental-strip-types", "--input-type=module",
+                        "-e",
+                        RGB_PROBE.format(xpra_ts=XPRA_TS, data=list(data), w=w, h=h,
                                          fmt=fmt, stride=stride)],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr

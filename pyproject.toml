@@ -28,11 +28,14 @@ Homepage = "https://github.com/memory-co/webmuxd"
 Source = "https://github.com/memory-co/webmuxd"
 
 [project.scripts]
-webmuxd = "webmuxd.cli.__main__:main"
+webmuxd = "webmuxd.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+# **打包前先建浏览器端。** `webmuxd/_client/` 不在 git 里,是构建产物 ——
+# 接在这一刻,"忘了先构建"那种漏就不可能发生(docs/v2/works/j-layout.md §4.3)。
+build-backend = "backend"
+backend-path = ["_build"]
 
 [tool.setuptools.dynamic]
 version = { attr = "webmuxd.__version__" }

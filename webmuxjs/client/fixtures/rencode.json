@@ -1,0 +1,161 @@
+{
+  "_": "**手写的,照 rencodeplus 那张类型表**(见 src/protocol/xpra/rencode.ts 头部)。",
+  "__": "这份不由任何一侧的实现生成 —— 那样就成了自己考自己。改它要对着表核。",
+  "cases": [
+    {
+      "name": "正定长整数 0",
+      "value": 0,
+      "bytes": [
+        0
+      ],
+      "canonical": true
+    },
+    {
+      "name": "正定长整数上界 43",
+      "value": 43,
+      "bytes": [
+        43
+      ],
+      "canonical": true
+    },
+    {
+      "name": "负定长整数 -1",
+      "value": -1,
+      "bytes": [
+        70
+      ],
+      "canonical": false
+    },
+    {
+      "name": "int64 1234567",
+      "value": 1234567,
+      "bytes": [
+        65,
+        0,
+        0,
+        0,
+        0,
+        0,
+        18,
+        214,
+        135
+      ],
+      "canonical": true
+    },
+    {
+      "name": "float64 3.5",
+      "value": 3.5,
+      "bytes": [
+        44,
+        64,
+        12,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "canonical": true
+    },
+    {
+      "name": "变长字符串 hi",
+      "value": "hi",
+      "bytes": [
+        50,
+        58,
+        104,
+        105
+      ],
+      "canonical": true
+    },
+    {
+      "name": "空字符串",
+      "value": "",
+      "bytes": [
+        48,
+        58
+      ],
+      "canonical": true
+    },
+    {
+      "name": "true",
+      "value": true,
+      "bytes": [
+        67
+      ],
+      "canonical": true
+    },
+    {
+      "name": "false",
+      "value": false,
+      "bytes": [
+        68
+      ],
+      "canonical": true
+    },
+    {
+      "name": "null",
+      "value": null,
+      "bytes": [
+        69
+      ],
+      "canonical": true
+    },
+    {
+      "name": "变长数组 [1,2]",
+      "value": [
+        1,
+        2
+      ],
+      "bytes": [
+        59,
+        1,
+        2,
+        127
+      ],
+      "canonical": true
+    },
+    {
+      "name": "变长字典 {a:1}",
+      "value": {
+        "a": 1
+      },
+      "bytes": [
+        60,
+        49,
+        58,
+        97,
+        1,
+        127
+      ],
+      "canonical": true
+    },
+    {
+      "name": "嵌套",
+      "value": [
+        "ping",
+        [
+          1,
+          true
+        ]
+      ],
+      "bytes": [
+        59,
+        52,
+        58,
+        112,
+        105,
+        110,
+        103,
+        59,
+        1,
+        67,
+        127,
+        127
+      ],
+      "canonical": true
+    }
+  ],
+  "___": "decode 精确,encode 只保证往返:同一个值这个格式允许多种表示(-1 可以是定长的 70,也可以是 int64)。我们编的时候只用显式的那几种,所以「编出来一定等于这串」只对标了 canonical 的成立。"
+}

@@ -486,9 +486,29 @@ async def _pump(ws: web.WebSocketResponse, q: asyncio.Queue,
 
 # --------------------------------------------------------------------- 画面
 
-_INDEX = Path(__file__).resolve().parent / "_client" / "index.html"
-#: 观看页会去取的静态文件。**白名单,不是目录服务**。
-_STATIC = frozenset({"xpra.js", "rencode.js"})
+#: 浏览器端那份的落地处 —— **构建产物,不在 git 里**
+#: ([j §4.3](../docs/v2/works/j-layout.md#43-构建怎么接进-wheel))。
+_BUILT = Path(__file__).resolve().parent / "_client"
+
+#: 开发时的退路:还没往包里拷过,就直接读 `npm run build` 的产物。
+#: **只是退路,不是等价物** —— 装出来的包里只有 `_BUILT` 那一份。
+_DEV = Path(__file__).resolve().parents[1] / "webmuxjs" / "client" / "dist"
+
+
+def client_dir() -> Path:
+    """浏览器端那份在哪。**找不到就报,并说该跑哪一行** —— 不静默给个 404。"""
+    for d in (_BUILT, _DEV):
+        if (d / "index.html").exists():
+            return d
+    raise RuntimeError(
+        "浏览器端那份还没构建:"
+        f"{_BUILT} 和 {_DEV} 都没有 index.html —— "
+        "在 webmuxjs/client/ 里跑 `npm install && npm run build`")
+
+
+#: 观看页会去取的静态文件。**按后缀放行,不是目录服务** ——
+#: 构建产物的文件名由 Vite 定,写死一张名字白名单会在改构建配置那天悄悄坏掉。
+_STATIC_SUFFIX = frozenset({".js", ".css", ".map", ".woff2"})
 
 
 async def h_index(request: web.Request) -> web.Response:
@@ -498,17 +518,26 @@ async def h_index(request: web.Request) -> web.Response:
     列表、没有登录页、没有设置面板。存在的唯一理由是"跑起来之后用浏览器打开
     这个地址,链路通没通一眼就看出来"。上层要自己画,用的是同一组接口。
     """
-    return web.FileResponse(_INDEX, headers={"Cache-Control": "no-store"})
+    return web.FileResponse(client_dir() / "index.html",
+                            headers={"Cache-Control": "no-store"})
 
 
 async def h_static(request: web.Request) -> web.FileResponse:
-    """观看页要的那几个 js。**只放白名单里的文件名**,不是一个静态目录服务 ——
-    这个进程能读到的东西比一个 web 服务器该暴露的多得多。"""
+    """观看页要的那几个构建产物。
+
+    **不是一个静态目录服务** —— 这个进程能读到的东西比一个 web 服务器该暴露的
+    多得多。两道:名字里不许有路径分隔符和 `..`,后缀要在白名单里;
+    然后还要落在 `client_dir()` 里面。
+    """
     name = request.match_info["name"]
-    if name not in _STATIC:
+    d = client_dir()
+    target = (d / name).resolve()
+    if ("/" in name or "\\" in name or ".." in name
+            or Path(name).suffix not in _STATIC_SUFFIX
+            or d.resolve() not in target.parents
+            or not target.is_file()):
         raise BadRequest(f"没有这个文件:{name}", code="not_found")
-    return web.FileResponse(_INDEX.parent / name,
-                            headers={"Cache-Control": "no-store"})
+    return web.FileResponse(target, headers={"Cache-Control": "no-store"})
 
 
 async def h_rrweb(request: web.Request) -> web.WebSocketResponse:

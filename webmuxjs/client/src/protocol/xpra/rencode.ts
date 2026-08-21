@@ -1,4 +1,4 @@
-// rencodeplus —— xpra 的包编码。docs/v2/works/12 §2。
+// rencodeplus —— xpra 的包编码。webmuxjs/server/protocol/channels.md。
 //
 // **只是一个格式,不大。** 下面这张表就是全部:
 //
@@ -19,26 +19,32 @@
 //
 // 我们**解全套、编一个子集** —— 上行只有 6 种包(works/12 §7),
 // 全部用显式的变长形式编就够了,不需要为了省几个字节去挑最短表示。
+//
+// **这一层不碰 DOM、不碰 WebSocket**,所以能在 node 里直接测
+// ([j §4.1](../../../../../docs/v2/works/j-layout.md#41-分层的判据是能不能在-node-里测))。
+// 编解码错了不会报错,只会"画面对不上" —— 正是最该被单独测的那种代码。
 
 const TERM = 127;
 const utf8d = new TextDecoder("utf-8");
 const utf8e = new TextEncoder();
 
 class Reader {
-  constructor(u8) { this.b = u8; this.i = 0; }
-  byte() { return this.b[this.i++]; }
-  peek() { return this.b[this.i]; }
-  take(n) { const s = this.b.subarray(this.i, this.i + n); this.i += n; return s; }
-  view(n) { const d = new DataView(this.b.buffer, this.b.byteOffset + this.i, n); this.i += n; return d; }
+  b: Uint8Array;
+  i: number;
+  constructor(u8: Uint8Array) { this.b = u8; this.i = 0; }
+  byte(): number { return this.b[this.i++]!; }
+  peek(): number { return this.b[this.i]!; }
+  take(n: number): Uint8Array { const s = this.b.subarray(this.i, this.i + n); this.i += n; return s; }
+  view(n: number): DataView { const d = new DataView(this.b.buffer, this.b.byteOffset + this.i, n); this.i += n; return d; }
 }
 
-function readItem(r) {
+function readItem(r: Reader): any {
   const c = r.byte();
   if (c < 44) return c;                                   // 正定长整数
   if (c === 44) return r.view(8).getFloat64(0);
   if (c >= 48 && c <= 57) { r.i--; return readString(r); }
-  if (c === 59) { const a = []; while (r.peek() !== TERM) a.push(readItem(r)); r.i++; return a; }
-  if (c === 60) { const o = {}; while (r.peek() !== TERM) { const k = readItem(r); o[k] = readItem(r); } r.i++; return o; }
+  if (c === 59) { const a: any[] = []; while (r.peek() !== TERM) a.push(readItem(r)); r.i++; return a; }
+  if (c === 60) { const o: Record<string, any> = {}; while (r.peek() !== TERM) { const k = readItem(r); o[k] = readItem(r); } r.i++; return o; }
   if (c === 61) {                                          // 十进制字符串整数
     let j = r.i; while (r.b[j] !== TERM) j++;
     const n = parseInt(utf8d.decode(r.b.subarray(r.i, j)), 10);
@@ -54,18 +60,18 @@ function readItem(r) {
   if (c === 69) return null;
   if (c >= 70 && c <= 101) return -1 - (c - 70);
   if (c >= 102 && c <= 126) {                              // 定长字典
-    const o = {}, n = c - 102;
+    const o: Record<string, any> = {}, n = c - 102;
     for (let k = 0; k < n; k++) { const key = readItem(r); o[key] = readItem(r); }
     return o;
   }
   if (c >= 128 && c <= 191) return utf8d.decode(r.take(c - 128));
-  if (c >= 192) { const a = [], n = c - 192; for (let k = 0; k < n; k++) a.push(readItem(r)); return a; }
+  if (c >= 192) { const a: any[] = [], n = c - 192; for (let k = 0; k < n; k++) a.push(readItem(r)); return a; }
   throw new Error("rencode: 不认识的类型 " + c);
 }
 
-function readString(r) {
+function readString(r: Reader): string | Uint8Array {
   let j = r.i;
-  while (r.b[j] >= 0x30 && r.b[j] <= 0x39) j++;
+  while (r.b[j]! >= 0x30 && r.b[j]! <= 0x39) j++;
   const len = parseInt(utf8d.decode(r.b.subarray(r.i, j)), 10);
   const binary = r.b[j] === 0x2f;                          // '/' = 字节串
   r.i = j + 1;
@@ -75,13 +81,13 @@ function readString(r) {
   return binary ? new Uint8Array(bytes) : utf8d.decode(bytes);
 }
 
-export function rdecode(u8) { return readItem(new Reader(u8)); }
+export function rdecode(u8: Uint8Array): any { return readItem(new Reader(u8)); }
 
 // ------------------------------------------------------------------ 编
 
-function push(out, arr) { out.push(arr); }
+function push(out: Uint8Array[], arr: Uint8Array) { out.push(arr); }
 
-function enc(v, out) {
+function enc(v: any, out: Uint8Array[]): void {
   if (v === null || v === undefined) { push(out, Uint8Array.of(69)); return; }
   if (typeof v === "boolean") { push(out, Uint8Array.of(v ? 67 : 68)); return; }
   if (typeof v === "number") {
@@ -116,8 +122,8 @@ function enc(v, out) {
   throw new Error("rencode: 编不了 " + typeof v);
 }
 
-export function rencode(v) {
-  const parts = [];
+export function rencode(v: any): Uint8Array {
+  const parts: Uint8Array[] = [];
   enc(v, parts);
   let n = 0; for (const p of parts) n += p.length;
   const out = new Uint8Array(n);

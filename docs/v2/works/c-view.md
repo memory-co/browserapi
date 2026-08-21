@@ -573,8 +573,8 @@ webmuxd new --id work --port 7900 --transport screencast # 零系统依赖那条
 要能切,客户端就得同时带着这三份。
 
 xpra 的协议部分是自己解的:
-[`static/xpra.js`](../../../webmuxd/_client/xpra.js) +
-[`rencode.js`](../../../webmuxd/_client/rencode.js),去掉注释三百来行。
+[`channel/xpra.ts`](../../../webmuxjs/client/src/channel/xpra.ts) +
+[`protocol/xpra/`](../../../webmuxjs/client/src/protocol/xpra/),去掉注释三百来行。
 只需三百行的原因是 **`xpra-html5` 中不存在解码器** ——
 其余五千行为窗口管理、剪贴板、音频、虚拟键盘与 jQuery,**均不在需求范围内**。
 
@@ -632,6 +632,6 @@ xpra 的协议部分是自己解的:
 | 输入为什么是收口 —— §7.1 与 §10.1 全靠它 | [b §1](b-input.md#1-收口在哪) |
 | 画质的三个旋钮 | [c1](c1-quality.md) |
 | 通道模型与仲裁 | [e §6](e-client.md#6-通道模型) |
-| 落地在 | [`xpra.py`](../../../webmuxd/xpra.py) · [`view/relay.py`](../../../webmuxd/xpra.py) · [`view/cast.py`](../../../webmuxd/screen.py) · [`static/xpra.js`](../../../webmuxd/_client/xpra.js) |
+| 落地在 | [`xpra.py`](../../../webmuxd/xpra.py) · [`view/relay.py`](../../../webmuxd/xpra.py) · [`view/cast.py`](../../../webmuxd/screen.py) · [`channel/xpra.ts`](../../../webmuxjs/client/src/channel/xpra.ts) |
 | 原型在 | [`examples/rrweb_console/`](../../../examples/rrweb_console/) |
 | 测试在 | [`tests/pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |

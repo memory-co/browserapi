@@ -60,7 +60,7 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 | runtime | [`runtime/`](../../../webmuxd/processes.py) | [`one_endpoint/`](../../../tests/one_endpoint/) |
 | install · 系统包 | [`cli/install.py`](../../../webmuxd/install.py) · [`cli/deps.py`](../../../webmuxd/install.py) | [`installing/`](../../../tests/installing/) |
 | xpra:起 · 代理 · 白名单 | [`xpra.py`](../../../webmuxd/xpra.py) · [`view/relay.py`](../../../webmuxd/xpra.py) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
-| 观看端客户端 | [`static/index.html`](../../../webmuxd/_client/index.html) · [`xpra.js`](../../../webmuxd/_client/xpra.js) · [`rencode.js`](../../../webmuxd/_client/rencode.js) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
+| 观看端客户端 | [`webmuxjs/client/`](../../../webmuxjs/client/) —— [`viewer/main.ts`](../../../webmuxjs/client/src/viewer/main.ts) · [`channel/`](../../../webmuxjs/client/src/channel/) · [`protocol/`](../../../webmuxjs/client/src/protocol/) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
 | 动作与行为流 | [`core/act.py`](../../../webmuxd/act.py) · [`core/log.py`](../../../webmuxd/log.py) | [`pointing_at_things/`](../../../tests/pointing_at_things/) · [`the_scrollback/`](../../../tests/the_scrollback/) |
 | **文档本身** | — | [`the_docs_are_true/`](../../../tests/the_docs_are_true/) —— 链接、锚点、以及文档里的数字与代码一致 |
 

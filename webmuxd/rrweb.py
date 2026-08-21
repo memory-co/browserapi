@@ -68,16 +68,46 @@ RECORD_JS = """
   if (window.top !== window) return;              // 只在顶层录
   if (!/^https?:$/.test(location.protocol)) return;   // about:blank 不录
   window.__wm_dom = 1;
+
+  // **binding 不活过导航,而这段脚本比服务端补 binding 早。**
+  //
+  // 实测(docs/v2/issues/dom-binding-不活过导航.md):`Runtime.addBinding`
+  // 装的是当前那个执行上下文里的一个函数,一导航就没了;而 document-start
+  // 的脚本在新上下文一建好就跑 —— 服务端还来不及补。
+  //
+  // 以前这儿是 `try { emit(...) } catch (_) {}`:事件被**静默丢掉**,
+  // 表现是"DOM 模式画面永远不出来,一条错都没有"。现在攒着等。
+  var pend = [], lost = 0, timer = null;
+
+  function flush() {
+    var send = window.__wm_dom_emit;
+    if (typeof send !== "function") return false;
+    if (lost) {
+      lost = 0;
+      send(JSON.stringify({type: -1, err: "binding 迟迟不来,缓冲丢了一次"}));
+    }
+    while (pend.length) send(pend.shift());
+    return true;
+  }
+
+  function emit(s) {
+    pend.push(s);
+    if (flush()) { if (timer) { clearInterval(timer); timer = null; } return; }
+    // **满了就整个丢,不从中间截。** 增量链断在中间,重放出来的 DOM
+    // 从此是错的 —— 那比"画面停住"难查得多(c §5.5)。
+    if (pend.length > 5000) { pend.length = 0; lost = 1; }
+    if (!timer) timer = setInterval(flush, 50);
+  }
+
   try {
     rrweb.record({
-      emit(e) { try { window.__wm_dom_emit(JSON.stringify(e)); } catch (_) {} },
+      emit: function (e) { emit(JSON.stringify(e)); },
       recordCanvas: true,
       sampling: { canvas: 10 },
       inlineStylesheet: true,
     });
   } catch (e) {
-    try { window.__wm_dom_emit(JSON.stringify({type: -1, err: String(e)})); }
-    catch (_) {}
+    emit(JSON.stringify({type: -1, err: String(e)}));
   }
 })()
 """
@@ -183,6 +213,10 @@ class DomSource:
         #   ↑ 那个分号是必须的:UMD 最后一行是 `}))`,后面直接跟 `(() => …)()`
         #     会被解析成"调用上一个表达式的结果",报的是
         #     `(intermediate value)(...) is not a function`,和 rrweb 无关。
+        # **Runtime 域要先开。** `bindingCalled` 和 `executionContextCreated`
+        # 都只在开着的时候才推 —— 不开的话 addBinding 照样成功、页面里那个函数
+        # 照样在,但**页面发出来的东西一条都到不了服务端**,而且不报错。
+        await cdp.send("Runtime.enable", {}, session_id=session_id)
         await cdp.send("Runtime.addBinding", {"name": BINDING}, session_id=session_id)
         # **Page 域要先开。** 不开的话 `addScriptToEvaluateOnNewDocument`
         # 有可能被接受却不生效 —— 表现是 binding 在、记录器不在,不报错。
@@ -206,6 +240,8 @@ class DomSource:
             # 事件回调是连接级的,**只挂一次** —— 每个 tab 挂一遍的话,
             # 同一条事件会被处理 N 次,缓冲里全是重复。
             for ev, fn in (("Runtime.bindingCalled", self._on_binding),
+                           # **每次导航都要补 binding** —— 它不活过导航
+                           ("Runtime.executionContextCreated", self._on_context),
                            ("Network.responseReceived", self._on_resp),
                            ("Network.loadingFinished", self._on_done)):
                 cdp.on(ev, fn)
@@ -233,6 +269,26 @@ class DomSource:
                         json.dumps(r["exceptionDetails"], ensure_ascii=False)[:300])
         else:
             log.info("当前页补上记录器了")
+
+    def _on_context(self, _params: dict, sid: str | None) -> None:
+        """新文档 = 新执行上下文 = **binding 没了**,补一次。
+
+        `Runtime.addBinding` 装的是当前上下文里的一个函数,导航之后就没了。
+        实测:导航前 `typeof window.__wm_dom_emit === "function"`,
+        导航后 `undefined` —— 而记录器照跑,只是 emit 全抛进了黑洞
+        ([issue](../docs/v2/issues/dom-binding-不活过导航.md))。
+
+        补这一下**必然比页面里那段脚本晚**(它是 document-start 的),
+        所以页面那边会先攒着 —— 两边配合才补得上这个洞。
+        """
+        if sid is None or sid not in self.armed or self._cdp is None:
+            return
+        asyncio.create_task(self._readd(sid))
+
+    async def _readd(self, sid: str) -> None:
+        with contextlib.suppress(Exception):
+            await self._cdp.send("Runtime.addBinding", {"name": BINDING},
+                                 session_id=sid)
 
     def note_url(self, url: str) -> None:
         """当前页地址 —— 取资源时要拿它当 `Referer`,不然很多 CDN 直接 403。"""

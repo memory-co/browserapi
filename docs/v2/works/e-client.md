@@ -299,5 +299,5 @@ VNC 的净收益。
 | 客户端在整条链路的位置 | [a §6](a-architecture.md#6-客户端位置换了) |
 | 输入翻译在服务端那一半 | [b](b-input.md) |
 | 两条来源产出的为什么是同一种东西 | [c §4](c-view.md#4-前两条产出的是同一种东西) |
-| 落地在 | [`view/static/index.html`](../../../webmuxd/_client/index.html) · [`xpra.js`](../../../webmuxd/_client/xpra.js) · [`rencode.js`](../../../webmuxd/_client/rencode.js) |
+| 落地在 | [`webmuxjs/client/`](../../../webmuxjs/client/) —— [`viewer/main.ts`](../../../webmuxjs/client/src/viewer/main.ts) · [`channel/`](../../../webmuxjs/client/src/channel/) · [`protocol/`](../../../webmuxjs/client/src/protocol/) |
 | 测试在 | [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) · [`tests/pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |

@@ -1,0 +1,19 @@
+{
+  "_": "由 tests/two_implementations/ 生成 —— 别手改。",
+  "types": [
+    "ack",
+    "key",
+    "mode",
+    "mouse",
+    "resize",
+    "tab",
+    "text",
+    "wheel"
+  ],
+  "modifiers": {
+    "Alt": 1,
+    "Control": 2,
+    "Meta": 4,
+    "Shift": 8
+  }
+}

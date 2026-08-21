@@ -147,7 +147,7 @@ def test_客户端不声明视频编码_文档和代码是同一个结论():
 
     只查结论在不在,不查措辞 —— 文档在重写。
     """
-    src = (ROOT / "webmuxd/_client/xpra.js").read_text()
+    src = (ROOT / "webmuxjs/client/src/channel/xpra.ts").read_text()
     assert "full_csc_modes" not in re.sub(r"//.*", "", src), \
         "客户端声明了视频编码,但设计稿说不声明"
     doc = _doc()

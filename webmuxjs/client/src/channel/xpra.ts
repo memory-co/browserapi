@@ -1,36 +1,54 @@
-// xpra 客户端 —— docs/v2/works/12。
-//
-// **它只做一件事:把像素画到一块 canvas 上。**
-// 输入、光标、tab、原生 UI 全在另一条连接上(works/11 §5),这里一个字节都不发。
-//
-// 上行只有 6 种包(works/12 §7),而且服务端那边还有一层白名单
-// (view/relay.py)—— 这里少写一行发送代码,那边就少一条能过的路。
-//
-// 解码全部交给浏览器:jpeg/png/webp/avif 走 `createImageBitmap`,
-// `scroll` 走 `drawImage` 自己搬自己。**没有一行编解码器**(works/12 §3)。
+/**
+ * `/channel/xpra` —— **VNC 那条画面**:连上去、握手、把包画到 canvas 上。
+ *
+ * 拆包和编码在 `protocol/xpra/`(那两层能在 node 里测);
+ * 这个文件是**唯一碰 WebSocket 和 canvas 的一层**。
+ *
+ * 三条来自实测的硬规矩:
+ *
+ * - **握手里不报视频编码** —— 于是服务端永远不会发 h264 过来,
+ *   我们也就不需要 WebCodecs
+ * - **按包序上画** —— `createImageBitmap` 是异步的,并发画会让后来的帧
+ *   压在前面的上,滚动时表现为画面撕成两半
+ * - **`damage-sequence` 无论成败都要发** —— 它是 xpra 的背压额度,
+ *   漏一个就再也收不到帧;和我们自己那条"环 A 无条件回"是同一个道理
+ *
+ * 键盘鼠标一律不报:它们走 `/channel/cdp`,不走这条。
+ */
 
-// **把 query 带过去。** 页面是用 `?t=<token>` 打开的,而 `import "./rencode.js"`
-// 不会自动继承它 —— 加了 token 的 session 上这一句会 403,而且报错只会说
-// "模块加载失败",完全不指向 token。`import.meta.url` 上带着我们自己的 query。
-const { rdecode, rencode } = await import("./rencode.js" + new URL(import.meta.url).search);
+import { rencode } from "../protocol/xpra/rencode.ts";
+import {
+  ENCODINGS, Framer, HEADER, MAGIC, ProtocolError, RENCODEPLUS, frame,
+  type Packet,
+} from "../protocol/xpra/packet.ts";
 
-const HEADER = 8;
-const MAGIC = 0x50;            // 'P'
-const RENCODEPLUS = 0x10;
-
-// 我们能解的。**报什么服务端就只发什么**(works/12 §8)——
-// 这张表就是"客户端要背多重"的全部答案,不报视频编码就永远不会收到 h264。
-const ENCODINGS = ["jpeg", "png", "png/P", "png/L", "webp", "rgb", "rgb24", "rgb32", "scroll", "void"];
+export interface XpraHandlers {
+  status(s: string): void;
+  size(w: number, h: number): void;
+  log(m: string): void;
+}
 
 export class XpraClient {
-  constructor(url, canvas, opts = {}) {
+  url: string;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  on: XpraHandlers;
+  ws: WebSocket | null;
+  framer: Framer;
+  wid: number | null;
+  scratch: HTMLCanvasElement | null;
+  chain: Promise<void>;
+  frames: number;
+  bytes: number;
+  unknown: Map<string, number>;
+
+  constructor(url: string, canvas: HTMLCanvasElement, opts: Partial<XpraHandlers> = {}) {
     this.url = url;
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d", { alpha: false });
+    this.ctx = canvas.getContext("2d", { alpha: false })!;
     this.on = Object.assign({ status() {}, size() {}, log() {} }, opts);
     this.ws = null;
-    this.buf = new Uint8Array(0);
-    this.raw = {};             // chunk 下标 → 裸字节
+    this.framer = new Framer();
     this.wid = null;
     this.scratch = null;       // 画 scroll 用的快照画布
     this.chain = Promise.resolve();   // **按包序上画**,解码是异步的但顺序不能乱
@@ -38,18 +56,18 @@ export class XpraClient {
     this.unknown = new Map();
   }
 
-  connect() {
+  connect(): this {
     const ws = new WebSocket(this.url, ["binary"]);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => { this.on.status("connected"); this._hello(); };
-    ws.onmessage = (e) => this._feed(new Uint8Array(e.data));
+    ws.onmessage = (e) => this._feed(new Uint8Array(e.data as ArrayBuffer));
     ws.onclose = () => { this.on.status("closed"); };
     ws.onerror = () => { this.on.status("error"); };
     return this;
   }
 
-  close() {
+  close(): void {
     if (this.ws && this.ws.readyState === 1) {
       this._send(["disconnect", "bye"]);
       this.ws.close();
@@ -58,18 +76,13 @@ export class XpraClient {
 
   // -------------------------------------------------------------- 发(6 种)
 
-  _send(packet) {
+  _send(packet: unknown[]): void {
     if (!this.ws || this.ws.readyState !== 1) return;
-    const body = rencode(packet);
-    const out = new Uint8Array(HEADER + body.length);
-    const dv = new DataView(out.buffer);
-    out[0] = MAGIC; out[1] = RENCODEPLUS; out[2] = 0; out[3] = 0;
-    dv.setUint32(4, body.length);        // **大端**,和我们自己那个头的小端相反
-    out.set(body, HEADER);
-    this.ws.send(out);
+    // 8 字节头是**大端**,和我们自己那个 28 字节头的小端相反 —— 见 packet.ts
+    this.ws.send(frame(rencode(packet)));
   }
 
-  _hello() {
+  _hello(): void {
     const w = this.canvas.width || 1024, h = this.canvas.height || 768;
     const screen = ["webmuxd", w, h, Math.round(w * 25.4 / 96), Math.round(h * 25.4 / 96),
                     [["webmuxd", 0, 0, w, h, Math.round(w * 25.4 / 96), Math.round(h * 25.4 / 96)]],
@@ -113,44 +126,25 @@ export class XpraClient {
 
   // -------------------------------------------------------------- 收
 
-  _feed(chunk) {
-    if (this.buf.length) {
-      const merged = new Uint8Array(this.buf.length + chunk.length);
-      merged.set(this.buf); merged.set(chunk, this.buf.length);
-      this.buf = merged;
-    } else {
-      this.buf = chunk;
+  _feed(chunk: Uint8Array): void {
+    // 拆包在 protocol/xpra/packet.ts —— 这儿只负责把结果分发出去
+    let packets;
+    try {
+      packets = this.framer.feed(chunk);
+    } catch (err) {
+      this._fatal(err instanceof ProtocolError ? err.message : String(err));
+      return;
     }
-    for (;;) {
-      if (this.buf.length < HEADER) return;
-      if (this.buf[0] !== MAGIC) { this._fatal("头一个字节不是 'P'"); return; }
-      const level = this.buf[2], index = this.buf[3];
-      const size = new DataView(this.buf.buffer, this.buf.byteOffset + 4, 4).getUint32(0);
-      if (this.buf.length < HEADER + size) return;
-      const body = this.buf.subarray(HEADER, HEADER + size);
-      // **不静默降级。** 我们报了不支持压缩,服务端还压就是我们理解错了协议,
-      // 硬报出来 —— 悄悄丢掉只会变成"画面偶尔卡住"这种查不动的毛病。
-      if (level !== 0) { this._fatal("下行带压缩 level=" + level + ",但我们报的是不支持"); return; }
-      if (index > 0) {
-        this.raw[index] = new Uint8Array(body);          // 拷一份,下面要挪 buf
-      } else {
-        let p;
-        try { p = rdecode(body); } catch (err) { this._fatal("包解不开:" + err.message); return; }
-        for (const k of Object.keys(this.raw)) p[k] = this.raw[k];
-        this.raw = {};
-        this._dispatch(p);
-      }
-      this.buf = this.buf.subarray(HEADER + size);
-    }
+    for (const p of packets) this._dispatch(p);
   }
 
-  _fatal(why) {
+  _fatal(why: string): void {
     this.on.log("xpra 协议错:" + why);
     this.on.status("error");
     if (this.ws) this.ws.close();
   }
 
-  _dispatch(p) {
+  _dispatch(p: Packet): void {
     const t = p[0];
     switch (t) {
       case "hello":
@@ -208,7 +202,7 @@ export class XpraClient {
     }
   }
 
-  _resize(w, h) {
+  _resize(w: number, h: number): void {
     if (this.canvas.width === w && this.canvas.height === h) return;
     this.canvas.width = w; this.canvas.height = h;
     this.scratch = null;
@@ -217,7 +211,7 @@ export class XpraClient {
 
   // -------------------------------------------------------------- 画
 
-  _draw(p) {
+  _draw(p: Packet): void {
     // draw = ["draw", wid, x, y, w, h, coding, 像素, seq, rowstride, options]
     //          0      1    2  3  4  5    6       7     8      9         10
     // **rowstride 在 p[9],不在 options 里。** 拿错了 rgb 帧会整个斜掉。
@@ -236,7 +230,8 @@ export class XpraClient {
                               Math.round((performance.now() - t0) * 1000), ""]));
   }
 
-  async _paint(coding, x, y, w, h, data, opts, rowstride) {
+  async _paint(coding: string, x: number, y: number, w: number, h: number,
+               data: any, opts: Record<string, any>, rowstride: number): Promise<void> {
     if (coding === "void" || coding === "eos") return;
     if (coding === "scroll") {
       // 新一点的服务端把位移向量放在 options 里,老的放在像素那一格。
@@ -260,22 +255,25 @@ export class XpraClient {
 
   // `scroll` 就是把画布上已有的像素挪个位置 —— **零字节、零解码**(works/12 §3)。
   // 必须先拍快照再搬:直接在同一块画布上重叠自搬会拖出残影。
-  _scroll(moves) {
+  _scroll(moves: number[][]): void {
     if (!moves || !moves.length) return;
     const c = this.canvas;
     if (!this.scratch) {
       this.scratch = document.createElement("canvas");
       this.scratch.width = c.width; this.scratch.height = c.height;
     }
-    const sc = this.scratch.getContext("2d");
+    const sc = this.scratch.getContext("2d")!;
     sc.drawImage(c, 0, 0);
     for (const m of moves) {
-      const [sx, sy, sw, sh, dx, dy] = m;
+      // 六个数缺一不可 —— 少一个就是一串 NaN 坐标的 drawImage,画面直接花掉
+      if (!m || m.length < 6) continue;
+      const [sx, sy, sw, sh, dx, dy] = m as [number, number, number, number, number, number];
       this.ctx.drawImage(this.scratch, sx, sy, sw, sh, sx + dx, sy + dy, sw, sh);
     }
   }
 
-  _rgb(data, w, h, opts, rowstride) {
+  _rgb(data: Uint8Array, w: number, h: number, opts: Record<string, any>,
+       rowstride: number): ImageData {
     const fmt = opts["rgb_format"] || "RGBX";
     const px = new Uint8ClampedArray(w * h * 4);
     const stride = rowstride || Math.floor(data.length / h);
@@ -286,14 +284,14 @@ export class XpraClient {
     for (let row = 0; row < h; row++) {
       let s = row * stride, d = row * w * 4;
       for (let i = 0; i < w; i++, s += bpp, d += 4) {
-        px[d] = data[s + r]; px[d + 1] = data[s + g]; px[d + 2] = data[s + b];
-        px[d + 3] = a >= 0 ? data[s + a] : 255;
+        px[d] = data[s + r]!; px[d + 1] = data[s + g]!; px[d + 2] = data[s + b]!;
+        px[d + 3] = a >= 0 ? data[s + a]! : 255;
       }
     }
     return new ImageData(px, w, h);
   }
 
-  stats() {
+  stats(): { frames: number; bytes: number; unknown: Record<string, number> } {
     return { frames: this.frames, bytes: this.bytes,
              unknown: Object.fromEntries(this.unknown) };
   }

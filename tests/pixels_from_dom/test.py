@@ -189,12 +189,20 @@ def test_不是_dom_模式时这条通道要明说没有_并且说清怎么才�
 
 
 def test_内置页不往这条通道发东西():
-    """**只读要在客户端也是结构性的。** 全文不该出现往它 send 的那一行。"""
-    import pathlib
+    """**只读要在客户端也是结构性的。**
 
-    html = pathlib.Path("webmuxd/_client/index.html").read_text()
-    assert "/channel/rrweb" in html, "内置页得连这条通道"
-    assert "domWs.send" not in html, "这条通道上不该有上行"
+    不是"发之前判断一下" —— 那个文件里根本没有发送函数
+    (`tests/two_implementations/` 里还有一条一模一样的,两边都守)。
+    """
+    import pathlib
+    import re
+
+    ch = pathlib.Path("webmuxjs/client/src/channel/rrweb.ts").read_text()
+    code = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", "", ch, flags=re.S))
+    assert ".send(" not in code, "这条通道上不该有上行"
+
+    main = pathlib.Path("webmuxjs/client/src/viewer/main.ts").read_text()
+    assert "/channel/rrweb" in main, "内置页得连这条通道"
 
 
 # --------------------------------------------- 记录器从哪来(d §2)
@@ -266,3 +274,104 @@ def test_rrweb_是路径表认得的键():
     from webmuxd import config
 
     assert "rrweb" in config.KEYS
+
+
+# ------------------------------------------- binding 那条(issues/dom-binding-不活过导航)
+
+class _FakeCDP:
+    """记下发过哪些命令,别的什么都不做。"""
+
+    def __init__(self):
+        self.sent = []
+        self.subs = {}
+
+    async def send(self, method, params=None, *, session_id=None, **kw):
+        self.sent.append((method, params or {}, session_id))
+        return {}
+
+    def on(self, method, fn):
+        self.subs.setdefault(method, []).append(fn)
+        return lambda: None
+
+    def methods(self):
+        return [m for m, _p, _s in self.sent]
+
+
+async def test_arm_要先开_runtime_域():
+    """**"命令成功"不等于"事件会来"。**
+
+    `Runtime.bindingCalled` 只在这个域开着的时候才推。不开的话:
+    `addBinding` 照样成功、页面里那个函数照样在、页面照样调它 ——
+    **而服务端一条都收不到,还不报错**
+    (issues/dom-binding-不活过导航.md ①)。
+    """
+    from webmuxd import rrweb
+
+    src = rrweb.DomSource()
+    cdp = _FakeCDP()
+    await src.arm(cdp, "sid-1")
+    ms = cdp.methods()
+    assert "Runtime.enable" in ms, "没开 Runtime 域 —— 页面发什么都到不了"
+    assert ms.index("Runtime.enable") < ms.index("Runtime.addBinding"), \
+        "要先开域再装 binding"
+
+
+async def test_每个新文档都要补一次_binding():
+    """**binding 每次导航都没了。**
+
+    实测:导航前 `typeof window.__wm_dom_emit === "function"`,
+    导航后 `undefined` —— 而记录器照跑,emit 全抛进黑洞。
+    所以要订 `Runtime.executionContextCreated`,一个新上下文补一次。
+    """
+    import asyncio
+
+    from webmuxd import rrweb
+
+    src = rrweb.DomSource()
+    cdp = _FakeCDP()
+    await src.arm(cdp, "sid-1")
+    assert "Runtime.executionContextCreated" in cdp.subs, "没订新上下文"
+
+    await asyncio.sleep(0.05)          # arm 里那个补注入是异步的,等它落完
+    cdp.sent.clear()
+    for fn in cdp.subs["Runtime.executionContextCreated"]:
+        fn({"context": {"id": 2}}, "sid-1")
+    await asyncio.sleep(0.05)
+    assert ("Runtime.addBinding", {"name": rrweb.BINDING}, "sid-1") in cdp.sent, \
+        "新文档来了没补 binding"
+
+
+async def test_别的_tab_的新上下文不乱补():
+    import asyncio
+
+    from webmuxd import rrweb
+
+    src = rrweb.DomSource()
+    cdp = _FakeCDP()
+    await src.arm(cdp, "sid-1")
+    await asyncio.sleep(0.05)          # arm 里那个补注入是异步的,等它落完
+    cdp.sent.clear()
+    for fn in cdp.subs["Runtime.executionContextCreated"]:
+        fn({"context": {"id": 9}}, "别的-tab")
+    await asyncio.sleep(0.05)
+    assert not cdp.sent, "给没装过记录器的 tab 也补了 binding"
+
+
+def test_binding_还没到时先攒着_不静默丢():
+    """**那个 `catch (_) {}` 是这条链路上最贵的一行。**
+
+    页面脚本是 document-start 的,**必然比服务端补 binding 早** ——
+    直接发就是必丢。而丢了不报错,表现和"页面没动"一模一样。
+    """
+    from webmuxd import rrweb
+
+    import re
+
+    js = rrweb.RECORD_JS
+    code = re.sub(r"//.*", "", js)      # 注释里提到那行不算
+    assert "catch (_) {}" not in code, "又把发送失败吞掉了"
+    assert "pend.push" in code and "typeof send !== \"function\"" in code, \
+        "binding 没到的时候得先攒着"
+    # **满了整个丢,不从中间截** —— 增量链断在中间,重放出来的 DOM 从此是错的
+    assert "pend.length = 0" in code and "pend.splice" not in code
+    assert "lost" in code, "丢过要说出来,不能悄悄丢"
