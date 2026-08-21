@@ -103,8 +103,7 @@ webmuxd/
 ├── serve.py        **真正对外那个口** —— 人打开的网页、画面、`/api/*`
 │
 │  ── 给人用的两个面 ────────────────────────────────────
-├── api.py          `Webmuxd()` / `session()` —— 代码里 import 的门面
-├── transport.py    SDK 走 HTTP 那一层(对应 requests 的 adapters)
+├── api.py          `Webmuxd()` / `Session` / `Tab` —— 代码里 import 的门面,**HTTP 也在这儿**
 ├── cli.py          命令行 + **只有 CLI 用的那套调用代码**(§3.5)
 ├── install.py      `webmuxd install` —— 探、下、装、写记录,**包名表也在这儿**
 │
@@ -271,8 +270,22 @@ install.py  说"apt 装 xvfb / yum 装 xorg-x11-server-Xvfb"  ← 只有它认�
 > 再起一个就违反"一个口"那条。所以是"CLI 自己那套**请求**代码住在 `cli.py`",
 > 不是"CLI 的服务端住在 `cli.py`"。
 
-`transport.py` 是 SDK 那一侧的,两边**故意各写各的** ——
-共用一层的话,CLI 的人话报错和 SDK 的异常树会互相拉扯。
+**两个面各写各的 HTTP 调用,不抽公共层。** SDK 那一侧在 `api.py`,
+CLI 那一侧在 `cli.py` —— 共用一层的话,CLI 要的人话报错和 SDK 的异常树
+会互相拉扯。
+
+> 顺带回答一个容易问的:**`serve.py` 不能"顺便"把调用那侧也管了。**
+> 它们是同一根线的两头 —— 一个收,一个发。而且第 3 条依赖规矩就是为这个存在的:
+> SDK 要能连**别的机器上**的服务端,一旦它 import 了 `serve.py`,
+> 那条路就断了(还会把服务端那套依赖拖进 SDK)。
+
+至于要不要给"调用 HTTP"单独一个文件(今天的 `client/transport.py`):**不要**。
+它 95 行、唯一的调用方就是 `api.py`、没有测试单独 import 它,
+而且 §3.5 那两条判据一条都不占。**异常映射本来就不在它里面** ——
+`from_response()` 住在 `exceptions.py`,那才是它该在的地方。
+
+> requests 把 `adapters.py` 分开,是因为**适配器可插拔**(能 `mount()` 一个自己的)。
+> 我们没有这个需求 —— 就一个传输。**照抄它的文件清单而不照抄它的理由,就是 cargo cult。**
 
 ## 4. `webmuxjs/client/`:按前端工程搞
 
@@ -381,14 +394,14 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
           jpg.py  xpra.py  rrweb.py
 第 3 层   screen.py  sessions.py            编排
 第 4 层   serve.py                          对外那个口
-第 5 层   api.py  transport.py  cli.py  install.py            给人用的
+第 5 层   api.py  cli.py  install.py                          给人用的
 ```
 
 五条硬规矩:
 
 1. **只能往下 import,不能往上。** `cdp.py` 不认识 `sessions.py`
 2. **`models.py` 不 import 本项目任何东西**(除 `exceptions`)—— 它永远在最底下
-3. **`api.py` / `transport.py` 不 import `serve.py`** ——
+3. **`api.py` / `cli.py` 不 import `serve.py`** ——
    SDK 要能连**别的机器上**的服务端,一旦 import 了进程内的实现,那条路就断了
 4. **`screen.py` 不 import `input.py`** —— 那是接缝,不是分层(§3.6)
 5. **`jpg.py` / `xpra.py` / `rrweb.py` 互不 import** —— 三条并列的腿,
@@ -412,8 +425,8 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 
 | 现在 | 搬去 | 一句话 |
 | --- | --- | --- |
-| `client/manager.py` `session.py` `tab.py` | `api.py` | 给人 import 的那一面 |
-| `client/transport.py` | `transport.py` | 对应 requests 的 adapters |
+| `client/manager.py` `session.py` `tab.py` | `api.py` | 给人 import 的那一面,连同它自己那套 HTTP 调用 |
+| `client/transport.py` | **`api.py`**(并进去) | 唯一调用方就是它;异常映射本来就在 `exceptions.py`(§3.8) |
 | `client/observation.py` `mirror.py` · `core/tabs.Tab` · `runtime/base.Handle` · `view/modes.Mode` | **`models.py`** | 跨边界的数据集中一处 —— 今天散在五个模块,`Tab` 还有两份(§3.1) |
 | `errors.py` | `exceptions.py` | 跟 requests 的叫法 |
 | `runtime/process.py` 里起进程那部分 + `xpra.py` 里起进程那部分 | **`processes.py`** | 两处各写一套"起、等、看活、收" —— 合成一份(§3.2) |
