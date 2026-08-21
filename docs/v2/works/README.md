@@ -28,7 +28,7 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 | **[f](f-tabs.md)** | tab | 外挂的 bar,**和真的那个是同一份数据** —— 不是副本,因此没有可漂移的东西;`active` 从一本账变成当前事实 |
 | **[g](g-native-ui.md)** | 浏览器自己的 UI | 对话框、下载、文件选择、权限、认证 —— 在画面里**要么不存在,要么存在但点不动**,必须逐类接管。不替使用者决定,超时一律偏向取消 |
 | **[h](h-runtime.md)** | 浏览器从哪来 | runtime 只产出**一个 CDP 端点**;不碰容器(把 webmuxd 放进去,而不是反过来);root 下自动关沙箱但必须说出来 |
-| **[j](j-layout.md)** | 代码摆在哪 | 顶层按语言分两棵树:`webmuxd/`(Python)· `webmuxjs/`(JS,再分 client 和只放协议文档的 server)。Python 那棵先按**两种用法**分(命令行 / import),再按**对谁做事**分;**目录要让接缝看得见** —— 画面和输入必须分开 |
+| **[j](j-layout.md)** | 代码摆在哪 | 顶层按语言分两棵树:`webmuxd/`(Python)· `webmuxjs/`(JS,再分 client 和只放协议文档的 server)。Python 那棵照 requests 的样子:**`models.py` 一处装下所有跨边界的数据**,顶层平铺、子系统才分包;**目录要让接缝看得见** —— 画面和输入必须分开 |
 | **[i](i-agent-surface.md)** | agent 的操作面与行为流 | 三层操作面(`open` 为什么不在动词表里)、封闭动词表与 `js` 逃生舱;人和 agent 进**同一条流**且标明是谁做的 —— **记控件身份,不记控件内容** |
 
 ## 明确不做
