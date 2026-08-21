@@ -6,6 +6,9 @@
 Python 树里往下,每个目录的名字都必须回答"它是什么",
 不能是 `core` / `view` 这类"填什么都对"的词。
 
+`webmuxjs/client/` 按前端工程搞(分层、构建、测试),**产物直接打进 wheel** ——
+`pip install` 的人不需要 Node。
+
 这一篇只管**代码摆在哪**,不改任何行为。
 
 ## 1. 为什么要动
@@ -25,7 +28,7 @@ Python 树里往下,每个目录的名字都必须回答"它是什么",
 仓库根
 ├── webmuxd/          ← Python 的全部。**包名不变,位置不动**
 ├── webmuxjs/         ← JS 的全部
-│   ├── client/       浏览器里跑的接收端 —— 真的在跑,是产品的一部分
+│   ├── client/       浏览器里跑的接收端 —— 一个前端工程(§4),产物打进 wheel
 │   └── server/       另一个服务端实现 —— **不实现**,只放完整的协议文档
 └── docs/
 ```
@@ -105,28 +108,85 @@ webmuxd/
 好处很具体:**"加第四条腿要动哪些文件"变成一个能一眼回答的问题** ——
 加一个 `source/*.py`,在 `modes.py` 那张表里加一行。同一类东西一种摆法。
 
-## 4. 客户端里面:按通道分
+## 4. `webmuxjs/client/`:按前端工程搞
+
+它不是"几个脚本",是**实现了协议的那一份代码**。所以有源码分层、有构建、有测试。
+
+**构建产物直接打进 wheel** —— `pip install` 的人不需要 Node,Node 只在发版时要。
 
 ```
 webmuxjs/client/
+├── package.json
+├── vite.config.ts
 ├── src/
-│   ├── channel/         一条通道一个文件 —— 和服务端的 /channel/* 一一对应
-│   │   ├── cdp.js       帧(28 字节头)+ 输入上行 + 光标 + tab
-│   │   ├── xpra.js      8 字节头 + rencodeplus + 按区域绘制
-│   │   └── rrweb.js     事件流喂给 Replayer,**只下行**
-│   ├── screen.js        三种画面各自往哪画;切换
-│   ├── input.js         DOM 事件 → 上行消息(25ms 聚批在这儿)
-│   └── viewer.html      内置那个页面 —— **不是产品界面,是验链路的**
-└── dist/                构建产物 → 拷进 webmuxd/web/
+│   ├── protocol/      纯逻辑。**不碰 DOM,不碰 WebSocket**
+│   │   ├── frame.ts       28 字节头:编 / 解 / targetId 的 4×uint32 LE
+│   │   ├── messages.ts    上行白名单与构造
+│   │   └── xpra/          rencode.ts · packet.ts(8 字节头、draw、damage-sequence)
+│   ├── flow/          节奏与背压,也是纯逻辑
+│   │   ├── ack.ts         额度 2 / 缓冲 3 / 留新丢旧 / 3 秒心跳
+│   │   └── batch.ts       输入 25ms 聚批、同批只留最后一个 move、滚轮累加
+│   ├── channel/       **唯一碰 WebSocket 的一层**,一条通道一个文件
+│   │   ├── cdp.ts  xpra.ts  rrweb.ts
+│   ├── input/         DOM 事件 → 消息;IME 组字在这儿收口
+│   ├── screen/        三种画面各自往哪画、怎么切
+│   ├── api.ts         `/api/*` 的封装
+│   └── viewer/        内置那个页面 —— **不是产品界面,是验链路的**
+├── test/              vitest
+└── fixtures/          和 Python 对拍的 golden 文件(§4.2)
 ```
 
-**一条通道一个文件,和服务端路由一一对应。** 通道模型的三个问题
-([e §6.6](e-client.md#66-这个模型是用来想清楚的不是插件框架))落到目录上,
-就是"加一条通道 = 加一个 `channel/*.js`"。
+### 4.1 分层的判据是"能不能在 node 里测"
 
-**`rrweb.js` 里不许有 `send`。** 那条通道结构上没有上行 —— 服务端 handler
-里根本没有接收端。客户端这一侧也用同样的方式守:文件里没有发送函数,
-不是"发之前判断一下"。
+`protocol/` 和 `flow/` **不碰浏览器**,所以它们就是普通函数,可以直接测。
+而这两层恰恰是最容易出**静默错误**的地方:字节序、额度环、丢帧策略 ——
+错了不会报错,只会"偶尔卡住"或者"画面对不上"。
+
+这条分层不是审美。**今天这些逻辑埋在 `index.html` 一整块 inline `<script>` 里,
+根本没法单独测。**
+
+`channel/` 是唯一碰 WebSocket 的一层,一条通道一个文件,和服务端路由一一对应 ——
+加一条通道 = 加一个 `channel/*.ts`([e §6.6](e-client.md#66-这个模型是用来想清楚的不是插件框架))。
+
+**`rrweb.ts` 里不许有 `send`。** 那条通道结构上没有上行 ——
+服务端 handler 里根本没有接收端,客户端这一侧也用同样的方式守:
+文件里没有发送函数,不是"发之前判断一下"。
+
+### 4.2 和 Python 对拍
+
+协议有两个实现(今天是一个半),**光靠各自的测试守不住"两边一致"**。
+
+```
+Python 侧测试 → 写 fixtures/*.json(给定输入 → 期望的字节)
+JS 侧测试     → 读同一份,断言自己编出来一样、解出来也一样
+```
+
+覆盖 28 字节头、xpra 的 8 字节头和 `draw` 包、上行消息集合。
+**任何一边改了格式,两边一起红。**
+
+这项目在这个坑里栽过 —— `targetId` 的字节序当初是靠人肉发现的。
+类型拦不住它,对拍能。
+
+### 4.3 构建怎么接进 wheel
+
+```
+npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/web/ → 进 wheel
+```
+
+- **`webmuxd/web/` 进 gitignore。** git 里只有 `src/` 一份,漂移不可能发生
+- 开发时 `npm run dev`,Vite 把 `/api` 和 `/channel` 代理到本机 sessiond
+- **必须加一个守卫**:`webmuxd/web/` 缺失、或者比 `src/` 旧,就让测试红。
+  这项目栽过一次 `.js` 没进 wheel,**不能靠"记得先构建"**
+
+用 TypeScript —— Vite 原生支持,几乎不额外要什么;类型管 API 面,
+**边界仍然要运行时校验**(类型过不了网络)。
+
+### 4.4 这一层不做的
+
+- ❌ **不发 npm。** [e §9](e-client.md#9-该发出去的是哪一层) 说协议层将来该能单独发,
+  但那是另一个决定 —— 今天只往 wheel 里打
+- ❌ **不引前端框架。** 内置页是验链路的调试页,框架买不到任何东西
+- ❌ **不上 monorepo 工具。** 就一个 JS 工程
 
 ## 5. 依赖方向:这才是不再腐烂的那条
 
@@ -135,6 +195,7 @@ cli/ ──┐
        ├──▶ sdk/ ──HTTP──▶ sessiond/ ──▶ screen/  input/  browser_ui/
        │                                    └──────┴──────┴──▶ browser/  launch/  record/
 webmuxjs/client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
+   src/channel/ ──▶ src/protocol/  src/flow/     ← 上面两层不碰浏览器
 ```
 
 四条硬规矩:
@@ -185,8 +246,8 @@ webmuxjs/client/ ──协议──▶ (sessiond 的 /channel/* 和 /api/*)
 2. 修 import,跑全套测试
 3. 每个包补 `__init__.py` 的一句话,顺手把指向已删文档的 docstring 修掉
 4. 加 §5 那四条依赖规矩的测试、§6 那两条的测试
-5. 把客户端搬到 `webmuxjs/client/`,给它一条最小的构建(拷贝也算构建),
-   产物落到 `webmuxd/web/`
+5. 把客户端搬到 `webmuxjs/client/` 并按 §4 拆开;`npm run build` 的产物
+   落到 `webmuxd/web/`,加上那条"缺失或过期就红"的守卫
 6. **验 wheel 里的东西一样不少** —— 这项目栽过一次(`.js` 没进包);
    然后干净 venv 装一遍再发
 
