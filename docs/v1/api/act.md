@@ -11,13 +11,12 @@
 ## 1. `GET /api/observe` —— 看
 
 ```
-GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
+GET /api/observe?tab=t_3&viewport_only=false&max_elements=150
 ```
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
 | `tab` | 当前激活 | 观测哪个 tab |
-| `annotate` | `true` | 截图上是否画元素编号框(Set-of-Mark) |
 | `viewport_only` | `false` | 只要视口内的元素,压体积 |
 | `max_elements` | `150` | 上限,超出按"视口内 → 离视口远近"排序截断 |
 | `text` | `digest` | `none` / `digest`(前 4000 字) / `full` |
@@ -37,8 +36,7 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
   },
 
   "screenshot": {
-    "url": "/api/observe/obs_01J9X.../screenshot",   // 标注版
-    "plain_url": "/api/observe/obs_01J9X.../screenshot?annotate=false",
+    "url": "/api/observe/obs_01J9X.../screenshot",   // 就是页面本身
     "w": 1024, "h": 680, "format": "webp"
   },
 
@@ -110,7 +108,7 @@ GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
 | 端点 | 是什么 |
 | --- | --- |
 | `GET /api/screenshot?full_page=` | **现拍一张**,干净的 |
-| `GET /api/observe/{obs_id}/screenshot[?annotate=false]` | 那次观测拍的,默认**画了编号** |
+| `GET /api/observe/{obs_id}/screenshot` | 那次观测拍的,**就是页面本身** |
 | `GET /api/log/{seq}/shot` | 每个动作后自动拍的,见 [log.md](log.md) |
 
 都直接返回图片字节,不是 JSON。
@@ -284,7 +282,7 @@ tab 的增删和页面动作在这儿咬合。
 两个端点交替,不需要第三个:
 
 ```
-GET  /api/observe            → 标注截图 + 元素表 + tab 列表 + notes
+GET  /api/observe            → 截图 + 元素表 + tab 列表 + notes
       ↓  喂给模型(图 + as_prompt 排版 + tabs + notes + 最近几条 log)
 POST /api/act  { actions, note, user }
       ↓  ok:继续下一轮

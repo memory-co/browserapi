@@ -379,7 +379,6 @@ async def h_act(request: web.Request) -> web.Response:
 
 def _obs_kwargs(q) -> dict[str, Any]:
     return {
-        "annotate": q.get("annotate", "true") != "false",
         "viewport_only": q.get("viewport_only") == "true",
         "max_elements": int(q.get("max_elements", locate.MAX_ELEMENTS)),
         "text": q.get("text", "digest"),
@@ -389,18 +388,22 @@ def _obs_kwargs(q) -> dict[str, Any]:
 async def h_observe(request: web.Request) -> web.Response:
     s = _s(request)
     obs = await s.observe(tab=request.query.get("tab"), **_obs_kwargs(request.query))
-    request.app.setdefault("shots", {})[obs.id] = (obs.screenshot, obs.plain_screenshot)
+    request.app.setdefault("shots", {})[obs.id] = obs.screenshot
     return _json(obs.to_json(shot_url=f"/api/observe/{obs.id}/screenshot"))
 
 
 async def h_obs_shot(request: web.Request) -> web.Response:
-    pair = request.app.get("shots", {}).get(request.match_info["obs"])
-    if not pair:
+    """那次观测的截图 —— **就是页面本身,没有第二个版本**。
+
+    编号在 `elements[].id`,位置在 `elements[].bbox`;要一张画好框的
+    Set-of-Mark 图,拿这两样自己叠。以前这儿有个 `?annotate=false` ——
+    那是因为标注是铺在**活页面上**再拍的,而那会让观看的人看到一闪
+    ([issue](../docs/v2/issues/标注层会被人看见.md))。
+    """
+    shot = request.app.get("shots", {}).get(request.match_info["obs"])
+    if not shot:
         raise BadRequest("这次观测的截图已经不在了", code="bad_request")
-    marked, plain = pair
-    want_plain = request.query.get("annotate") == "false"
-    return web.Response(body=plain if want_plain else marked,
-                        content_type="image/webp")
+    return web.Response(body=shot, content_type="image/webp")
 
 
 async def h_screenshot(request: web.Request) -> web.Response:
@@ -416,7 +419,7 @@ async def h_screenshot(request: web.Request) -> web.Response:
 
 async def h_text(request: web.Request) -> web.Response:
     s = _s(request)
-    obs = await s.observe(tab=request.query.get("tab"), annotate=False,
+    obs = await s.observe(tab=request.query.get("tab"),
                           text="full", max_elements=0)
     return web.Response(text=obs.text, content_type="text/plain")
 

@@ -116,7 +116,7 @@ webmuxd 不产生思考,但它提供一个思考与后果对齐的存放位置
 | `observe [--shot]` | `GET /api/observe` |
 | `capture --text` | `GET /api/text` |
 | `capture --shot` | `GET /api/screenshot` |
-| `capture --elements` | `GET /api/observe?annotate=false` 只取 `elements` |
+| `capture --elements` | `GET /api/observe` 只取 `elements` |
 | `url` `status` | `GET /api/status` |
 
 **CLI 没覆盖的**:`POST /api/upload`、`GET /api/download/{name}`、`POST /api/reset`、

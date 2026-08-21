@@ -140,8 +140,10 @@ async def test_observe_returns_everything_at_once(client):
 
     shot = await client.get(d["screenshot"]["url"])
     assert shot.status == 200 and shot.content_type == "image/webp"
-    plain = await client.get(d["screenshot"]["plain_url"])
-    assert plain.status == 200
+    # **只有一张。** `?annotate=false` 那个版本没有了 —— 标注不再进页面,
+    # 于是"干净版"和它就是同一张(issues/标注层会被人看见.md)
+    same = await client.get(d["screenshot"]["url"] + "?annotate=false")
+    assert await same.read() == await shot.read()
 
 
 async def test_screenshot_and_text(client):

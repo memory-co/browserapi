@@ -82,16 +82,16 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/observe` | **观测**:标注截图 + 元素表 + tab 列表 |
+| `GET` | `/api/observe` | **观测**:截图 + 元素表 + tab 列表 |
 | `POST` | `/api/act` | **执行动作**(单个或一串) |
 | `GET` | `/api/screenshot` | 截图,`?full_page=` 要整页 |
 | `GET` | `/api/text` | 页面正文 |
 | `GET` | `/api/log` | 操作日志,详见 [log.md](log.md) |
 | `GET` | `/api/log/bundle` | 日志 + 截图 + 离线 HTML 的 zip |
 | `GET` | `/api/log/{seq}/shot` | 某一步动作后的截图 |
-| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图,`?annotate=false` 要无标注版 |
+| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图 |
 | `GET` | `/api/log/{seq}/shot` | 某一步动作后的截图 |
-| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图,`?annotate=false` 要无标注版 |
+| `GET` | `/api/observe/{obs_id}/screenshot` | 那次观测的截图 |
 | `POST` | `/api/upload` | 传文件进去给 `upload` 动作用 |
 | `GET` | `/api/download/{name}` | 取下载的文件 |
 

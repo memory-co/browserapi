@@ -131,8 +131,12 @@ action = my_llm(goal, image=obs.screenshot, elements=obs.as_prompt())
 tab.click(obs[action.index])        # 按模型给的编号点
 ```
 
-`observe()` 做的事:抓可访问性树 → 筛出能交互又看得见的元素 → 在截图上画框标号
-(Set-of-Mark)。这是让多模态模型能直接用的最小观测层,不需要你自己解析 DOM。
+`observe()` 做的事:抓可访问性树 → 筛出能交互又看得见的元素 → 编号 → 拍一张。
+这是让多模态模型能直接用的最小观测层,不需要你自己解析 DOM。
+
+**图上不画框。** 编号在 `el.id`、位置在 `el.bbox` —— 要一张 Set-of-Mark 图,
+拿这两样自己叠。以前是在活页面上铺一层框再拍,而那会让正在看的人看到一闪
+([issue](../../v2/issues/标注层会被人看见.md))。
 
 `obs[12]` 这种下标、`obs.notes` 这种字段,在 JSON 里都会退化成数组和字符串 ——
 **这就是为什么主体在 lib**。

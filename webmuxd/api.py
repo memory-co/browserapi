@@ -989,7 +989,12 @@ class Observation(models.Observation):
 
     @property
     def screenshot(self) -> bytes:
-        """标注版 —— 图上已经画好 [12] [13] 编号(Set-of-Mark)。"""
+        """这次观测那一刻的页面。**用到才去取。**
+
+        **就是页面本身,没有画框的第二个版本。** 编号在 `el.id`,
+        位置在 `el.bbox` —— 要 Set-of-Mark 图,拿这两样自己叠
+        ([issue](../docs/v2/issues/标注层会被人看见.md))。
+        """
         if not self._shot and self._session is not None and self.shot_url:
             self._shot = self._session._t.get_bytes(self.shot_url)
         return self._shot
@@ -998,12 +1003,3 @@ class Observation(models.Observation):
     def screenshot(self, v: bytes) -> None:
         self._shot = v
 
-    @property
-    def plain_screenshot(self) -> bytes:
-        if not self._plain and self._session is not None and self.shot_url:
-            self._plain = self._session._t.get_bytes(self.shot_url, annotate=False)
-        return self._plain
-
-    @plain_screenshot.setter
-    def plain_screenshot(self, v: bytes) -> None:
-        self._plain = v

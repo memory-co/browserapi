@@ -33,46 +33,62 @@ async def test_one_call_gets_everything(cdp, page):
     assert obs.page.title == "结算"
     assert obs.page.viewport.w > 0
     assert [e.name for e in obs.elements][:2] == ["提交订单", "取消订单"]
-    assert obs.screenshot and obs.plain_screenshot
+    assert obs.screenshot
     assert "正文内容" in obs.text
     assert obs.filter_version >= 1, "筛选规则的版本要跟着观测走"
 
 
-async def test_annotated_and_plain_are_different_images(cdp, page):
-    """标注版画了编号框,干净版没有 —— 两张图不该是同一份字节。"""
+async def test_观测不许改页面(cdp, page):
+    """**这是结构性的,不是靠 finally 撤干净。**
+
+    以前是在活页面上铺一层带编号的框、拍完再撤。撤是撤了,但**画面是推的**:
+    JPG 那条会把带框的那一帧推出去、DOM 那条会把这次 mutation 录进重放流 ——
+    观看的人看到一闪(docs/v2/issues/标注层会被人看见.md)。
+
+    所以现在验的不是"撤干净了",是"**根本没动过**"。
+    """
     _tid, sid = page
     await _goto(cdp, sid)
-    obs = await observe(cdp, sid)
-    assert obs.screenshot != obs.plain_screenshot, "标注层没画上去"
-    assert obs.screenshot[:4] == b"RIFF", "不是 webp"
 
+    async def dom_fingerprint():
+        r = await cdp.send("Runtime.evaluate", {
+            "expression": "document.documentElement.outerHTML.length + '/' "
+                          "+ document.documentElement.childElementCount + '/' "
+                          "+ document.querySelectorAll('*').length",
+            "returnByValue": True}, session_id=sid)
+        return r["result"]["value"]
 
-async def test_the_marking_layer_never_survives_the_shot(cdp, page):
-    """标注层是临时的 —— 留在页面上会污染后面所有观测和人看到的画面。"""
-    _tid, sid = page
-    await _goto(cdp, sid)
+    before = await dom_fingerprint()
     await observe(cdp, sid)
+    assert await dom_fingerprint() == before, "观测把页面改了"
 
     r = await cdp.send("Runtime.evaluate",
                        {"expression": "!!document.getElementById('__webmuxd_marks')",
                         "returnByValue": True}, session_id=sid)
-    assert r["result"]["value"] is False, "标注层留在页面上了"
+    assert r["result"]["value"] is False, "标注层还在往页面里铺"
 
 
-async def test_marking_does_not_leak_into_the_next_snapshot(cdp, page):
-    """标注层自己不能被下一次快照当成页面内容。"""
+async def test_只有一张图_就是页面本身(cdp, page):
+    """**一件事一个词。** 没有"标注版/干净版"两份 —— 编号在 `el.id`,
+    位置在 `el.bbox`,要画框的图拿这两样自己叠。"""
+    _tid, sid = page
+    await _goto(cdp, sid)
+    obs = await observe(cdp, sid)
+    assert obs.screenshot[:4] == b"RIFF", "不是 webp"
+    assert not hasattr(obs, "plain_screenshot"), "又冒出来第二个版本"
+    # 叠图要的东西齐不齐
+    el = obs.elements[0]
+    assert len(el.bbox) == 4 and el.bbox[2] > 0, "bbox 给不全就叠不出来"
+    assert el.id in [e.id for e in obs.elements]
+
+
+async def test_连拍两次结果一样(cdp, page):
+    """观测是只读的,所以拍两次该拿到同一份元素表。"""
     _tid, sid = page
     await _goto(cdp, sid)
     first = await observe(cdp, sid)
     second = await observe(cdp, sid)
     assert [e.name for e in first.elements] == [e.name for e in second.elements]
-
-
-async def test_annotate_false_skips_the_layer(cdp, page):
-    _tid, sid = page
-    await _goto(cdp, sid)
-    obs = await observe(cdp, sid, annotate=False)
-    assert obs.screenshot == obs.plain_screenshot
 
 
 async def test_digest_is_capped_and_says_so(cdp, page):
@@ -125,8 +141,10 @@ async def test_to_json_shape_matches_the_spec(cdp, page):
     for key in ("observation_id", "tab", "at", "page", "elements", "tabs", "notes"):
         assert key in d, f"响应里缺 {key}"
     assert d["screenshot"]["format"] == "webp"
-    assert d["screenshot"]["plain_url"].endswith("annotate=false")
+    assert "plain_url" not in d["screenshot"], "又出现第二个截图版本了"
     assert d["elements"][0]["role"] == "button"
+    # 叠 Set-of-Mark 要的:编号 + 位置,一次都在
+    assert d["elements"][0]["id"] == 1 and len(d["elements"][0]["bbox"]) == 4
 
 
 async def test_observation_reads_the_shape_the_api_actually_sends():

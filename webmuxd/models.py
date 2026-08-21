@@ -226,8 +226,13 @@ class Observation:
     `id` 是给按编号定位用的 —— 页面变了就该抛,而不是点到编号相同的另一个东西。
 
     **服务端和 SDK 是同一个类。** 差别只在两个字段谁填:服务端填
-    `screenshot` / `plain_screenshot` 的字节,SDK 填 `shot_url` / `plain_url`
-    的地址,由 `api.py` 那层按需去取。
+    `screenshot` 的字节,SDK 填 `shot_url` 的地址,由 `api.py` 那层按需去取。
+
+    > **只有一张图,就是页面本身。** 编号活在 `elements[].id`,
+    > 位置活在 `elements[].bbox` —— 要一张画好框的 Set-of-Mark 图,
+    > 拿这两样自己叠。以前是在**活页面上**铺一层框再拍,于是观看的人会
+    > 看到一闪,DOM 模式下那层还会被录进重放流
+    > ([issue](../docs/v2/issues/标注层会被人看见.md))。
     """
 
     id: str = ""
@@ -242,9 +247,7 @@ class Observation:
 
     #: 服务端填字节;SDK 填地址,由 `api.Observation` 用到才去取。
     screenshot: bytes = b""
-    plain_screenshot: bytes = b""
     shot_url: str = ""
-    plain_url: str = ""
 
     def __getitem__(self, n: int) -> Element:
         for e in self.elements:
@@ -300,7 +303,7 @@ class Observation:
             out["text"] = self.text
         if shot_url:
             out["screenshot"] = {
-                "url": shot_url, "plain_url": shot_url + "?annotate=false",
+                "url": shot_url,
                 "w": self.page.viewport.w or None,
                 "h": self.page.viewport.h or None,
                 "format": "webp",
@@ -321,7 +324,7 @@ class Observation:
             #: 模型会把"没看见"当成"不存在",然后自信地做错决定。
             notes=d.get("notes") or [],
             filter_version=d.get("filter_version", 0),
-            shot_url=shot.get("url", ""), plain_url=shot.get("plain_url", ""))
+            shot_url=shot.get("url", ""))
 
     def __repr__(self) -> str:
         return f"<Observation {self.id} {len(self.elements)} 个元素 {self.page.url}>"

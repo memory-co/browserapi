@@ -8,8 +8,7 @@
 ```python
 obs = tab.observe()
 
-obs.screenshot             # bytes,图上已经画好 [12] [13] 编号(Set-of-Mark)
-obs.plain_screenshot       # bytes,没标注的那版
+obs.screenshot             # bytes,那一刻的页面(用到才去取)
 obs.elements               # [Element]
 obs.tabs                   # [Tab]
 obs.page.url, obs.page.title, obs.page.scroll
@@ -18,7 +17,7 @@ obs.notes                  # ["页面有 3 个 iframe,其中 1 个跨域读不�
 obs.id                     # obs_01J9X... —— 按编号定位时要带上
 ```
 
-参数:`tab.observe(annotate=, viewport_only=, max_elements=, text=)`。
+参数:`tab.observe(viewport_only=, max_elements=, text=)`。
 
 **一定发请求。** 元素表和截图不在内存里 —— 事件流不塞大字段
 ([../README.md §3](../README.md#3-tab-的状态在内存里))。
@@ -63,7 +62,6 @@ tab.click(el)
 | --- | --- | --- |
 | `tab.screenshot()` | **现拍一张**,干净的 | 存档、给人看、diff |
 | `obs.screenshot` | observe 那次拍的,**画了 `[12]` 编号** | 喂多模态模型 |
-| `obs.plain_screenshot` | observe 那次拍的,没画编号 | 想要同一时刻的干净版 |
 | `e.shot` | **每个动作后自动拍的**,在日志里 | 回看当时长什么样,见 [../log.md](../log/) |
 
 ```python
@@ -145,7 +143,7 @@ while True:
 | `obs.as_prompt()` `obs[12]` `obs.find()` | 纯客户端,不请求 |
 | `tab.text()` | `GET /api/text` |
 | `tab.screenshot(full_page=)` | `GET /api/screenshot?full_page=` |
-| `obs.screenshot` / `obs.plain_screenshot` | `GET /api/observe/{id}/screenshot[?annotate=false]` |
+| `obs.screenshot` | `GET /api/observe/{id}/screenshot` |
 | `e.shot` | `GET /api/log/{seq}/shot`,见 [../log.md](../log/) |
 | 要像素时自动切前台 | 客户端做的:先 `POST /api/tabs/{id}/activate` |
 | `tab.extract(loc, mode=)` | `POST /api/act` 的 `extract` 动作 |

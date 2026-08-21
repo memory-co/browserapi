@@ -21,22 +21,16 @@ from typing import Any
 
 from webmuxd import locate
 from webmuxd.cdp import CDP, CDPError
-from webmuxd.models import (Observation, PageInfo, Scroll, Size, Snapshot,
-                            TabInfo)
+from webmuxd.models import Observation, PageInfo, Scroll, Size, TabInfo
 
 #: 正文摘要给多少字(§1 的 `text=digest`)。
 DIGEST_CHARS = 4000
-
-#: 标注层用的颜色 —— 高对比,不挑页面背景。
-_MARK_BG = "#ff2d55"
-
 
 async def observe(
     cdp: CDP,
     session_id: str,
     *,
     tab: str | None = None,
-    annotate: bool = True,
     viewport_only: bool = False,
     max_elements: int = locate.MAX_ELEMENTS,
     text: str = "digest",
@@ -55,16 +49,14 @@ async def observe(
             body = body[:DIGEST_CHARS]
             notes.append(f"正文只给了前 {DIGEST_CHARS} 字,完整的用 text=full")
 
-    plain = await _capture(cdp, session_id)
-    marked = plain
-    if annotate and snap.elements:
-        marked = await _capture_annotated(cdp, session_id, snap)
-
     return Observation(
         id="obs_" + uuid.uuid4().hex[:16],
         tab=tab, at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         page=page, elements=snap.elements,
-        screenshot=marked, plain_screenshot=plain,
+        # **观测不碰页面。** 编号只活在 `elements[].id` 和它的 `bbox` 里 ——
+        # 要一张画好框的图,拿 bbox 自己叠
+        # (docs/v2/issues/标注层会被人看见.md)。
+        screenshot=await _capture(cdp, session_id),
         text=body, tabs=tabs or [], notes=notes,
         filter_version=locate.FILTER_VERSION)
 
@@ -146,57 +138,3 @@ async def _capture(cdp: CDP, sid: str, *, full_page: bool = False) -> bytes:
         params["captureBeyondViewport"] = True
     r = await cdp.send("Page.captureScreenshot", params, session_id=sid, timeout=20)
     return base64.b64decode(r["data"])
-
-
-# ---------------------------------------------------------------------------
-# Set-of-Mark:在截图上画编号
-# ---------------------------------------------------------------------------
-
-_MARK_JS = """(marks) => {
-  const layer = document.createElement('div');
-  layer.id = '__webmuxd_marks';
-  layer.style.cssText =
-    'position:fixed;inset:0;z-index:2147483647;pointer-events:none';
-  for (const m of marks) {
-    const box = document.createElement('div');
-    box.style.cssText =
-      `position:absolute;left:${m.x}px;top:${m.y}px;width:${m.w}px;height:${m.h}px;`
-      + `border:2px solid ${m.c};box-sizing:border-box`;
-    const tag = document.createElement('div');
-    tag.textContent = m.n;
-    tag.style.cssText =
-      `position:absolute;left:${m.x}px;top:${Math.max(0, m.y - 15)}px;`
-      + `background:${m.c};color:#fff;font:11px/13px monospace;padding:0 3px;`
-      + 'border-radius:2px';
-    layer.appendChild(box); layer.appendChild(tag);
-  }
-  document.documentElement.appendChild(layer);
-  return true;
-}"""
-
-
-async def _capture_annotated(cdp: CDP, sid: str, snap: Snapshot) -> bytes:
-    """在页面上临时铺一层带编号的框,拍完立刻撤掉。
-
-    **标注层是临时的、`pointer-events:none` 的**,而且是在元素表抓完**之后**
-    才铺的 —— 否则它自己会被下一次快照当成页面内容。
-    """
-    marks = [{"n": e.id, "x": e.bbox[0], "y": e.bbox[1],
-              "w": e.bbox[2], "h": e.bbox[3], "c": _MARK_BG}
-             for e in snap.elements if e.in_viewport]
-    if not marks:
-        return await _capture(cdp, sid)
-    try:
-        await cdp.send("Runtime.evaluate", {
-            "expression": f"({_MARK_JS})({json.dumps(marks)})",
-            "returnByValue": True}, session_id=sid, timeout=10)
-        return await _capture(cdp, sid)
-    finally:
-        # 撤掉。**finally 里做** —— 拍照失败也不能把标注层留在页面上,
-        # 那会污染后面所有的观测和人看到的画面。
-        try:
-            await cdp.send("Runtime.evaluate", {
-                "expression": "document.getElementById('__webmuxd_marks')?.remove()"},
-                session_id=sid, timeout=5)
-        except Exception:
-            pass
