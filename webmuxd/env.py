@@ -50,7 +50,8 @@ FORMAT_VERSION = 3
 #:   fonts_dir        下下来的中文字体在哪
 #:   xpra             起 VNC 那条:bin / 它自己的解释器 / 版本
 #:   xvfb             传给 `--xvfb=`,**不由发行版配置决定**
-KEYS = ("default_browser", "fonts_dir", "xpra", "xvfb")
+#:   rrweb            DOM 那条的记录器:版本 + 落在哪
+KEYS = ("default_browser", "fonts_dir", "xpra", "xvfb", "rrweb")
 
 
 def path() -> Path:

@@ -30,6 +30,7 @@ import sys
 from typing import Any
 
 from webmuxd import browser, env, xpra as xpra_mod
+from webmuxd.view import dom as dom_mod
 from webmuxd.cli import deps
 
 OK, WARN = "✓", "⚠"
@@ -151,6 +152,29 @@ def install(*, version: str = browser.PINNED, mirror: str | None = None,
             record["xvfb"] = vfb
         say(f"  {'':10} xpra {table.get('version', '?')} · "
             f"解释器 {table.get('python', '(读不出 shebang)')}")
+
+    # ------------------------------------------------------------- DOM 那条
+    # **属于数据,所以下载**([d §2](../../docs/v2/works/d-install.md#2-每样东西从哪来))。
+    # 和浏览器、字体同一档:在这儿下,不在起 session 的时候现下 ——
+    # 现下的话第一次起会卡在网络上,而离线的机器要到那一刻才知道。
+    ok_dom, why_dom = dom_mod.ready()
+    if not ok_dom:
+        try:
+            dom_mod.download()
+            ok_dom = True
+        except Exception as e:                    # noqa: BLE001
+            why_dom = str(e)
+    if ok_dom:
+        say(f"  {_pad('DOM 画面', 10)} "
+            f"{_pad('rrweb ' + dom_mod.RRWEB_VERSION, 38)} {OK}")
+        record["rrweb"] = {"version": dom_mod.RRWEB_VERSION,
+                           "js": str(dom_mod.paths()["js"])}
+    else:
+        # **不静默略过。** DOM 是三种画面之一,下不到就说清楚:
+        # 影响的是哪一种、另外两种还在。
+        say(f"  {_pad('DOM 画面', 10)} "
+            f"{_pad('下不到 rrweb:' + why_dom[:24], 38)} {WARN}")
+        say("     只影响 --transport dom;jpg / vnc 不受影响")
 
     # 字体目录:**下下来的字体在哪**。探不到就不写 —— 键不在 = 没探到。
     fonts = browser.FONT_DIR if hasattr(browser, "FONT_DIR") else None

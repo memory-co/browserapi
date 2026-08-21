@@ -35,11 +35,21 @@ from urllib.parse import quote
 log = logging.getLogger("webmuxd.dom")
 
 HERE = Path(__file__).parent
+
+#: 记录器的版本。**钉死,不用 `@latest`。**
+#: `@latest` 意味着两台机器、两个时间点拿到的可能不是同一份 ——
+#: 而记录器和观看端的重放器必须是同一版,对不上的表现是"画面局部不更新"
+#: 且不报错。这正是 [d §8.1](../../docs/v2/works/d-install.md#81-虚拟显示钉死-xvfb)
+#: 那条"同一条命令在两台机器上结果不同"要防的事。
+RRWEB_VERSION = "2.1.1"
+_BASE = f"https://cdn.jsdelivr.net/npm/rrweb@{RRWEB_VERSION}/dist"
+RRWEB_URL = f"{_BASE}/rrweb.umd.cjs"
+RRWEB_CSS = f"{_BASE}/style.css"
+
 #: 记录器落在哪。**属于数据,所以是下载来的**,不进包
-#: ([d §2](../../docs/v2/works/d-install.md#2-每样东西从哪来))。
-RRWEB_URL = "https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.umd.cjs"
-RRWEB_CSS = "https://cdn.jsdelivr.net/npm/rrweb@latest/dist/style.css"
-CACHE = Path.home() / ".cache" / "webmuxd" / "rrweb"
+#: ([d §2](../../docs/v2/works/d-install.md#2-每样东西从哪来))——
+#: 而"下载"这件事归 `webmuxd install`,不归运行时。
+CACHE = Path.home() / ".cache" / "webmuxd" / f"rrweb-{RRWEB_VERSION}"
 
 #: 事件缓冲上限。超了从最近一张全量快照往后留 —— **不能从中间截**,
 #: 增量链断在中间等于重放出来的 DOM 从此是错的
@@ -75,44 +85,63 @@ RECORD_JS = """
 BINDING = "__wm_dom_emit"
 
 
-def recorder_js() -> str:
-    """记录器的源码。没下过就下一次。
+def paths() -> dict[str, Path]:
+    return {"js": CACHE / "rrweb.js", "css": CACHE / "rrweb.css"}
 
-    **下不到就抛。** 静默给一个空文件的话,表现是"DOM 模式下画面永远不出来",
-    和"页面没动"分不清。
+
+def download(force: bool = False) -> dict[str, str]:
+    """下载记录器。**这是 `webmuxd install` 干的活,不是运行时。**
+
+    起 session 的时候现下有两个问题:第一次起会卡在网络上,
+    而离线或者 CDN 被挡的机器要到那一刻才知道 —— 而 install 存在的意义
+    正是"**一次探清楚,之后不再猜**"([d](../../docs/v2/works/d-install.md))。
     """
+    import urllib.request
     CACHE.mkdir(parents=True, exist_ok=True)
-    f = CACHE / "rrweb.js"
-    if not f.exists():
-        import urllib.request
-        log.info("下载 rrweb 记录器 …")
-        with urllib.request.urlopen(RRWEB_URL, timeout=60) as r:
-            f.write_bytes(r.read())
-    return f.read_text(encoding="utf-8")
-
-
-def viewer_js() -> bytes:
-    """观看端要的那份(和记录器同一个包)。"""
-    return (CACHE / "rrweb.js").read_bytes()
-
-
-def viewer_css() -> bytes:
-    CACHE.mkdir(parents=True, exist_ok=True)
-    f = CACHE / "rrweb.css"
-    if not f.exists():
-        import urllib.request
-        with urllib.request.urlopen(RRWEB_CSS, timeout=60) as r:
-            f.write_bytes(r.read())
-    return f.read_bytes()
+    out = {}
+    for name, url in (("js", RRWEB_URL), ("css", RRWEB_CSS)):
+        f = paths()[name]
+        if force or not f.exists() or f.stat().st_size == 0:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                body = r.read()
+            if len(body) < 1024:
+                raise RuntimeError(f"{url} 只回了 {len(body)} 字节,不像是那个文件")
+            f.write_bytes(body)
+        out[name] = str(f)
+    return out
 
 
 def ready() -> tuple[bool, str]:
-    """这条路能不能走。**下过就能走** —— 它不依赖系统里的任何东西。"""
-    try:
-        recorder_js()
+    """**探,不下。** 键在=探到了,键不在=没探到 —— 和别的探测一个姿态。"""
+    js = paths()["js"]
+    if js.exists() and js.stat().st_size > 1024:
         return True, ""
-    except Exception as e:                        # noqa: BLE001
-        return False, f"rrweb 记录器下不到:{e}"
+    return False, f"rrweb 记录器还没下(要 {RRWEB_VERSION})"
+
+
+def _read(name: str) -> bytes:
+    f = paths()[name]
+    if not f.exists():
+        # **不在这儿偷偷下。** 起 session 时卡在网络上、或者离线机器
+        # 到这一刻才发现,都比在 install 阶段说清楚差得多。
+        raise FileNotFoundError(
+            f"DOM 那条画面要的 rrweb {RRWEB_VERSION} 还没下 —— "
+            f"跑一下 `webmuxd install`")
+    return f.read_bytes()
+
+
+def recorder_js() -> str:
+    return _read("js").decode("utf-8")
+
+
+def viewer_js() -> bytes:
+    """观看端要的那份。**和页面里那份记录器是同一个文件** ——
+    两边版本对不上的表现是"画面局部不更新"且不报错,所以只有这一份。"""
+    return _read("js")
+
+
+def viewer_css() -> bytes:
+    return _read("css")
 
 
 class DomSource:

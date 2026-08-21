@@ -195,3 +195,74 @@ def test_内置页不往这条通道发东西():
     html = pathlib.Path("webmuxd/view/static/index.html").read_text()
     assert "/channel/rrweb" in html, "内置页得连这条通道"
     assert "domWs.send" not in html, "这条通道上不该有上行"
+
+
+# --------------------------------------------- 记录器从哪来(d §2)
+
+def test_版本钉死_不用_latest():
+    """**`@latest` 意味着两台机器可能拿到不同版本。**
+
+    而记录器和观看端的重放器必须是同一版 —— 对不上的表现是
+    "画面局部不更新"且不报错。这正是 d 篇那条"同一条命令在两台机器上
+    结果不同"要防的事。
+    """
+    from webmuxd.view import dom
+
+    assert "@latest" not in dom.RRWEB_URL
+    assert dom.RRWEB_VERSION in dom.RRWEB_URL
+    assert dom.RRWEB_VERSION in dom.RRWEB_CSS
+    # 缓存目录带上版本 —— 换版本时不会读到上一版留下的文件
+    assert dom.RRWEB_VERSION in str(dom.CACHE)
+
+
+def test_ready_只探不下():
+    """**探测不该有副作用。** `ready()` 走网络的话,
+    `webmuxd status` 这种只读命令会莫名其妙卡住。"""
+    import inspect
+
+    from webmuxd.view import dom
+
+    src = inspect.getsource(dom.ready)
+    assert "urlopen" not in src and "download" not in src
+
+
+def test_没下过时报错要指向_install_不能偷偷下():
+    """**起 session 的时候现下,离线的机器要到那一刻才知道。**
+
+    而 install 存在的意义正是"一次探清楚,之后不再猜"(d)。
+    """
+    import inspect
+
+    from webmuxd.view import dom
+
+    src = inspect.getsource(dom._read)
+    assert "webmuxd install" in src, "得告诉人去跑 install"
+    assert "urlopen" not in src, "运行时不该偷偷下"
+
+
+def test_记录器和观看端用的是同一份文件():
+    """两边版本对不上的表现是"画面局部不更新"且不报错 —— 所以只有一份。"""
+    import inspect
+
+    from webmuxd.view import dom
+
+    assert inspect.getsource(dom.viewer_js).count("_read(\"js\")") == 1
+    assert inspect.getsource(dom.recorder_js).count("_read(\"js\")") == 1
+
+
+def test_install_会把它下下来_并记进路径表():
+    import inspect
+
+    from webmuxd.cli import install
+
+    src = inspect.getsource(install)
+    assert "dom_mod.download()" in src, "install 得负责下"
+    assert 'record["rrweb"]' in src, "得记进路径表,否则没人知道装的是哪一版"
+    # 下不到只影响一种画面,得说清楚 —— 不能让人以为整个装挂了
+    assert "jpg / vnc 不受影响" in src
+
+
+def test_rrweb_是路径表认得的键():
+    from webmuxd import env
+
+    assert "rrweb" in env.KEYS
