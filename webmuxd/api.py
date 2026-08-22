@@ -46,13 +46,27 @@ def _locator(target: Any = None, **kw: Any) -> dict[str, Any]:
     `tab.click(候选里的那一项)` 统一成一个定位字典。"""
     spec: dict[str, Any] = {}
     if target is not None:
-        if isinstance(target, str):
-            spec["text"] = target
+        if isinstance(target, models.Element):
+            # `tab.click(snap[0])` —— 从 snapshot 里挑一个直接点。
+            # 没有号的(`act` 内部那份快照里的)退回 role + name。
+            if target.ref:
+                spec["ref"] = target.ref
+            else:
+                spec.update({k: v for k, v in
+                             (("role", target.role), ("name", target.name)) if v})
+        elif isinstance(target, str):
+            # **`@` 打头是号**,别的都是可见文字。这一条要在这儿判,
+            # 不能等到服务端 —— 一个叫「@提醒」的按钮不该被当成号
+            # (那种时候写 `text="@提醒"`)。
+            spec["ref" if target.startswith("@") else "text"] = target
         elif isinstance(target, dict):
-            # 定位失败回的候选:**拿 role + name 重试**,不是拿编号 ——
-            # 编号只在那一次快照里成立(locate.resolve 的 docstring)
-            spec.update({k: v for k, v in target.items()
-                         if k in ("role", "name")})
+            # 定位失败回的候选:有号就拿号,没有就**拿 role + name 重试** ——
+            # 那是跨快照仍然成立的说法
+            if target.get("ref"):
+                spec["ref"] = target["ref"]
+            else:
+                spec.update({k: v for k, v in target.items()
+                             if k in ("role", "name")})
         else:
             raise BadRequest(f"看不懂的定位:{target!r}", code="bad_request")
     for k, v in kw.items():
@@ -328,6 +342,25 @@ class Tab:
 
     def text(self) -> str:
         return self._s._t.get_bytes("/api/text", tab=self.id).decode()
+
+    def snapshot(self, *, interactive: bool = False, selector: str | None = None,
+                 viewport: bool = False,
+                 max_elements: int = 150) -> models.Snapshot:
+        """这一页上有什么。**每一样带一个 `@e1`,可以直接拿去点。**
+
+            snap = tab.snapshot(interactive=True)
+            print(snap.as_prompt())
+            tab.click(snap[1])          # 或者 tab.click("@e1")
+
+        号**跨命令活着,而且只增不重用** ——
+        拿过期的号去点会报错,不会点到另一个东西
+        ([RefTable](models.py))。
+        """
+        params: dict[str, Any] = {"tab": self.id, "interactive": interactive,
+                                  "viewport": viewport, "max": max_elements}
+        if selector:
+            params["selector"] = selector
+        return models.Snapshot.from_json(self._s._t.get("/api/snapshot", **params))
 
     def screenshot(self, path: str | None = None, *,
                    full_page: bool = False) -> bytes:

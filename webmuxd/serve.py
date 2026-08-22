@@ -22,7 +22,7 @@ from aiohttp import WSMsgType, web
 from webmuxd import xpra as relay
 from webmuxd.exceptions import (BadRequest, ReadOnly, SessionNotFound,
                                 WebmuxdError)
-from webmuxd import capture
+from webmuxd import capture, locate
 from webmuxd import models
 from webmuxd import input as input_leg
 from webmuxd.frames import HEADER_SIZE, UPSTREAM
@@ -136,6 +136,7 @@ def build(server: Server) -> web.Application:
 
     r.add_post("/s/{sid}/api/act", h_act)
     r.add_get("/s/{sid}/api/screenshot", h_screenshot)
+    r.add_get("/s/{sid}/api/snapshot", h_snapshot)
     r.add_get("/s/{sid}/api/res", h_res)
     r.add_get("/s/{sid}/api/view/mode", h_mode_get)
     r.add_post("/s/{sid}/api/view/mode", h_mode_set)
@@ -402,12 +403,31 @@ async def h_act(request: web.Request) -> web.Response:
         note=body.get("note"), user=body.get("user", "api")))
 
 
-async def h_screenshot(request: web.Request) -> web.Response:
-    """那一刻的页面。**"读"这一面只有这个和 `/api/text` 两个口子。**
+async def h_snapshot(request: web.Request) -> web.Response:
+    """这一页上有什么,**每样带一个 `@e1`**。
 
-    以前还有 `/api/observe` —— 一次调用回一包筛过的元素表和编号。
-    砍了:那是一套关于 agent 该怎么用浏览器的意见,该留在调用方那边
-    ([capture.py](../webmuxd/capture.py))。
+    这个口子回来过。当初砍 `/api/observe` 的理由是"那是一套关于 agent
+    该怎么用浏览器的意见" —— 但那套意见此刻仍然在跑,每次 `click "登录"`
+    都在用它([locate.snapshot](../webmuxd/locate.py))。
+    **藏起来没有让它变小,只是让它没法被人调。**
+
+    所以这一版把旋钮交出去:`interactive` / `selector` / `viewport` / `max`。
+    """
+    q = request.query
+    snap = await _s(request).snapshot(
+        q.get("tab"),
+        interactive_only=q.get("interactive") in ("1", "true"),
+        selector=q.get("selector") or None,
+        viewport_only=q.get("viewport") in ("1", "true"),
+        max_elements=int(q.get("max") or locate.MAX_ELEMENTS))
+    return _json(snap.to_json())
+
+
+async def h_screenshot(request: web.Request) -> web.Response:
+    """那一刻的页面。
+
+    **"读"这一面是三样:正文、一张图、和一份带 `@e1` 的结构**
+    (`/api/text` / 这个 / `/api/snapshot`)。
     """
     s = _s(request)
     sid = await s._reading_session(request.query.get("tab"))

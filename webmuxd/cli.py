@@ -399,8 +399,13 @@ def _locator(args: argparse.Namespace) -> dict:
     加一种写法改那一处,不改这三处(SDK / CLI / 执行层)。
     """
     at = getattr(args, "at", None)
+    what = (getattr(args, "what", None) or "").strip()
+    # **`@` 打头是上一次 snapshot 的号**,别的都是可见文字。
+    # 一个真叫「@提醒」的按钮怎么点?写 `--name "@提醒"`。
+    ref = what if what.startswith("@") else ""
     return models.Locator(
-        text=getattr(args, "what", None) or "",
+        ref=ref,
+        text="" if ref else what,
         role=getattr(args, "role", None) or "",
         name=getattr(args, "name", None) or "",
         label=getattr(args, "label", None) or "",
@@ -433,10 +438,10 @@ def cmd_key(args): return _do(args, {"type": "key", "key": args.key})
 
 
 def cmd_type(args: argparse.Namespace) -> int:
-    spec = {"type": "type", "text": args.text, **_locator(args)}
-    spec.pop("text", None) if False else None
-    # `type` 的定位不看 text —— 那是内容(api/act.md §4.1)
-    if "text" in spec and getattr(args, "what", None):
+    spec: dict[str, Any] = {"type": "type", **_locator(args)}
+    # **`type` 的定位不看 text** —— 那个键装的是要输入的内容
+    # (api/act.md §4.1)。所以位置参数在这儿的意思是"标签"。
+    if "text" in spec:
         spec["label"] = spec.pop("text")
     spec["text"] = args.text
     return _do(args, spec)
@@ -488,6 +493,27 @@ def cmd_status(args: argparse.Namespace) -> int:
          f"chrome {'活着' if st['chrome']['alive'] else '没了'}  "
          f"{st['tab_count']} 个 tab  当前 {st['active_tab']}  "
          f"{'忙' if st['busy'] else '闲'}")
+    return 0
+
+
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    """这一页上有什么。**每一样带一个 `@e1`,下一条命令直接拿去用。**"""
+    snap = _tab(args).snapshot(interactive=args.interactive,
+                               selector=args.selector,
+                               viewport=args.viewport,
+                               max_elements=args.max)
+    _out(args, snap.to_json())
+    if args.json:
+        return 0
+    for el in snap.elements:
+        print(el.as_line())
+    for n in snap.notes:
+        print(f"! {n}")
+    if not snap.elements:
+        # **空不是成功。** 但也不是失败 —— 页面可能真的还没加载完。
+        # 说清楚下一步试什么,比回一个空行有用。
+        print("(什么都没抓到 —— 页面可能还在加载,先 `webmuxd wait`;"
+              "或者去掉 -i 看看结构)")
     return 0
 
 
@@ -642,12 +668,14 @@ def _parser() -> argparse.ArgumentParser:
 
     for name, fn in (("click", cmd_click),):
         c = add(name, fn, help="点一下")
-        c.add_argument("what", nargs="?", default=None, help="可见文字")
+        c.add_argument("what", nargs="?", default=None,
+                       help="可见文字,或 snapshot 给的 @e1")
         c.add_argument("--role"), c.add_argument("--name")
         c.add_argument("--css"), c.add_argument("--at")
         c.add_argument("--nth", type=int, default=None)
     ty = add("type", cmd_type, help="输入")
-    ty.add_argument("what", nargs="?", default=None, help="标签")
+    ty.add_argument("what", nargs="?", default=None,
+                    help="标签,或 snapshot 给的 @e1")
     ty.add_argument("text")
     ty.add_argument("--label"), ty.add_argument("--css")
     ty.add_argument("--role"), ty.add_argument("--name")
@@ -665,6 +693,12 @@ def _parser() -> argparse.ArgumentParser:
 
     add("url", cmd_url, help="当前 URL")
     add("status", cmd_status, help="session 状态")
+    sn = add("snapshot", cmd_snapshot, help="这一页上有什么(带 @e1)")
+    sn.add_argument("-i", "--interactive", action="store_true",
+                    help="只要能点能填的")
+    sn.add_argument("-s", "--selector", default=None, help="只看这棵子树")
+    sn.add_argument("--viewport", action="store_true", help="只要视口内的")
+    sn.add_argument("--max", type=int, default=150, help="最多几个")
     cap = add("capture", cmd_capture, help="抓正文或截图")
     cap.add_argument("--text", action="store_true")
     cap.add_argument("--shot", default=None)

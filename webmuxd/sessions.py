@@ -31,14 +31,14 @@ from typing import Any, Protocol
 
 from webmuxd import config, models, processes, xpra as xpra_mod
 from webmuxd import cursor as cursor_probe
-from webmuxd import capture, probe
+from webmuxd import capture, locate, probe
 from webmuxd.act import MASK, Executor
 from webmuxd.browser_ui import Natives
 from webmuxd.cdp import CDP
 from webmuxd.exceptions import (Busy, BusyHuman, SessionNotFound, TabGone,
                                 UsageError, unavailable)
 from webmuxd.log import Log, Seq
-from webmuxd.models import SessionInfo
+from webmuxd.models import RefTable, SessionInfo, Snapshot
 
 from webmuxd.screen import Screencaster
 from webmuxd.tabs import TabTable
@@ -72,6 +72,9 @@ class Session:
 
         self._exec: dict[str, Executor] = {}
         self._sessions: dict[str, str] = {}    # tab_id -> CDP sessionId
+        #: `@e1` 表 —— **一个 session 一张,号只增不重用**
+        #: ([models.RefTable](models.py))。`snapshot` 发号,`click @e1` 认号。
+        self.refs = RefTable()
         #: 画面。v2 里它是我们自己的([c](../docs/v2/works/c-view.md))
         self.view = Screencaster(self, **(view or {}))
         self._action_lock = asyncio.Lock()
@@ -231,6 +234,9 @@ class Session:
             self.log.append("tab", event="closed", tab=payload.get("id"),
                             final_url=payload.get("final_url"),
                             reason=payload.get("reason"))
+            # tab 没了,它那些 `@e1` 也就没了。**`next_n` 不回退** ——
+            # 回退等于重用,而那正是这张表要防的事(models.RefTable)。
+            self.refs.forget(str(payload.get("id") or ""))
 
     def subscribe(self, after: int | None = None) -> tuple[asyncio.Queue, list[dict]]:
         """订事件。`after` 给了就先把那之后的补上;补不齐先发 `gap`。"""
@@ -280,7 +286,8 @@ class Session:
                                     {"targetId": tab.target_id, "flatten": True})
             sid = r["sessionId"]
         self._sessions[tab_id] = sid
-        ex = Executor(self.cdp, sid, secrets=self.secrets)
+        ex = Executor(self.cdp, sid, secrets=self.secrets,
+                      refs=self.refs, tab_id=tab_id)
         await ex.start()
         # **popup 一律转成 tab**(works/07 §4)—— 装在页面层,
         # 因为只有页面自己调原生 open 才能保住 opener 关系。
@@ -443,6 +450,30 @@ class Session:
         """
         sid = await self._reading_session(tab)
         return await capture.text(self.cdp, sid), await capture.screenshot(self.cdp, sid)
+
+    async def snapshot(self, tab: str | None = None, *,
+                       interactive_only: bool = False,
+                       selector: str | None = None,
+                       viewport_only: bool = False,
+                       max_elements: int = locate.MAX_ELEMENTS) -> Snapshot:
+        """这一页上有什么 —— **并且给每一样发一个跨命令能用的号**。
+
+        `read()` 回的是正文和一张图,答的是"人看到了什么";
+        这一个答的是"程序能抓到什么",两者都要。
+
+        **不切 tab。** 和 `read()` 不一样:AX 树不需要那个 tab 在前台
+        (要像素才需要),所以这一下**不改状态**
+        ([那条 issue](../docs/v2/issues/读一眼会改状态却不排队.md)在这儿不适用)。
+        """
+        tab_id = self.resolve_tab(tab)
+        if self._sessions.get(tab_id) is None:
+            await self.executor_for(tab_id)
+        snap = await locate.snapshot(
+            self.cdp, self._sessions[tab_id], max_elements=max_elements,
+            viewport_only=viewport_only, interactive_only=interactive_only,
+            selector=selector)
+        self.refs.assign(snap.elements, tab_id)
+        return snap
 
     async def _reading_session(self, tab: str | None) -> str:
         tab_id = self.resolve_tab(tab)

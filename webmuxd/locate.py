@@ -23,7 +23,10 @@ from webmuxd.models import Element, Size, Snapshot
 
 #: 筛选规则的版本。**改了规则就要 +1** —— 日志里记着它,
 #: 否则规则一变,历史观测里的 `[12]` 就指向了别的东西(api/act.md §1.1)。
-FILTER_VERSION = 1
+#:
+#: 2:多了 `interactive_only=False` 那一档(`snapshot` 命令要看页面结构,
+#: 不只是能点的东西)。`act` 那条路的默认没变,老日志仍然对得上。
+FILTER_VERSION = 2
 
 #: 默认最多给多少个元素。超了必须在 notes 里说清楚截掉了多少。
 MAX_ELEMENTS = 150
@@ -48,13 +51,28 @@ STRUCTURAL_ROLES = frozenset({
 # ---------------------------------------------------------------------------
 
 async def snapshot(cdp: CDP, session_id: str, *, max_elements: int = MAX_ELEMENTS,
-                   viewport_only: bool = False) -> Snapshot:
-    """抓可访问性树 → 筛出能交互又看得见的 → 量 bbox。
+                   viewport_only: bool = False, interactive_only: bool = True,
+                   selector: str | None = None) -> Snapshot:
+    """抓可访问性树 → 筛一道 → 量 bbox。
 
     **不能把整棵 AX 树倒给模型**(几千节点,又贵又吵),所以有 §1.1 那套规则。
+
+    但**这套规则该由调用方调,不该由库替它定死**:
+
+    - `interactive_only=True`(`act` 定位用的)—— 只要能点能填的。
+    - `interactive_only=False`(`snapshot` 命令的默认)—— 加上有名字的
+      结构节点:标题、图片、地标。**"这页上有什么"和"这页上能点什么"
+      是两个问题**,而以前只答得了后一个。
+    - `selector` —— 只看那棵子树。页面大的时候,这比调 `max_elements` 有用:
+      截断是丢信息,划范围不是。
+
+    砍掉 `observe` 的时候写过"那是一套关于 agent 该怎么用浏览器的意见,
+    该留在调用方那边"。**藏起来并没有让这套意见变小** —— 它此刻仍然
+    在跑,每次 `click "登录"` 都在用它。把旋钮交出去才是。
     """
     await cdp.send("Accessibility.enable", session_id=session_id)
     tree = await cdp.send("Accessibility.getFullAXTree", session_id=session_id)
+    scope = await _subtree(cdp, session_id, selector) if selector else None
     metrics = await cdp.send("Page.getLayoutMetrics", session_id=session_id)
     vp = metrics.get("cssVisualViewport") or metrics.get("layoutViewport") or {}
     vw = float(vp.get("clientWidth") or vp.get("width") or 0)
@@ -74,7 +92,12 @@ async def snapshot(cdp: CDP, session_id: str, *, max_elements: int = MAX_ELEMENT
                  for p in node.get("properties", [])}
 
         is_control = role in INTERACTIVE_ROLES
-        if not (is_control or props.get("focusable")):
+        if interactive_only:
+            if not (is_control or props.get("focusable")):
+                continue
+        elif not (is_control or props.get("focusable") or name):
+            # 结构档:**有名字才算数**。没名字的容器对读页面没有帮助,
+            # 只会把真正有内容的那几行冲淡。
             continue
         # 规则 3「名字和 value 都空的纯装饰元素丢掉」**只适用于靠 focusable
         # 混进来的东西**(没名字的可点击 div 那类)。真正的表单控件即使没标签
@@ -82,6 +105,8 @@ async def snapshot(cdp: CDP, session_id: str, *, max_elements: int = MAX_ELEMENT
         if not is_control and not name and value in (None, ""):
             continue
         if node.get("backendDOMNodeId") is None:
+            continue
+        if scope is not None and node["backendDOMNodeId"] not in scope:
             continue
         raw.append({"role": role, "name": name, "value": value,
                     "backend": node["backendDOMNodeId"],
@@ -128,6 +153,43 @@ def _affords(role: str) -> list[str]:
     if role in ("combobox", "listbox"):
         return ["select", "click"]
     return ["click", "hover"]
+
+
+async def _subtree(cdp: CDP, session_id: str, selector: str) -> set[int]:
+    """`selector` 选中的那些节点,连同它们的整棵子树的 backendNodeId。
+
+    **要连子树** —— `-s "#results"` 想要的是结果列表里的每一条,
+    不是 `#results` 这一个 div 本身。
+    """
+    doc = await cdp.send("DOM.getDocument", {"depth": 0}, session_id=session_id)
+    try:
+        found = await cdp.send("DOM.querySelectorAll",
+                               {"nodeId": doc["root"]["nodeId"], "selector": selector},
+                               session_id=session_id)
+    except CDPError as e:
+        raise BadRequest(f"选择器不合法:{selector}", code="bad_request") from e
+    node_ids = found.get("nodeIds") or []
+    if not node_ids:
+        raise NotFound(f"页面上没有 {selector}", code="not_found",
+                       details={"css": selector})
+
+    out: set[int] = set()
+
+    def walk(node: dict) -> None:
+        bid = node.get("backendNodeId")
+        if bid is not None:
+            out.add(bid)
+        for kid in node.get("children") or []:
+            walk(kid)
+        for kid in node.get("shadowRoots") or []:
+            walk(kid)
+
+    for nid in node_ids:
+        r = await cdp.send("DOM.describeNode", {"nodeId": nid, "depth": -1,
+                                                "pierce": True},
+                           session_id=session_id)
+        walk(r["node"])
+    return out
 
 
 async def _boxes(cdp: CDP, session_id: str,
@@ -192,20 +254,23 @@ def match_by_text(elements: list[Element], text: str) -> list[Element]:
 def resolve(spec: dict[str, Any], snap: Snapshot) -> Element:
     """把一个定位描述变成唯一一个元素,或者抛 NotFound(带候选)。
 
-    **没有"按编号定位"。** 编号只在一次快照里有意义,而快照是 `act` 每次
-    自己抓的、没有名字 —— 拿上一次的编号来点,点到的可能是另一个东西,
-    而且不报错。定位失败回的候选里带着 `role` 和 `name`,
-    **重试用那两样**(必要时加 `nth`),那是跨快照仍然成立的说法。
+    **`Snapshot.id` 不是定位用的编号。** 它是这一次筛出来的序号,`act`
+    每次自己抓一份,没有名字 —— 拿上一次的序号来点,点到的可能是另一个
+    东西,而且不报错。
 
-    以前有 `element` + `observation` 两个键,靠"这个编号是哪次观测的"来挡。
-    `observe` 砍掉之后没有"一次观测"了,那道挡板也就没了落点 ——
-    **留着键而挡不住,比没有这个键更坏。**
+    跨命令能用的号是 `ref`(`@e1`),由 [`RefTable`](models.py) 发,
+    **只增不重用**,所以不需要"这个号是哪次观测的"那条元数据来挡。
+    它不在这儿落地(要查 session 的表),走 `_Escape` 交给 `act`。
+
+    没有号的时候,能跨快照成立的说法是 `role` + `name`(必要时 `nth`)——
+    定位失败回的候选里带着它们,**重试用那两样**。
     """
     if not isinstance(spec, dict) or not any(k in spec for k in LOCATOR_KEYS):
         raise BadRequest(f"看不懂的定位:{spec!r}", code="bad_request")
 
-    # css / point 是逃生舱,交给调用方直接执行,这里只做形状检查
-    if "css" in spec or "point" in spec:
+    # ref / css / point 都不走文字匹配 —— 它们直接指到一个节点上,
+    # 由 act 那边落地(ref 要查 session 的号表,css/point 要问 CDP)。
+    if "ref" in spec or "css" in spec or "point" in spec:
         raise _Escape(spec)
 
     if "text" in spec:
@@ -254,7 +319,12 @@ def resolve(spec: dict[str, Any], snap: Snapshot) -> Element:
 
 
 class _Escape(Exception):
-    """css / point 这类逃生舱,不走元素表 —— 由 act 那边直接执行。"""
+    """ref / css / point —— **不走文字匹配那条路**,由 act 那边直接落到节点上。
+
+    `css` 和 `point` 是逃生舱(没有语义,点哪算哪);
+    `ref` 正相反,它是**最准的一种** —— 但同样不需要在元素表里找一遍,
+    因为它本来就是从元素表里发出去的号。
+    """
 
     def __init__(self, spec: dict[str, Any]) -> None:
         super().__init__("escape hatch")

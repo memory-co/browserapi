@@ -218,9 +218,14 @@ class Executor:
     否则模型看到的编号和点到的东西对不上。
     """
 
-    def __init__(self, cdp: CDP, session_id: str, *, secrets: Any = None) -> None:
+    def __init__(self, cdp: CDP, session_id: str, *, secrets: Any = None,
+                 refs: Any = None, tab_id: str = "") -> None:
         self._cdp, self._sid = cdp, session_id
         self._secrets = secrets
+        #: session 的 `@e1` 表([models.RefTable](models.py))。
+        #: **一个 session 一张,不是一个 tab 一张** —— 号里自己带着 tab。
+        self._refs = refs
+        self._tab_id = tab_id
         self._settler = Settler(cdp, session_id)
         self._snap: Snapshot | None = None
 
@@ -519,16 +524,48 @@ class Executor:
         self._last_hit = el.to_json()
         return el
 
+    async def _element_by_ref(self, ref: str) -> Element:
+        """`@e1` 指着的那个元素。
+
+        两步,**而且失败要分得开**:
+
+        1. 号表里认不认这个号 —— 不认就是"没 snapshot 过"或"号过期了",
+           [`RefTable.get`](models.py) 自己会说清楚是哪种
+        2. 那个节点还在不在页面上 —— `DOM.getBoxModel` 拿不到就是没了
+
+        第二种最要紧:**"节点没了"和"号不认识"要给不一样的话**,
+        因为该做的事不一样 —— 前者是页面变了要重新 snapshot,
+        后者是你把号抄错了。
+        """
+        if self._refs is None:
+            raise BadRequest("这条路上没有号表 —— @ref 只能对着 session 用",
+                             code="bad_request")
+        got = self._refs.get(ref, self._tab_id)
+        el = Element(id=0, role=got.role, name=got.name, ref=got.id,
+                     backend_node_id=got.backend_node_id)
+        try:
+            el.bbox = await self._box(el)
+        except (NotClickable, CDPError) as e:
+            raise NotFound(
+                f"@{got.id}(那时是 {got.role} 「{got.name}」)已经不在页面上了"
+                f" —— 重新 snapshot 一次",
+                code="not_found", details={"ref": got.id}) from e
+        self._last_hit = el.to_json()
+        return el
+
     async def _element_by_escape(self, spec: dict) -> Element:
-        """`css` / `point` 指到的那个元素。
+        """不走文字匹配的三种:`ref` 交给上面那个,`css` / `point` 在这儿落地。
 
         **CDP 有现成的**:坐标用 `DOM.getNodeForLocation`,选择器求值之后用
         `DOM.describeNode` 拿 backendNodeId —— 不用自己在元素表里找一遍。
 
-        回来的 `Element` 只填得起 `backend_node_id` 和 `bbox`:
+        `css` / `point` 回来的 `Element` 只填得起 `backend_node_id` 和 `bbox`:
         走逃生舱就意味着**没有那套语义**(role / name / affords),
         这一点如实反映在对象上,不编。
+        (`ref` 不一样 —— 它是从元素表里发出去的号,语义跟着号一起存着。)
         """
+        if "ref" in spec:
+            return await self._element_by_ref(str(spec["ref"]))
         if "point" in spec:
             x, y = float(spec["point"][0]), float(spec["point"][1])
             try:
@@ -566,7 +603,12 @@ class Executor:
         return el
 
     async def _point_for(self, spec: dict) -> tuple[float, float]:
-        """算出要点哪儿。`point` 和 `css` 是逃生舱,不走元素表。"""
+        """算出要点哪儿。`ref` 认号,`point` / `css` 是逃生舱,都不走元素表。"""
+        if "ref" in spec:
+            el = await self._element_by_ref(str(spec["ref"]))
+            await self._scroll_into_view(el)
+            box = await self._box(el)
+            return box[0] + box[2] / 2, box[1] + box[3] / 2
         if "point" in spec:
             x, y = spec["point"]
             return float(x), float(y)

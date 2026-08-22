@@ -29,7 +29,7 @@ from webmuxd.exceptions import NotFound
 
 __all__ = [
     "Size",
-    "Element", "Snapshot",
+    "Element", "Snapshot", "Ref", "RefTable",
     "ActionResult", "PageDigest",
     "TabInfo",
     "ViewMode", "JPG", "VNC", "DOM", "MODES",
@@ -101,6 +101,10 @@ class Element:
     affords: list[str] = field(default_factory=list)
     hint: str = ""
 
+    #: `@e1` —— **跨命令活着的编号**,由 [`RefTable`](#RefTable) 发。
+    #: 只有走过 `snapshot` 的元素才有;`act` 内部自己抓的那份是空的。
+    ref: str = ""
+
     #: 只有服务端有 —— 它是 CDP 的句柄,**不上线**。
     backend_node_id: int | None = None
     #: 只有 SDK 有 —— 这个元素是哪次观测里的。
@@ -111,7 +115,7 @@ class Element:
             "id": self.id, "role": self.role, "name": self.name, "value": self.value,
             "bbox": [round(v, 1) for v in self.bbox],
             "in_viewport": self.in_viewport, "enabled": self.enabled,
-            "affords": self.affords, "hint": self.hint,
+            "affords": self.affords, "hint": self.hint, "ref": self.ref,
         }
 
     @classmethod
@@ -123,11 +127,13 @@ class Element:
             in_viewport=bool(d.get("in_viewport", True)),
             enabled=bool(d.get("enabled", True)),
             affords=d.get("affords") or [], hint=d.get("hint", ""),
-            observation=observation)
+            ref=d.get("ref", ""), observation=observation)
 
     def as_line(self) -> str:
-        """紧凑表示的一行(api/act.md §1.3)。"""
-        line = f"[{self.id}] {self.role:8} \"{self.name}\""
+        """紧凑表示的一行。**有 ref 就用 `@e1`,没有才退回 `[1]`** ——
+        前者跨命令可用,后者只在这一次里成立。"""
+        head = f"@{self.ref}" if self.ref else f"[{self.id}]"
+        line = f"{head:5} {self.role:9} \"{self.name}\""
         if self.value is not None:
             line += f" = \"{self.value}\""
         flags = []
@@ -139,7 +145,10 @@ class Element:
 
     def brief(self) -> dict[str, Any]:
         """报错里列候选用的那几个字段。"""
-        return {"id": self.id, "role": self.role, "name": self.name, "hint": self.hint}
+        d = {"id": self.id, "role": self.role, "name": self.name, "hint": self.hint}
+        if self.ref:
+            d["ref"] = self.ref
+        return d
 
     def __repr__(self) -> str:
         return f'<[{self.id}] {self.role} "{self.name}">'
@@ -176,6 +185,92 @@ class Snapshot:
 
     def as_prompt(self) -> str:
         return "\n".join(e.as_line() for e in self.elements)
+
+    def to_json(self) -> dict[str, Any]:
+        return {"elements": [e.to_json() for e in self.elements],
+                "notes": self.notes, "filter_version": self.filter_version,
+                "viewport": self.viewport.to_json()}
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Snapshot":
+        return cls(elements=[Element.from_json(e) for e in d.get("elements") or []],
+                   notes=d.get("notes") or [],
+                   filter_version=int(d.get("filter_version") or 0),
+                   viewport=Size.from_json(d.get("viewport")))
+
+
+# ---------------------------------------------------------------------------
+# 跨命令的元素编号
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Ref:
+    """`@e1` 指着的那一个节点。"""
+
+    id: str
+    #: 哪个 tab 上的。**换了 tab 就不认** —— 同一个号在两个页面上
+    #: 指着两个东西,是最难查的一类错。
+    tab: str
+    #: CDP 的句柄。**不上线**,和 `Element.backend_node_id` 同一个东西。
+    backend_node_id: int
+    role: str = ""
+    name: str = ""
+
+
+@dataclass
+class RefTable:
+    """一个 session 的 `@e1` 表 —— **`snapshot` 发号,`click @e1` 认号**。
+
+    **号只增不重用。** 第二次 `snapshot` 从 `@e13` 接着发,不从 `@e1` 重来:
+
+        snapshot  →  @e1 … @e12
+        click @e5 →  页面变了
+        snapshot  →  @e13 … @e20      ← 不是又一批 @e1
+
+    重用是省事,但它把"拿着过期的号去点"从一个**报错**变成了一次
+    **点错东西**。而点错浏览器比敲错终端贵 ——
+    这是 [`locate`](locate.py) 开头那两条里的第二条。
+
+    代价是号会一直涨。**这个代价是对的**:号是从 `snapshot` 的输出里
+    抄来的,没人需要去猜下一个号是几。
+    """
+
+    by_id: dict[str, Ref] = field(default_factory=dict)
+    next_n: int = 1
+
+    def assign(self, elements: list[Element], tab: str) -> None:
+        """给一批元素发号,顺手写回 `el.ref`。"""
+        for el in elements:
+            if el.backend_node_id is None:
+                continue
+            rid = f"e{self.next_n}"
+            self.next_n += 1
+            el.ref = rid
+            self.by_id[rid] = Ref(rid, tab, el.backend_node_id, el.role, el.name)
+
+    def get(self, ref: str, tab: str) -> Ref:
+        """认号。**三种失败分开说**,因为要做的事不一样。"""
+        rid = ref[1:] if ref.startswith("@") else ref
+        got = self.by_id.get(rid)
+        if got is None:
+            if not self.by_id:
+                raise NotFound(
+                    f"@{rid} 不认识 —— 这个 session 还没 snapshot 过",
+                    code="not_found", details={"ref": rid})
+            raise NotFound(
+                f"@{rid} 不认识 —— 现在发到 @e{self.next_n - 1},"
+                f"重新 snapshot 一次",
+                code="not_found", details={"ref": rid})
+        if got.tab != tab:
+            raise NotFound(
+                f"@{rid} 是 {got.tab} 上的号,不是这个 tab 的",
+                code="not_found", details={"ref": rid, "tab": got.tab})
+        return got
+
+    def forget(self, tab: str) -> None:
+        """那个 tab 关了 —— 把它的号清掉。**`next_n` 不回退。**"""
+        for rid in [k for k, v in self.by_id.items() if v.tab == tab]:
+            del self.by_id[rid]
 
 
 # ---------------------------------------------------------------------------
@@ -827,10 +922,14 @@ class Locator:
     而它是**跨 HTTP 的**:SDK 拼出来、服务端解开。三份意味着加一种写法
     要记得改三个地方 —— 而"记得"从来不是一种机制。
 
-    没有"按编号定位":编号只在一次快照里成立
-    ([locate.resolve](locate.py))。
+    **`ref` 和 `nth` 不是一回事**:`nth` 是"这几个同名的里第几个",
+    只在这一次匹配里成立;`ref` 是 [`RefTable`](#RefTable) 发的号,
+    跨命令活着,而且**过期了会明确报错,不会指向另一个元素**。
     """
 
+    #: 上一次 `snapshot` 里的编号,写作 `@e1`。**最准的一种** ——
+    #: 它指着那一个具体的 DOM 节点,不靠名字去猜。
+    ref: str = ""
     #: 可见文字,最常用
     text: str = ""
     role: str = ""
@@ -845,11 +944,11 @@ class Locator:
     nth: int | None = None
 
     #: 这几个键就是全部。**加一种写法要改这一处,不是三处。**
-    KEYS = ("text", "role", "name", "label", "css", "point", "nth")
+    KEYS = ("ref", "text", "role", "name", "label", "css", "point", "nth")
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
-        for k in ("text", "role", "name", "label", "css"):
+        for k in ("ref", "text", "role", "name", "label", "css"):
             if getattr(self, k):
                 out[k] = getattr(self, k)
         if self.point is not None:
