@@ -490,17 +490,79 @@ class Executor:
                              {"files": paths, "backendNodeId": el.backend_node_id},
                              session_id=self._sid)
 
+    #: `extract` 能取的东西。**一个动词,一张表** ——
+    #: 加一样只改这儿,不是再开一个动词。
+    #:
+    #: `value` / `visible` / `enabled` / `checked` / `box` 是为 CLI 的
+    #: `get` 和 `is` 加的:在那之前"确认一个元素的一个值"只能**把整页
+    #: 再抓一遍**,而抓整页会发号
+    #: ([issue](../docs/v2/issues/每次确认都要抓一整页-于是号在膨胀.md))。
+    #:
+    #: **`value` 读的是属性不是 attribute。** `getAttribute("value")` 回的是
+    #: HTML 里写死的那个初值,用户敲进去的东西不在里面 —— 那正是要问的东西。
+    _EXTRACT = {
+        "text": "function () { return this.innerText; }",
+        "html": "function () { return this.outerHTML; }",
+        "value": "function () { return this.value ?? null; }",
+        "table": """function () { return [...this.querySelectorAll('tr')].map(
+                 r => [...r.children].map(c => c.innerText.trim())); }""",
+        "box": """function () { const b = this.getBoundingClientRect();
+                 return [b.x, b.y, b.width, b.height]; }""",
+        # **看得见 = 有盒子 + 没被 display/visibility/opacity 藏掉。**
+        # 只判 `offsetParent` 不够:`position: fixed` 的元素它也是 null。
+        "visible": """function () {
+                 const b = this.getBoundingClientRect();
+                 if (!b.width || !b.height) return false;
+                 const s = getComputedStyle(this);
+                 return s.display !== 'none' && s.visibility !== 'hidden'
+                        && Number(s.opacity) > 0; }""",
+        "enabled": """function () {
+                 return !(this.disabled || this.getAttribute('aria-disabled') === 'true'); }""",
+        "checked": """function () {
+                 if (typeof this.checked === 'boolean') return this.checked;
+                 return this.getAttribute('aria-checked') === 'true'; }""",
+    }
+
     async def _do_extract(self, spec: dict) -> Any:
         el = await self._resolve(spec, "extract")
         mode = spec.get("mode", "text")
-        js = {"text": "function () { return this.innerText; }",
-              "html": "function () { return this.outerHTML; }",
-              "attr": f"function () {{ return this.getAttribute({spec.get('attr', 'href')!r}); }}",
-              "table": """function () { return [...this.querySelectorAll('tr')].map(
-                     r => [...r.children].map(c => c.innerText.trim())); }"""}.get(mode)
+        if mode == "attr":
+            js = f"function () {{ return this.getAttribute({spec.get('attr', 'href')!r}); }}"
+        else:
+            js = self._EXTRACT.get(mode)
         if js is None:
-            raise BadRequest(f"不认识的 extract mode:{mode}", code="bad_request")
+            raise BadRequest(
+                f"不认识的 extract mode:{mode} —— 有的是 "
+                f"{', '.join(['attr', *self._EXTRACT])}", code="bad_request")
         return await self._eval_on(el, js)
+
+    async def _do_count(self, spec: dict) -> int:
+        """有多少个。**这一条不落到单个元素上**,所以不走 `_resolve`。
+
+        `--css` 走 `querySelectorAll`;别的写法(文字 / role+name)在元素表里数
+        —— 和 `click` 找不准时报"匹配到 N 个"用的是同一套匹配
+        ([locate.match_by_text](locate.py)),**同一个问题只能有一个答案**。
+        """
+        css = spec.get("css")
+        if css:
+            r = await self._cdp.send(
+                "Runtime.evaluate",
+                {"expression": f"document.querySelectorAll({css!r}).length",
+                 "returnByValue": True}, session_id=self._sid)
+            if r.get("exceptionDetails"):
+                raise BadRequest(_js_error(r["exceptionDetails"]), code="bad_request")
+            return int(r["result"].get("value") or 0)
+
+        snap = await self._fresh_snapshot()
+        hits = list(snap.elements)
+        role, name = spec.get("role"), spec.get("name") or spec.get("text")
+        if role:
+            hits = [e for e in hits if e.role == role]
+        if name:
+            hits = locate.match_by_text(hits, str(name))
+        elif not role:
+            raise BadRequest("count 要给 --css,或者 role / 文字", code="bad_request")
+        return len(hits)
 
     # ------------------------------------------------------------- 定位/辅助
 

@@ -26,8 +26,16 @@
 | 导航 | `goto` `back` `forward` `reload` `stop` |
 | 指点 | `click` `hover` `scroll` |
 | 输入 | `type` `clear` `key` `select` `check` `upload` |
-| 读取 | `extract` `wait_for` |
+| 读取 | `extract` `count` `wait_for` |
 | 逃生舱 | `js` |
+
+> `extract` 那一个动词底下挂着一张 mode 表:
+> `text` / `html` / `value` / `attr` / `table` / `box` /
+> `visible` / `enabled` / `checked`。CLI 上它们长成 `get` 和 `is`
+> ([cli/read.md](../cli/read.md))。
+>
+> **一个动词一张表,不是九个动词** —— "从一个元素上取一个值"是一件事。
+> `count` 单独一个,因为它**不落到单个元素上**。
 
 三条性质:
 

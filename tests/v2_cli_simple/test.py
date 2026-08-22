@@ -82,19 +82,21 @@ def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     #
     # **`@e1` 直接就能点** —— 不用坐标,也不用再说一遍它叫什么。
     ref = "@" + box["ref"]
-    # **不用先 click。** `type` 自己会 focus —— 验过:不点直接 type 也进得去。
-    # (以为"要先点一下"是把观看端的规矩当成了 CLI 的规矩:浏览器那条路要
-    # `mousedown` 把焦点交给隐藏 textarea,那是 IME 要的,和这条命令无关。)
-    cli.run("--user", "agent", "--note", "搜一个词", "type", "-t", "demo", ref, WORD)
+    # **一条 `fill` 顶掉 `click` + `type`。** 对上 agent-browser 的
+    # `fill <sel> <text>`。填表单十次有九次要的是"清空再填",
+    # 拆成两条的话中间那步失败了状态是半截的。
+    cli.run("--user", "agent", "--note", "搜一个词", "fill", "-t", "demo", ref, WORD)
 
-    # 框里有字了 —— **再 snapshot 一次,value 就在树里**,不用读 DOM。
-    # 同一句话再问一遍(第一个能输入又看得见的),该找到同一个框。
-    again = [e for e in cli.snap("demo", "-i")
-             if "type" in e["affords"] and e["in_viewport"]]
-    assert again, "重新 snapshot 之后一个能输入的框都没有"
-    assert again[0]["value"] == WORD, f"框里应该是 {WORD!r},实际 {again[0]['value']!r}"
-    # **号是新的。** 只增不重用 —— 拿旧号去点会报错,不会点到别的东西。
-    assert again[0]["ref"] != box["ref"], "第二次 snapshot 该发新号"
+    # **问一个值就问一个值,别把整页再抓一遍。**
+    #
+    # 这一句以前是 `snapshot -i` 再从 26 个元素里挑 —— 一次 3KB 的 JSON,
+    # 而且**每抓一次就给整页每个元素发一个新号**
+    # ([issue](../../docs/v2/issues/每次确认都要抓一整页-于是号在膨胀.md))。
+    assert cli.out("get", "value", "-t", "demo", ref).strip() == WORD
+
+    # 它还在,而且还能用 —— `is` 的答案在退出码里
+    cli.run("is", "visible", "-t", "demo", ref)
+    cli.run("is", "enabled", "-t", "demo", ref)
 
     # ------------------------------------------------------------ 回车
     cli.run("--user", "agent", "key", "-t", "demo", "Enter")
@@ -107,9 +109,11 @@ def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     #
     # **有结果**。至于结果标题里有没有那个词,取决于百度的索引 ——
     # 那不是我们能测的东西,写进断言只会换来一条时灵时不灵的测试。
-    links = [e for e in cli.snap("demo") if e["role"] == "link" and e["name"].strip()]
-    assert len(links) >= 3, f"结果页上一条结果都没有:{[e['name'] for e in links]}"
-    print(f"  搜到 {len(links)} 条,头一条:{links[0]['name']!r}")
+    #
+    # 又是一次"数一数",以前也是抓整页(那一次 15KB、73 个元素)。
+    n = int(cli.out("get", "count", "-t", "demo", "--css", "h3").strip())
+    assert n >= 3, f"结果页上一条结果都没有:h3 有 {n} 个"
+    print(f"  搜到 {n} 条")
 
     # ------------------------------------------------- 过期的号点不动
     #

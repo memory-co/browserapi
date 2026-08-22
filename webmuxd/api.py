@@ -326,6 +326,16 @@ class Tab:
             spec["attr"] = attr
         return self._one(spec).results[0].get("value")
 
+    def count(self, target: Any = None, **kw: Any) -> int:
+        """有多少个。`--css` 走 `querySelectorAll`,别的写法在元素表里数。
+
+        **在它之前想知道"有几条结果"只能把整页抓下来自己数** ——
+        而抓整页会发一批新号
+        ([issue](../docs/v2/issues/每次确认都要抓一整页-于是号在膨胀.md))。
+        """
+        return int(self._one({"type": "count", **_locator(target, **kw)})
+                   .results[0].get("value") or 0)
+
     def js(self, expression: str) -> Any:
         """逃生舱。能用,但日志里标黄 —— 回看时看不出干了什么。"""
         return self._one({"type": "js", "expression": expression}).results[0].get("value")

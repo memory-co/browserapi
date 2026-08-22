@@ -44,6 +44,7 @@ DOM 节点,不靠名字去猜,所以不会"匹配到 3 个"。程序驱动优先
 | `find label <l> type <v>` | `type --label <l> <v>` ✅ |
 | `find nth <n> <sel> click` | `click --css <sel> --nth <n>` ✅ |
 | `click @e1` | `click @e1` ✅ —— 见 [read.md](read.md);**号只增不重用**,这一条和它不一样 |
+| `fill @e3 <text>` | `fill @e3 <text>` ✅ |
 
 > **为什么 CSS 不是默认。** agent-browser 面向的是"agent 先 snapshot 拿 ref、
 > 或者开发者自己写选择器"。我们面向的是"照着人看到的东西操作" ——
@@ -68,7 +69,23 @@ js
 webmuxd send -t demo '[{"type":"select","role":"combobox","value":"b"}]'
 ```
 
-⚠️ **待做(不是待讨论 —— 后端已经有了,只差把它摆成 flag):**
+### `fill` —— 清空再填,一条命令
+
+```bash
+webmuxd fill -t demo @e13 webmuxd
+webmuxd fill -t demo --label 手机号 13800000000
+```
+
+对上 agent-browser 的 `fill <sel> <text>`。**填表单十次有九次要的是这个**,
+而拆成 `clear` + `type` 两条的话,中间那步失败了状态是半截的。
+
+后端不用改:它就是 `{"type":"type","clear":true}`。
+
+> **不用先 `click`。** `type` / `fill` 自己会 focus。
+> 观看端那条路确实要先 `mousedown`(把焦点交给隐藏 textarea,IME 要它),
+> 但那是浏览器里的规矩,**不是 CLI 的规矩** —— 混过一次,白花 1.9 秒。
+
+⚠️ **还没暴露的(后端已经有了,只差摆成 flag):**
 
 | 后端动词 | 该长成 | 对应 agent-browser |
 | --- | --- | --- |
@@ -77,10 +94,6 @@ webmuxd send -t demo '[{"type":"select","role":"combobox","value":"b"}]'
 | `select` | `webmuxd select -t demo --role combobox b` | `select <sel> <val>` |
 | `check` | `webmuxd check -t demo "同意条款"` | `check` / `uncheck` |
 | `upload` | `webmuxd upload -t demo "选择文件" ./a.png` | `upload <sel> <files>` |
-| `extract` | `webmuxd extract -t demo --css ".item" --mode table` | `get text/html` |
-
-`fill`(清空再填)= `clear` + `type`,agent-browser 把它做成一个命令 ——
-**值得抄**,因为"填表单"十次有九次要的是这个。
 
 🔲 **待讨论:低层鼠标。** agent-browser 有 `mouse move/down/up/wheel`。
 我们的观看端那条通道**本来就是这个**(`{"type":"mouse","event":"move",…}`),

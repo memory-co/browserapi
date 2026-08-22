@@ -40,7 +40,20 @@ EXIT = {
 
 def main(argv: list[str] | None = None) -> int:
     p = _parser()
-    args = p.parse_args(argv)
+    # **位置参数被 `-t` 劈成两段时,argparse 配不上。**
+    #
+    # `webmuxd get value -t demo @e13` —— "value" 在 `-t` 前面、"@e13" 在后面,
+    # argparse 只肯把一个 `nargs="+"` 配给其中**连着的一段**,剩下那个就成了
+    # "unrecognized arguments: @e13"。而 `get <种类> <目标>` 这个顺序是照
+    # agent-browser 来的,不该为了绕开这个限制去改它。
+    #
+    # 所以自己收尾:剩下的**不是选项的**那些,接回 `rest` 去。
+    args, extra = p.parse_known_args(argv)
+    if extra:
+        stray = [x for x in extra if x.startswith("-")]
+        if stray or not hasattr(args, "rest"):
+            p.error(f"不认识的参数:{' '.join(extra)}")
+        args.rest = list(args.rest) + extra
     if not getattr(args, "cmd", None):
         p.print_help()
         return 2
@@ -496,6 +509,94 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fill(args: argparse.Namespace) -> int:
+    """**清空再填** —— `clear` + `type` 一条命令。
+
+    对上 agent-browser 的 `fill <sel> <text>`。填表单十次有九次要的是这个,
+    而拆成两条的话中间那一步失败了状态是半截的。
+    """
+    spec: dict[str, Any] = {"type": "type", "clear": True, **_locator(args)}
+    if "text" in spec:                       # 位置参数在这儿是标签,不是内容
+        spec["label"] = spec.pop("text")
+    spec["text"] = args.text
+    return _do(args, spec)
+
+
+#: `get` 的每一样对应 `extract` 的一个 mode。**这儿不做第二套语义。**
+_GET_MODES = ("text", "html", "value", "attr", "count", "box", "table")
+
+
+def cmd_get(args: argparse.Namespace) -> int:
+    """问一个元素的一个值。
+
+    **在它之前,"确认一下"只有一个办法:把整页再抓一遍** ——
+    而抓整页会发一批新号
+    ([issue](../docs/v2/issues/每次确认都要抓一整页-于是号在膨胀.md))。
+
+        webmuxd get value -t demo @e13        # 框里现在是什么
+        webmuxd get count -t demo --css h3    # 有几条结果
+        webmuxd get text  -t demo "登录"       # 那个东西上的字
+    """
+    kind, args.what, args.attr = _unpack(args.rest, [*_GET_MODES, "url", "title"], "get")
+    if kind in ("url", "title"):             # 这两样不落到元素上
+        t = _tab(args)
+        _out(args, t._row(), t.url if kind == "url" else t.title)
+        return 0
+    spec: dict[str, Any] = {"type": "count" if kind == "count" else "extract",
+                            **_locator(args)}
+    if kind == "attr":
+        if not args.attr:
+            raise WebmuxdError("get attr 要给属性名:`get attr <目标> href`",
+                               code="bad_request")
+        spec["attr"] = args.attr
+    if kind != "count":
+        spec["mode"] = kind
+    return _do_value(args, spec)
+
+
+def cmd_is(args: argparse.Namespace) -> int:
+    """问一个元素的状态。**答案在退出码里**(`0` 是,`1` 否)——
+    和 `has` 一样,给脚本用的是码不是字。
+
+        webmuxd is visible -t demo @e13 && echo 看得见
+    """
+    kind, args.what, _ = _unpack(args.rest, ["visible", "enabled", "checked"], "is")
+    spec = {"type": "extract", "mode": kind, **_locator(args)}
+    return _do_value(args, spec, boolean=True)
+
+
+def _unpack(rest: list[str], kinds: list[str],
+            cmd: str) -> tuple[str, str | None, str | None]:
+    """`[种类, 目标?, 属性名?]` → 三个值。**种类不认识就当场说清有哪些。**"""
+    kind = rest[0]
+    if kind not in kinds:
+        raise WebmuxdError(f"{cmd} 不认识 {kind!r} —— 有的是:{', '.join(kinds)}",
+                           code="bad_request")
+    return kind, (rest[1] if len(rest) > 1 else None), (rest[2] if len(rest) > 2 else None)
+
+
+def _do_value(args: argparse.Namespace, spec: dict, *, boolean: bool = False) -> int:
+    """跑一个"取值"的动作,**把值本身打到 stdout** —— 好让 `$(...)` 直接用。"""
+    r = _tab(args).act([spec], note=args.note, user=args.user)
+    res = r.results[0]
+    _out(args, {"results": r.results, "log_from": r.log_from})
+    if not res.get("ok"):
+        raise WebmuxdError(res.get("message", ""), code=res.get("error"),
+                           details={"candidates": res.get("candidates") or []})
+    value = res.get("value")
+    if not args.json:
+        if isinstance(value, bool):
+            # **`true` / `false`,不是 Python 的 `True` / `False`** ——
+            # 这一行是给 shell 和别的语言看的,不是给 Python 看的。
+            print("true" if value else "false")
+        elif isinstance(value, (dict, list)):
+            print(json.dumps(value, ensure_ascii=False))
+        else:
+            print("" if value is None else value)
+    # **`is` 的答案是退出码。** 不是错误,所以不走 EXIT 那张表。
+    return (0 if value else 1) if boolean else 0
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     """这一页上有什么。**每一样带一个 `@e1`,下一条命令直接拿去用。**"""
     snap = _tab(args).snapshot(interactive=args.interactive,
@@ -693,6 +794,30 @@ def _parser() -> argparse.ArgumentParser:
 
     add("url", cmd_url, help="当前 URL")
     add("status", cmd_status, help="session 状态")
+    fi = add("fill", cmd_fill, help="清空再填(= clear + type)")
+    fi.add_argument("what", nargs="?", default=None,
+                    help="标签,或 snapshot 给的 @e1")
+    fi.add_argument("text")
+    fi.add_argument("--label"), fi.add_argument("--css")
+    fi.add_argument("--role"), fi.add_argument("--name")
+    fi.add_argument("--nth", type=int, default=None), fi.add_argument("--at")
+
+    # **位置参数收成一个列表,自己拆。**
+    # `webmuxd get value -t demo @e13` 里那个 `-t demo` 把位置参数劈成两段,
+    # 而 argparse 一碰到两个 `nargs="?"` 被劈开就配不上了(报
+    # "unrecognized arguments: @e13")。收成 `+` 之后怎么摆都认。
+    g = add("get", cmd_get, help="问一个值(text/value/count/…)")
+    g.add_argument("rest", nargs="+", metavar="种类 [目标] [属性名]")
+    g.add_argument("--css"), g.add_argument("--role"), g.add_argument("--name")
+    g.add_argument("--label"), g.add_argument("--at")
+    g.add_argument("--nth", type=int, default=None)
+
+    i = add("is", cmd_is, help="问一个状态,答案在退出码里")
+    i.add_argument("rest", nargs="+", metavar="visible|enabled|checked [目标]")
+    i.add_argument("--css"), i.add_argument("--role"), i.add_argument("--name")
+    i.add_argument("--label"), i.add_argument("--at")
+    i.add_argument("--nth", type=int, default=None)
+
     sn = add("snapshot", cmd_snapshot, help="这一页上有什么(带 @e1)")
     sn.add_argument("-i", "--interactive", action="store_true",
                     help="只要能点能填的")

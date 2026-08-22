@@ -101,17 +101,54 @@ agent-browser 给了更好的答案:把旋钮交出去(`-i` `-s` `--viewport` `-
 > 而我们出的是**一张平表**。要缩范围用 `-s`:
 > **划范围不丢信息,截断丢。**
 
-## 2. `get` 那一族
+## 2. `get` 和 `is` —— 问一个,别抓一整页
 
-agent-browser:`get text|html|value|attr|title|url|count|box|styles <sel>`、
-`is visible|enabled|checked <sel>`。
+```bash
+webmuxd get value -t demo @e13          # 框里现在是什么
+webmuxd get text  -t demo "登录"         # 那个东西上的字
+webmuxd get attr  -t demo "新闻" href    # 一个属性
+webmuxd get count -t demo --css h3      # 有几个
+webmuxd get box   -t demo @e13          # [x, y, w, h]
+webmuxd get url   -t demo               # 这两样不落到元素上
+webmuxd get title -t demo
 
-我们:后端有 `extract`(`text` / `html` / `table` / `attr` 四种模式),
-CLI 没暴露 —— 见 [act.md](act.md) 那张待做表。
+webmuxd is visible -t demo @e13 && echo 看得见
+webmuxd is enabled -t demo @e13
+webmuxd is checked -t demo "同意条款"
+```
 
-🔲 **待讨论:`is` 那一族。** `is visible` / `is enabled` 的信息后端**有**
-(元素表里就带着 `in_viewport` / `enabled`),但那张表不对外。
-要给的话,是给一个"问一个元素的状态"的口子,而不是把整张表倒出去。
+**`is` 的答案在退出码里**(`0` 是,`1` 否),和 `has` 一样 ——
+给脚本用的是码不是字。stdout 上也会打 `true` / `false` 给人看。
+
+### 为什么非有不可
+
+在它们之前,"确认一个值"只有一条路:**把整页再 `snapshot` 一遍**。
+
+而 `snapshot` 会给页面上每个元素**发一个新号**,于是:
+
+```
+缺 get  →  每次确认都抓整页  →  号在膨胀  →  旧号语义说不清
+```
+
+实测过:同一个节点在一次会话里被发了 `e13 / e38 / e64 / e90 / e116`
+五个号,五个都还能用。整条流的转录在
+[issue](../issues/每次确认都要抓一整页-于是号在膨胀.md)。
+
+补上 `get` 之后,[`v2_cli_simple`](../../../tests/v2_cli_simple/) 那条流里
+`snapshot` 从**三次降到一次**。
+
+### 和 agent-browser 的对照
+
+| agent-browser | 我们 | |
+| --- | --- | --- |
+| `get text\|html\|value\|attr\|count\|box <sel>` | 一样 | ✅ |
+| `get url` / `get title` | 一样 | ✅ |
+| `is visible\|enabled\|checked <sel>` | 一样,**外加退出码** | ✅ |
+| `get styles <sel>` | 🔲 没有 | 要它得先想清楚"哪些属性" |
+| `get cdp-url` | 🔲 没有 | 我们的 CDP 端点不对外 |
+
+**`<sel>` 在我们这儿是[整套定位](act.md#1-定位五种写法一条梯子)**,
+不只是 CSS:`@e13` / 可见文字 / `--role --name` / `--css` 都行。
 
 ## 3. `capture` 的两个形状
 

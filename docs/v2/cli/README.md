@@ -63,7 +63,11 @@
 `capture`(正文 / 截图)`status` ✅;
 `snapshot -i -s --viewport --max`(带 `@e1` 的元素表)✅ ——
 **号只增不重用**,这一条我们和 agent-browser 不一样,理由见那一篇;
-`get text/html/attr/box`、`is visible/enabled` 🔲。
+`get text|html|value|attr|count|box|url|title` ✅、
+`is visible|enabled|checked` ✅(**答案在退出码里**)——
+**它们不是锦上添花**:没有它们的时候"确认一个值"只能把整页再抓一遍,
+而抓整页会发号([issue](../issues/每次确认都要抓一整页-于是号在膨胀.md));
+`get styles` / `get cdp-url` 🔲。
 
 ### 排查 —— [debug.md](debug.md)
 
