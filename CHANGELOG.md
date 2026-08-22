@@ -1,5 +1,96 @@
 # 更新日志
 
+## 0.9.0
+
+**一个 server 一个口。** 先起服务,再往里加 session —— 和 tmux 一样。
+
+```console
+$ webmuxd start --port 7900
+server  →  http://127.0.0.1:7900/   (还没有 session:webmuxd new --id demo)
+
+$ webmuxd new --id demo
+demo  →  http://127.0.0.1:7900/s/demo/
+```
+
+打开 `http://127.0.0.1:7900/` 是那张 session 列表(还没建的时候它告诉你怎么建),
+点进去就是那个浏览器。**四个 session 从前要八个端口,现在一个。**
+
+以前"一个 session 一个端口"不是设计,是 v1 那个 kasm 镜像的 web 口
+不归我们控制;画面换成自己产的之后,那条硬约束早就没了,只是形状留着。
+
+### 会改到你的代码
+
+| 以前 | 现在 |
+| --- | --- |
+| `webmuxd new --id work --port 7900` | `webmuxd start --port 7900` 然后 `webmuxd new --id work` |
+| `Webmuxd()` + `session(id=, port=)` | `Webmuxd(port=7900)` + `session(id=)` |
+| `http://host:7900/api/tabs` | `http://host:7900/s/work/api/tabs` |
+| — | `webmuxd kill-server` 停 server 和全部 session |
+
+`port=` 传进 `session()` 会**当场报错并说端口去哪儿了** —— 不静默吞。
+
+**server 不按需自启。** tmux 能自启是因为它用 socket,没有端口要挑;
+我们有,而这个项目那条规矩是"端口由你给"。没起 server 时,
+`webmuxd new` 报错并告诉你该跑哪一行。
+
+### 读的那一面只剩一张图和正文
+
+```
+GET /s/work/api/screenshot   → image/webp
+GET /s/work/api/text         → text/plain
+```
+
+`/api/observe`、`tab.observe()`、`webmuxd observe` **都没有了**。
+那是一包"关于 agent 该怎么用浏览器的意见" —— 筛过的元素表、编好的号、
+150 个上限、一次观测的 id。判据是那句老话:**tmux 会做这个吗?**
+它有 `capture-pane`,就是这两样。
+
+**元素表没消失,它在定位那一侧**:`tab.click("提交订单")` 就是拿它做的。
+歧义时回候选,**拿 `role` + `name` 重试**:
+
+```python
+try:
+    tab.click("订单")
+except NotFound as e:
+    tab.click(e.details["candidates"][0])
+```
+
+跟着一起去掉的是**按编号定位**(`{"element": 12, "observation": "..."}`):
+编号只在一次快照里成立,没有"一次观测"之后那道挡陈旧编号的板子没了落点 ——
+**留着键而挡不住,比没有这个键更坏**。
+
+同时:**观测不再往页面上画框**。以前是在活页面铺一层带编号的框再拍,
+于是正在看的人会闪一下,DOM 模式下那层还会被录进重放流撤不掉。
+量出来的:静止页面上连着看,三次 observe 推了 3 条带标注层的事件给观看者;
+现在是 0 条。要 Set-of-Mark 图,拿 `bbox` 自己叠。
+
+### DOM 那条画面其实一直是坏的
+
+`--transport dom` 起的 session,`/channel/rrweb` 连得上、**一条事件都不来**,
+而且全程不报错。两个真因,一个盖着另一个:
+
+- **`Runtime.enable` 全项目一处都没调过。** `addBinding` 照样成功、页面里那个
+  函数照样在、页面照样调它 —— 而 `bindingCalled` 根本不推
+- **binding 每次导航都没了。** 旧注释写"不一定活过导航",量清楚了是**每次都不活**
+
+修法是两边配合:服务端订 `executionContextCreated` 每个新文档补一次;
+页面那段脚本是 document-start 的、必然更早,所以**先攒着等**。
+顺手把那个吞异常的 `catch (_) {}` 拆了。
+
+### 内部:两棵树,和一个 models.py
+
+代码摆法整个重来([docs/v2/works/j-layout.md](docs/v2/works/j-layout.md)):
+
+- **按语言分两棵树**:`webmuxd/`(Python)· `webmuxjs/`(JS)
+- Python 那棵**照 requests 平铺** —— 七个子包没了,一个文件一件事
+- **`webmuxjs/client/` 是一个真的前端工程**:TypeScript、vite、43 个 vitest,
+  和 Python 对拍的 fixture。构建产物在打 wheel 之前现建,
+  **"忘了先构建"那种漏不可能发生**
+- **`models.py`** 装下所有跨边界的数据 —— 以前同一个概念服务端一份、
+  SDK 一份、JS 一份
+
+**对外一个字没改**:包名、CLI 名、`pip install webmuxd` 都一样。
+
 ## 0.8.0
 
 **画面从两种变成三种,而且可以随时切。**
