@@ -82,7 +82,9 @@ def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     #
     # **`@e1` 直接就能点** —— 不用坐标,也不用再说一遍它叫什么。
     ref = "@" + box["ref"]
-    cli.run("click", "-t", "demo", ref)
+    # **不用先 click。** `type` 自己会 focus —— 验过:不点直接 type 也进得去。
+    # (以为"要先点一下"是把观看端的规矩当成了 CLI 的规矩:浏览器那条路要
+    # `mousedown` 把焦点交给隐藏 textarea,那是 IME 要的,和这条命令无关。)
     cli.run("--user", "agent", "--note", "搜一个词", "type", "-t", "demo", ref, WORD)
 
     # 框里有字了 —— **再 snapshot 一次,value 就在树里**,不用读 DOM。
@@ -116,8 +118,10 @@ def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     # 拿旧号点它其实**是对的**,于是这条断言时灵时不灵,还两次把我引到别处。
     # **前提不成立的断言,比没有断言更费时间。**
     #
-    # 「同文档跳转之后旧号该不该失效」是个**没定的语义问题**,不是 bug ——
-    # 记在 [issues](../../docs/v2/issues/同文档跳转之后旧号还认.md),先不解决。
+    # 「同文档跳转之后旧号该不该失效」是个**没定的语义问题**,不是 bug。
+    # 而且它只是症状 —— 病根是**我们缺 `get` / `is`,于是每次确认都得抓整页,
+    # 而抓整页会发号**。整条流原样录在
+    # [issues](../../docs/v2/issues/每次确认都要抓一整页-于是号在膨胀.md),先不解决。
     cli.run("goto", "-t", "demo", "https://example.com/")
     cli.run("wait", "-t", "demo", "--css", "body", "--timeout", "20")
 
