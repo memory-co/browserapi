@@ -112,7 +112,7 @@ def js(port: int, expression: str):
     return json.loads(json.loads(buf.getvalue())["results"][0]["value"])
 
 
-async def test_起服务_开百度_搜一个词_看到结果(server):
+async def test_start_open_baidu_search_and_see_results(server):
     port = server
 
     # ---------------------------------------------------------------- 起
