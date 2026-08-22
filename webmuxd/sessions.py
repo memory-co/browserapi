@@ -152,18 +152,27 @@ class Session:
         """页面报上来一次输入。**是人还是我们,靠相关性分**。"""
         if params.get("name") != probe.BINDING:
             return
-        if time.monotonic() - self._dispatched_at < self._SELF_WINDOW:
-            return                          # 这是我们刚发的那一下
         import json as _json
         try:
             info = _json.loads(params.get("payload") or "{}")
         except Exception:
             info = {}
+
         if info.get("kind") == "cursor":
-            # 光标形状变了 —— 不是人的输入,不开让路窗口,也不进日志
+            # 光标形状变了 —— 不是人的输入,不开让路窗口,也不进日志。
+            #
+            # **这一条必须在"是不是我们刚发的"之前判。** 光标恰恰是被
+            # 我们派发的那次鼠标移动带出来的:观看者移鼠标 → 我们
+            # `Input.dispatchMouseEvent` → 页面 `pointermove` → 探针上报。
+            # 放在下面的话,**每一次都落在自窗口里被吃掉** ——
+            # 于是画面上光标永远是箭头,而且一条错都没有。
             shape = cursor_probe.sanitize(info.get("cursor", ""))
-            asyncio.create_task(self.view._tell_all("cursor", cursor=shape))
+            asyncio.create_task(
+                self.view._send_all(models.CursorChanged(shape)))
             return
+
+        if time.monotonic() - self._dispatched_at < self._SELF_WINDOW:
+            return                          # 这是我们刚发的那一下
         self.note_human_activity(info.get("kind", "input"))
         tab_id = self._tab_of_session(sid)
         # 人干的**也进日志** —— 这样它才是完整的操作路径,不是"只有 API 干过的事"
@@ -275,6 +284,9 @@ class Session:
         await ex.start()
         # **popup 一律转成 tab**(works/07 §4)—— 装在页面层,
         # 因为只有页面自己调原生 open 才能保住 opener 关系。
+        # **Runtime 域先开、binding 先装** —— 页面里那三样探针都靠它往回报,
+        # 而 `bindingCalled` 只在域开着时才推(probe.enable 的 docstring)
+        await probe.enable(self.cdp, sid)
         await probe.install(self.cdp, sid)
         await probe.install_input_watch(self.cdp, sid)
         await cursor_probe.install(self.cdp, sid)

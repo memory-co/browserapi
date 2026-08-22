@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import re
 import time
@@ -504,12 +505,64 @@ class Executor:
         try:
             el = locate.resolve(spec, snap)
         except locate._Escape:
-            raise
+            # **逃生舱也得能落到一个元素上。**
+            #
+            # `click` / `hover` 只要坐标,所以它们绕开元素表就够了;而 `type`
+            # `clear` `select` `check` `extract` 要的是**那个元素**(要 focus、
+            # 要读 value)。以前这儿直接把异常抛出去 —— 没人接,`POST /api/act`
+            # 回 500,而 `--css` 是文档里写着支持的写法。
+            return await self._element_by_escape(spec)
         except NotFound:
             # 元素表可能过期了 —— 重抓一次再判,免得把"刚出现的按钮"报成不存在
             snap = await self._fresh_snapshot()
             el = locate.resolve(spec, snap)
         self._last_hit = el.to_json()
+        return el
+
+    async def _element_by_escape(self, spec: dict) -> Element:
+        """`css` / `point` 指到的那个元素。
+
+        **CDP 有现成的**:坐标用 `DOM.getNodeForLocation`,选择器求值之后用
+        `DOM.describeNode` 拿 backendNodeId —— 不用自己在元素表里找一遍。
+
+        回来的 `Element` 只填得起 `backend_node_id` 和 `bbox`:
+        走逃生舱就意味着**没有那套语义**(role / name / affords),
+        这一点如实反映在对象上,不编。
+        """
+        if "point" in spec:
+            x, y = float(spec["point"][0]), float(spec["point"][1])
+            try:
+                r = await self._cdp.send("DOM.getNodeForLocation",
+                                         {"x": int(x), "y": int(y),
+                                          "includeUserAgentShadowDOM": True},
+                                         session_id=self._sid)
+            except CDPError as e:
+                raise NotFound(f"({x:g}, {y:g}) 那儿没有元素", code="not_found",
+                               details={"candidates": []}) from e
+            node = r.get("backendNodeId")
+            self._last_hit = {"point": [x, y]}
+            hit = "坐标"
+        else:
+            css = spec["css"]
+            r = await self._cdp.send(
+                "Runtime.evaluate",
+                {"expression": f"document.querySelector({css!r})"},
+                session_id=self._sid)
+            obj = r.get("result", {}).get("objectId")
+            if not obj:
+                raise NotFound(f"选择器 {css} 没匹配到", code="not_found",
+                               details={"candidates": []})
+            d = await self._cdp.send("DOM.describeNode", {"objectId": obj},
+                                     session_id=self._sid)
+            node = (d.get("node") or {}).get("backendNodeId")
+            self._last_hit = {"css": css}
+            hit = f"选择器 {css}"
+        if not node:
+            raise NotFound(f"{hit}指到的东西拿不到句柄", code="not_found",
+                           details={"candidates": []})
+        el = Element(id=0, role="", name="", backend_node_id=node)
+        with contextlib.suppress(Exception):
+            el.bbox = await self._box(el)
         return el
 
     async def _point_for(self, spec: dict) -> tuple[float, float]:
@@ -566,7 +619,11 @@ class Executor:
             await self._cdp.send("DOM.focus", {"backendNodeId": el.backend_node_id},
                                  session_id=self._sid)
         except CDPError:
-            x, y = await self._point_for({"element": el.id})
+            # `DOM.focus` 只对可聚焦的东西成立 —— 点不动的就用鼠标点一下。
+            # **拿它自己的框算坐标**,别再回去查元素表:
+            # 走逃生舱进来的那个 `Element` 根本不在表里(id 是 0)。
+            box = el.bbox if any(el.bbox) else await self._box(el)
+            x, y = box[0] + box[2] / 2, box[1] + box[3] / 2
             await self._cdp.send("Input.dispatchMouseEvent",
                                  {"type": "mousePressed", "x": x, "y": y,
                                   "button": "left", "clickCount": 1},

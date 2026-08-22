@@ -23,8 +23,14 @@ def _one(session, sid: str = "work"):
     **测试也走 `/s/<id>/`** —— 那是真实的地址形状,绕过它就等于不测路由
     ([k §4](../../docs/v2/works/k-one-server.md#4-路由s-id-前缀))。
     """
+    import atexit
+    import shutil
     import tempfile
-    srv = Server(data_root=tempfile.mkdtemp(prefix="wm-srv-"))
+
+    root = tempfile.mkdtemp(prefix="wm-srv-")
+    # **用完就收。** 不收只是攒着,直到有人发现 /tmp 里几百个 `wm-*` —— 真发生过
+    atexit.register(shutil.rmtree, root, True)
+    srv = Server(data_root=root)
     srv.adopt(sid, session)
     return srv
 from webmuxd.sessions import Session as CoreSession
@@ -48,7 +54,7 @@ HTML = """<!doctype html><meta charset=utf-8><title>结算</title>
 def live(request):
     """在后台线程里跑一个真 sessiond,返回它的端口。"""
     from aiohttp import web as aioweb
-    import shutil, socket, subprocess, os, contextlib
+    import shutil, socket, subprocess, os, contextlib, tempfile
 
     chromium = shutil.which("chromium-browser") or shutil.which("chromium")
     if not chromium:
@@ -60,6 +66,7 @@ def live(request):
             return s.getsockname()[1]
 
     cdp_port, api_port, page_port = free(), free(), free()
+    work = tempfile.mkdtemp(prefix="wm-lib-")
 
     # 一个极小的页面服务器 —— 让被测页面是真的 http://,导航和 title 才正常
     import http.server
@@ -78,7 +85,7 @@ def live(request):
     proc = subprocess.Popen(
         [chromium, "--headless=new", "--no-sandbox", "--disable-gpu",
          f"--remote-debugging-port={cdp_port}",
-         f"--user-data-dir=/tmp/lib-{cdp_port}", "about:blank"],
+         f"--user-data-dir={work}/profile", "about:blank"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(150):
         with contextlib.suppress(Exception):
@@ -94,7 +101,7 @@ def live(request):
 
         async def boot():
             cdp = await CDP.connect(f"http://127.0.0.1:{cdp_port}")
-            sess = CoreSession(cdp, data_dir=f"/tmp/libdata-{api_port}",
+            sess = CoreSession(cdp, data_dir=f"{work}/data",
                                human_yield_ms=0)
             await sess.start()
             runner = aioweb.AppRunner(build(_one(sess)))
@@ -117,6 +124,7 @@ def live(request):
     yield api_port, f"http://127.0.0.1:{page_port}/form"
     httpd.shutdown()
     proc.kill()
+    shutil.rmtree(work, ignore_errors=True)      # 用完就收
 
 
 @pytest.fixture

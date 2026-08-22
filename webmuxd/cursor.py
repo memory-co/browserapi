@@ -58,6 +58,19 @@ CURSOR_JS = """
     return false;
   };
 
+  // **能输入的东西,`auto` 就是 I 型** —— 哪怕里面一个字都没有。
+  //
+  // 光靠 `overText` 判不出来:空的搜索框没有文字节点,`caretRangeFromPoint`
+  // 落不到东西上,于是报箭头。而"一个空的搜索框看上去不能输入"正是这个
+  // 功能要防的事([b §5](../docs/v2/works/b-input.md))。
+  const NON_TEXT = /^(button|submit|reset|checkbox|radio|range|color|file|image)$/i;
+  const editable = (el) => {
+    const t = el.tagName;
+    if (t === 'TEXTAREA') return true;
+    if (t === 'INPUT') return !NON_TEXT.test(el.type || 'text');
+    return el.isContentEditable === true;
+  };
+
   const read = () => {
     pending = false;
     let el;
@@ -65,7 +78,7 @@ CURSOR_JS = """
     if (!el) return;
     let c = 'default';
     try { c = getComputedStyle(el).cursor || 'auto'; } catch (e) {}
-    if (c === 'auto') c = overText(lx, ly) ? 'text' : 'default';
+    if (c === 'auto') c = (editable(el) || overText(lx, ly)) ? 'text' : 'default';
     if (c === last) return;                 // **值变了才上报**
     last = c;
     try { __webmuxd(JSON.stringify({ kind: 'cursor', cursor: c })); } catch (e) {}

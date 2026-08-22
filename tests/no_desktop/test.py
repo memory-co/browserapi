@@ -24,8 +24,14 @@ def _one(session, sid: str = "work"):
     **测试也走 `/s/<id>/`** —— 那是真实的地址形状,绕过它就等于不测路由
     ([k §4](../../docs/v2/works/k-one-server.md#4-路由s-id-前缀))。
     """
+    import atexit
+    import shutil
     import tempfile
-    srv = Server(data_root=tempfile.mkdtemp(prefix="wm-srv-"))
+
+    root = tempfile.mkdtemp(prefix="wm-srv-")
+    # **用完就收。** 不收只是攒着,直到有人发现 /tmp 里几百个 `wm-*` —— 真发生过
+    atexit.register(shutil.rmtree, root, True)
+    srv = Server(data_root=root)
     srv.adopt(sid, session)
     return srv
 from webmuxd.sessions import Session

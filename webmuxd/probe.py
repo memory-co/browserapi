@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from webmuxd.cdp import CDP, CDPError
 
 #: 只留这三个 —— 它们不触发 popup,但改变返回值语义,吃掉会改变行为
@@ -35,6 +37,26 @@ POPUP_TO_TAB_JS = """
   window.__webmuxdOpenShim = true;
 })();
 """
+
+
+async def enable(cdp: CDP, session_id: str) -> None:
+    """**Runtime 域要先开,而且只这一处开。**
+
+    页面里那三样东西(这个 shim、光标探针、DOM 记录器)全靠同一个
+    `Runtime.addBinding` 往回报,而 `Runtime.bindingCalled` **只在这个域
+    开着的时候才推**。不开的话:`addBinding` 照样成功、页面里那个函数照样在、
+    页面照样调它 —— **而服务端一条都收不到,还不报错**
+    ([issue](../docs/v2/issues/dom-binding-不活过导航.md))。
+
+    这个洞的两半分别咬过一次:DOM 那条画面整个不工作,光标同步在
+    JPG/VNC 下整个不工作 —— 而两次的表现都是"什么都没发生,也没有错"。
+    所以现在它在**一处**、在装任何探针**之前**。
+    """
+    with contextlib.suppress(Exception):
+        await cdp.send("Runtime.enable", {}, session_id=session_id)
+    with contextlib.suppress(Exception):
+        await cdp.send("Runtime.addBinding", {"name": BINDING},
+                       session_id=session_id)
 
 
 async def install(cdp: CDP, session_id: str) -> None:

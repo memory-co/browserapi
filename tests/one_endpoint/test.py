@@ -9,6 +9,7 @@ v1 那 600 行里大半是在验"容器命令怎么拼、镜像标签怎么读",
 """
 
 import contextlib
+import shutil
 import socket
 import tempfile
 import time
@@ -157,7 +158,8 @@ def test_两个_session_一个口():
 
     from webmuxd import processes
     port = _free()
-    proc = processes.spawn_server(port=port, data=tempfile.mkdtemp(prefix="wm-t-"))
+    data = tempfile.mkdtemp(prefix="wm-t-")
+    proc = processes.spawn_server(port=port, data=data)
     assert processes.wait_http(f"http://127.0.0.1:{port}/healthz", 30)
     web = Webmuxd(port=port)
     try:
@@ -176,6 +178,7 @@ def test_两个_session_一个口():
             web.kill_server()
         time.sleep(1)
         proc.kill()
+        shutil.rmtree(data, ignore_errors=True)      # 用完就收
     time.sleep(0.5)
     assert port_free(port), "kill-server 之后端口还占着 —— 进程没清干净"
 

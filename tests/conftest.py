@@ -10,6 +10,7 @@
 import asyncio
 import contextlib
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -36,6 +37,7 @@ def chromium_endpoint():
         pytest.skip("本机没有浏览器 —— 跑 `webmuxd install` 下一个")
 
     port = _free_port()
+    profile = os.path.join("/tmp", f"wm-{port}")
     proc = subprocess.Popen(
         [
             CHROMIUM,
@@ -45,7 +47,7 @@ def chromium_endpoint():
             "--disable-dev-shm-usage",
             f"--remote-debugging-port={port}",
             "--remote-debugging-address=127.0.0.1",
-            "--user-data-dir=" + os.path.join("/tmp", f"wm-{port}"),
+            f"--user-data-dir={profile}",
             "about:blank",
         ],
         stdout=subprocess.DEVNULL,
@@ -68,6 +70,9 @@ def chromium_endpoint():
     proc.terminate()
     with contextlib.suppress(Exception):
         proc.wait(timeout=5)
+    # **profile 目录也要收。** 一个 chrome profile 几十兆,一轮测试几十个 ——
+    # 不收的话它只是攒着,直到有人发现 /tmp 有几百个 `wm-*`
+    shutil.rmtree(profile, ignore_errors=True)
 
 
 @pytest.fixture
