@@ -77,7 +77,7 @@ session 是它下面的 `/s/<id>/`,像 tmux 一个 server 装着全部 session
 ### 用命令行
 
 ```bash
-webmuxd start    --port 7900
+webmuxd server start    --port 7900
 webmuxd new      --id work
 webmuxd new-tab  -t work -u https://example.com
 

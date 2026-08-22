@@ -24,7 +24,7 @@ GET    /api/sessions              有哪些
 POST   /api/sessions  {id, ...}   建一个(同一个 id 再来一次就是接管)
 DELETE /api/sessions/{id}         关一个
 GET    /api/server                版本 / 几个 session / uptime
-DELETE /api/server                kill-server —— 一个都不留,然后自己也走
+DELETE /api/server                `server stop` —— 一个都不留,然后自己也走
 GET    /healthz                   探活
 ```
 

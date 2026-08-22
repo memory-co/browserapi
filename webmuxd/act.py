@@ -22,7 +22,7 @@ from typing import Any
 from webmuxd import locate
 from webmuxd.cdp import CDP, CDPError
 from webmuxd.exceptions import (
-    BadRequest, NotClickable, NotFound, Timeout, WebmuxdError,
+    BadRequest, NavFailed, NotClickable, NotFound, Timeout, WebmuxdError,
 )
 from webmuxd.models import ActionResult, Element, PageDigest, Snapshot
 
@@ -337,7 +337,21 @@ class Executor:
         if is_blocked(url):
             raise BadRequest(f"{url} 是特权页面,禁止导航", code="blocked_url",
                              details={"url": url})
-        await self._cdp.send("Page.navigate", {"url": url}, session_id=self._sid)
+        r = await self._cdp.send("Page.navigate", {"url": url}, session_id=self._sid)
+
+        # **`Page.navigate` 会告诉你它没成功 —— 这个返回值以前被整个扔掉。**
+        #
+        # 扔掉的下场:打不开的站,`goto` 打一个 ✓,`url` 还显示成目标地址
+        # (Chrome 的错误页保留原地址),而 `capture` 和 `snapshot` 都是空的。
+        # **对 agent 就是"什么都没发生,而且不报错"** —— 这个项目最想消灭的那一类。
+        #
+        # `NavFailed`、它的 `net_error` 字段、502 那条映射,一直都在。
+        # **契约写好了,线没接。**
+        err = r.get("errorText")
+        if err:
+            raise NavFailed(f"{url} 打不开:{err}{_nav_hint(url, err)}",
+                            code="nav_failed",
+                            details={"url": url, "net_error": err})
 
     async def _do_back(self, _spec: dict) -> None:
         await self._history_go(-1)
@@ -799,6 +813,20 @@ class Executor:
                 raise BadRequest("给了 text_ref 但没配 secrets 后端", code="bad_request")
             return await self._secrets.resolve(ref)
         return str(spec.get("text", ""))
+
+
+def _nav_hint(url: str, err: str) -> str:
+    """把 net 错误翻成"下一步做什么"。**说不出来就不说** —— 编一句更糟。"""
+    # **这儿曾经有一句"这是 Chrome 把 http 升级成 https 之后失败了"。**
+    # 那时 HTTPS-First 还开着,`http://` 站会被浏览器自己拦下来。
+    # 现在那个特性关掉了([processes.BASE_ARGS](processes.py)),这条路走不到了 ——
+    # 而 `ERR_BLOCKED_BY_CLIENT` 本身还会来(插件、企业策略),
+    # **再说"是 HTTPS-First"就是把人往错的方向指**。所以删了,不猜。
+    if err == "net::ERR_NAME_NOT_RESOLVED":
+        return "\n  域名解析不了 —— 地址打错了,还是这台机器没有 DNS?"
+    if err == "net::ERR_CONNECTION_REFUSED":
+        return "\n  连上了但对面拒绝 —— 那个端口上有东西在听吗"
+    return ""
 
 
 def _js_error(details: dict) -> str:

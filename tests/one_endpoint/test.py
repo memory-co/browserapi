@@ -180,7 +180,7 @@ def test_两个_session_一个口():
         proc.kill()
         shutil.rmtree(data, ignore_errors=True)      # 用完就收
     time.sleep(0.5)
-    assert port_free(port), "kill-server 之后端口还占着 —— 进程没清干净"
+    assert port_free(port), "server stop 之后端口还占着 —— 进程没清干净"
 
 
 def test_v1_的参数名不静默吞掉():
@@ -295,8 +295,8 @@ def test_绑非回环要留一条警告(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(proc_mod, "wait_http", lambda *a, **k: True)
     monkeypatch.setattr(proc_mod, "require_ports", lambda *a, **k: None)
 
-    assert cli_mod.main(["start", "--port", "7999", "--bind", "0.0.0.0"]) == 0
+    assert cli_mod.main(["server", "start", "--port", "7999", "--bind", "0.0.0.0"]) == 0
     assert "0.0.0.0" in capsys.readouterr().err, "对外开放却没说一声"
 
-    assert cli_mod.main(["start", "--port", "7998"]) == 0
+    assert cli_mod.main(["server", "start", "--port", "7998"]) == 0
     assert "0.0.0.0" not in capsys.readouterr().err, "默认不该报警"

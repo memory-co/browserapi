@@ -113,6 +113,24 @@ class Cli:
 
     # -- 常用的几下 --------------------------------------------------------
 
+    def until(self, fn, want, *, timeout: float = 25, what: str = "") -> None:
+        """等到 `fn()` 等于 `want`。
+
+        **等那件事发生,不睡一个秒数。** 这条规矩这套测试到处在讲,
+        而 kit 自己一开始没守:`click` 之后睡 1200ms、`type` 之后睡 1500ms ——
+        空闲机器上够,满负载时不够,于是"人的输入没到里面"偶发地红。
+        **赌网速的地方不会只有一处,它会在最不巧的时候露出来。**
+        """
+        last = None
+        deadline = time.monotonic() + timeout
+        while True:
+            last = fn()
+            if last == want:
+                return
+            assert time.monotonic() < deadline, \
+                f"{timeout}s 内没等到{what or ''}:要 {want!r},一直是 {last!r}"
+            time.sleep(0.4)
+
     def snap(self, target: str, *flags: str) -> list[dict]:
         return self.api("snapshot", "-t", target, *flags)["elements"]
 
@@ -148,17 +166,17 @@ class Cli:
 
 @contextlib.contextmanager
 def server(tmp_path):
-    """`webmuxd start`,用完 `kill-server`。**收干净是这个上下文的责任。**"""
+    """`webmuxd server start`,用完 `server stop`。**收干净是这个上下文的责任。**"""
     env = dict(os.environ)
     env["XDG_RUNTIME_DIR"] = str(tmp_path)      # 一套独立的 registry
     env.pop("WEBMUXD_TARGET", None)
 
     cli = Cli(env, free_port())
-    cli.run("start", "--port", str(cli.port))
+    cli.run("server", "start", "--port", str(cli.port))
     try:
         yield cli
     finally:
-        cli.sh("kill-server")                   # 失败了也要收
+        cli.sh("server", "stop")                   # 失败了也要收
 
 
 # ---------------------------------------------------------------------------

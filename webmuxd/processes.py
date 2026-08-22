@@ -36,6 +36,21 @@ BASE_ARGS = (
     "--no-default-browser-check",
     "--disable-infobars",
     "--disable-session-crashed-bubble",
+    # **说了 http 就是 http。**
+    #
+    # 新版 Chrome 默认开着 HTTPS-First(Balanced Mode):你请求 `http://`,
+    # 它先替你换成 `https://` 试,失败就停在一张 interstitial 上。
+    #
+    # 那张页**我们进不去** —— `certificateErrorPageController` 是空壳,
+    # `document.body` 长度是 0,有头无头都一样。人在画面里看得见那两个按钮、
+    # 点得动;我们的 CDP 会话里那张页是空的。于是"只有 http 的站"
+    # 对 webmuxd 是**一律到不了**,不是"少一个选项"。
+    #
+    # 所以关掉。**这是关掉一个安全特性,所以要说出来** ——
+    # `webmuxd info` 里有一行,[navigate.md](../docs/v2/cli/navigate.md) 里有一节。
+    # 判据是这个项目那条老规矩:**显式传入优先**,和「端口由你给」同一条 ——
+    # 调用方写了 `http://`,替它改成别的就是替它改了它说的话。
+    "--disable-features=HttpsUpgrades,HttpsFirstBalancedMode",
     # 后台 target 不产帧是**我们要的**(works/05 §2),所以不去关渲染器节流
 )
 
@@ -173,6 +188,25 @@ def wait_http(url: str, timeout: float = 30.0,
             if _died(proc):
                 return False             # 人都没了,别等了
             time.sleep(0.25)
+    return False
+
+
+def wait_free(port: int, timeout: float = 10.0, host: str = "127.0.0.1") -> bool:
+    """等那个口**放开**。`wait_port` 的反面。
+
+    停一个 server 之后立刻重起会撞上这一条:命令送到了,进程还在收尾,
+    端口还占着 —— 而对一个刚打了 `restart` 的人来说,
+    **他要的口就是那个**,让他去换一个是答非所问。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.socket() as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((host, port))
+            return True
+        except OSError:
+            time.sleep(0.2)
     return False
 
 

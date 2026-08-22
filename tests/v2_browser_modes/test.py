@@ -47,8 +47,7 @@ def test_switching_the_picture_back_and_forth(cli):
 
         # 输入**永远只走一条通道**([b §1](../../docs/v2/works/b-input.md)),
         # 和像素从哪来无关。VNC 下点一下也该到里面。
-        _poke(cli, who, "vnc")
-        assert _value(cli) == "vnc", "VNC 下人的输入没到里面"
+        _poke(cli, who, "vnc", "vnc")
 
         # ------------------------------------------------ 切到 JPG
         jpg = who.switch_to("JPG")
@@ -66,8 +65,7 @@ def test_switching_the_picture_back_and_forth(cli):
         assert (jpg["w"], jpg["h"]) == (vnc["w"], vnc["h"]), \
             f"同一个 X 显示,两条腿该量到同一个尺寸:{vnc} / {jpg}"
 
-        _poke(cli, who, "jpg")
-        assert _value(cli) == "vncjpg", "JPG 下人的输入没到里面"
+        _poke(cli, who, "jpg", "vncjpg")
 
         # ------------------------------------------- 切回 VNC ← 就是这条
         #
@@ -79,14 +77,13 @@ def test_switching_the_picture_back_and_forth(cli):
         assert (back["w"], back["h"]) == (vnc["w"], vnc["h"]), \
             f"切回来尺寸该和第一次一样:{vnc} / {back}"
 
-        _poke(cli, who, "!")
-        assert _value(cli) == "vncjpg!", "切回来之后人的输入没到里面"
+        _poke(cli, who, "!", "vncjpg!")
 
         # 从头到尾一条错都没报 —— **这个 bug 当初就是这样藏住的**
         assert who.errors == [], f"换画面报了错:{who.errors}"
 
 
-def _poke(cli, who, text: str) -> None:
+def _poke(cli, who, text: str, want: str) -> None:
     """**每次都重新问一遍那个框在哪**,再点、再敲。
 
     不能把 bbox 存下来复用 —— 第一版那么写,红了:敲完第一个词之后
@@ -100,6 +97,8 @@ def _poke(cli, who, text: str) -> None:
                if "type" in e["affords"] and e["in_viewport"])
     who.click(box)
     who.type(text)
+    # **等它真的到了里面**,别赌那几百毫秒够不够 —— 满负载时不够。
+    cli.until(lambda: _value(cli), want, what=f"「{text}」落进框里")
 
 
 def _value(cli) -> str:

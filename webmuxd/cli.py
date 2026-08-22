@@ -31,6 +31,9 @@ EXIT = {
     "bad_request": 2, "blocked_url": 2,
     "session_not_found": 3, "tab_gone": 3, "session_exists": 3,
     "not_found": 4, "not_clickable": 4,
+    # **页面打不开是自成一类的下一步** —— 不是"找不到那个元素"(改定位),
+    # 而是"那个地址拿不到"(改地址、换 https、看网络)。
+    "nav_failed": 8,
     "timeout": 5,
     "busy": 6, "busy_human": 6,
     "chrome_gone": 7, "session_dead": 7, "runtime_unavailable": 7,
@@ -48,8 +51,20 @@ def main(argv: list[str] | None = None) -> int:
     # agent-browser 来的,不该为了绕开这个限制去改它。
     #
     # 所以自己收尾:剩下的**不是选项的**那些,接回 `rest` 去。
+    # **打错的词在解析之前就接住。**
+    #
+    # 不把它们注册成子命令,是因为那样它们会跑进 `--help` 的列表,
+    # 也会跑进 argparse 那句 "choose from …" —— **看上去像是能用的命令**。
+    # 它们不是命令,是路标。
+    word = _first_word(list(argv) if argv is not None else sys.argv[1:])
+    if word in _WRONG_WORD:
+        print(f"✗ bad_request: {_WRONG_WORD[word]}", file=sys.stderr)
+        return EXIT["bad_request"]
+
     args, extra = p.parse_known_args(argv)
     if extra:
+        # 打错词的那几个一概不管后面跟了什么 —— `webmuxd start --port 7900`
+        # 要的是"它搬去哪了",不是"--port 不认识"。
         stray = [x for x in extra if x.startswith("-")]
         if stray or not hasattr(args, "rest"):
             p.error(f"不认识的参数:{' '.join(extra)}")
@@ -100,7 +115,7 @@ def _server(args: argparse.Namespace) -> Webmuxd:
     base = args.host or Registry(name=args.socket_name).base()
     if not base:
         raise WebmuxdError(
-            "没有在跑的 server —— 先 `webmuxd start --port 7900`",
+            "没有在跑的 server —— 先 `webmuxd server start --port 7900`",
             code="session_not_found")
     return _manager(args, base)
 
@@ -112,10 +127,16 @@ def _session(args: argparse.Namespace) -> Session:
     if sid is None:
         if len(rows) != 1:
             # **不猜** —— 点错浏览器的代价比敲错终端大(cli/README §2)
-            raise WebmuxdError(
-                f"有 {len(rows)} 个 session,得用 -t 指定" if rows
-                else "这个 server 上还没有 session —— `webmuxd new --id demo`",
-                code="session_not_found")
+            if rows:
+                why = f"有 {len(rows)} 个 session,得用 -t 指定"
+            else:
+                why = "这个 server 上还没有 session —— `webmuxd new --id demo`"
+                # **`stop` 是让页面停止加载,不是停 server。**
+                # server 那一族收进二级之后这条歧义小多了,但一个刚起完
+                # server 的人还是可能顺手打 `stop` —— 那就把路指对。
+                if getattr(args, "cmd", "") == "stop":
+                    why += "\n  要停的是整个 server 的话:`webmuxd server stop`"
+            raise WebmuxdError(why, code="session_not_found")
         sid = rows[0]["id"]
     return web.session(id=sid)
 
@@ -221,7 +242,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
     reg = Registry(name=args.socket_name)
     base = args.host or reg.base()
     if not base:
-        _out(args, {"sessions": []}, "(没有在跑的 server —— webmuxd start --port 7900)")
+        _out(args, {"sessions": []}, "(没有在跑的 server —— webmuxd server start --port 7900)")
         return 0
     rows = _manager(args, base).list()
     _out(args, {"sessions": rows})
@@ -271,6 +292,47 @@ def cmd_kill_server(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_restart(args: argparse.Namespace) -> int:
+    """停掉再起来,**端口沿用记着的那个**。
+
+    端口是部署决定的([k](../docs/v2/works/k-one-server.md))—— 重启的时候
+    替你换一个,等于让配置和实际对不上。所以从注册表里读回来;
+    读不到就说清楚,不猜。
+
+    **session 不会跟着回来。** 它们的浏览器进程随 server 一起停了 ——
+    这条要说在前面,不然人以为 restart 是"原样恢复"。
+    """
+    reg = Registry(name=args.socket_name)
+    row = reg.read() or {}
+    port, bind = row.get("port"), row.get("bind", "127.0.0.1")
+    if not port:
+        raise WebmuxdError(
+            "没有在跑的 server,不知道要用哪个口 —— `webmuxd server start --port 7900`",
+            code="session_not_found")
+
+    n = 0
+    if reg.base():
+        n = _manager(args, reg.base()).kill_server()
+    reg.forget()
+
+    # **等那个口真的放开再起。**
+    #
+    # `kill_server()` 回来的时候只是"命令送到了" —— 进程还在收尾,端口还占着。
+    # 立刻 start 会撞 `port_in_use`,而那句话对着一个刚打了 restart 的人
+    # 是没意义的:**他要的口就是那个,不是我们该让他去换的。**
+    if not processes.wait_free(port, 10, host=bind):
+        raise WebmuxdError(
+            f"旧的 server 停了,但端口 {port} 10 秒还没放开 —— "
+            f"看看是不是有别的东西占着(`ss -tlnp | grep {port}`)",
+            code="port_in_use")
+
+    args.port, args.bind = port, bind
+    rc = cmd_start(args)
+    if not args.json:
+        print(f"  (顺带停掉了 {n} 个 session —— 它们不会跟着回来)")
+    return rc
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     from webmuxd.install import install
     install(force=args.force, with_deps=args.with_deps, mirror=args.mirror)
@@ -296,6 +358,8 @@ def cmd_info(args: argparse.Namespace) -> int:
             "views": [m.to_json() for m in models.mode_choices()],
             "xpra_why": "" if xpra_ok else xpra_why,
             "env_record": {"at": rec.at} if rec else None,
+            # **关掉的安全特性要报出来。** 关可以,悄悄关不行。
+            "off": ["HttpsUpgrades", "HttpsFirstBalancedMode"],
             "server": base or None,
             "sessions": {"total": len(rows)}}
     _out(args, info,
@@ -312,7 +376,9 @@ def cmd_info(args: argparse.Namespace) -> int:
                      f"{models.label(models.DOM)} —— "
                      f"**默认的 {models.label(models.VNC)} 用不了**:{xpra_why}"),
                     (f"server    {base}/  ({len(rows)} 个 session)" if base
-                     else "server    没在跑 —— `webmuxd start --port 7900`"),
+                     else "server    没在跑 —— `webmuxd server start --port 7900`"),
+                    "安全      已关 HTTPS-First —— `http://` 就按 http 走,"
+                    "不替你升级(docs/v2/cli/navigate.md)",
                     (f"记录      {rec.at}(webmuxd install 探的)" if rec
                      else "记录      没有 —— 每次都现探,"
                           "跑 `webmuxd install` 可以省掉")]))
@@ -597,6 +663,46 @@ def _do_value(args: argparse.Namespace, spec: dict, *, boolean: bool = False) ->
     return (0 if value else 1) if boolean else 0
 
 
+#: **打错的词 → 该用哪个。**
+#:
+#: 这几个不是命令,是**别人会打的词**。打错了拿到 argparse 那一大坨
+#: "invalid choice(choose from 34 个)"没有帮助 —— 它把答案埋在一行里。
+#:
+#: `stop` 不在这儿,因为它是个真命令(让页面停止加载)——
+#: 那一种在 `_session()` 里当场说清。
+_WRONG_WORD = {
+    # 0.11.0 搬走的那三个 —— **搬了就得说搬到哪儿了**,不是让人自己去 help 里找
+    "start":       "server 那一族收成二级了:`webmuxd server start --port 7900`",
+    "restart":     "→ `webmuxd server restart`(端口沿用记着的那个)",
+    "kill-server": "→ `webmuxd server stop`",
+    # 别人会打、但我们没有的词
+    "stop-server": "→ `webmuxd server stop`",
+    "shutdown":    "→ `webmuxd server stop`",
+    "quit":        "停整个 server 是 `webmuxd server stop`;只停一个 session 是 `webmuxd kill -t <id>`",
+    "exit":        "停整个 server 是 `webmuxd server stop`;只停一个 session 是 `webmuxd kill -t <id>`",
+    "list":        "列 session 是 `webmuxd ls`",
+    "ps":          "列 session 是 `webmuxd ls`",
+    "open":        "起 session 是 `webmuxd new --id <id>`,导航是 `webmuxd goto -t <id> <url>`",
+}
+
+
+#: 那几个全局开关里,**带值的**是这些 —— 找"第一个词"的时候要连值一起跳过。
+_TAKES_VALUE = {"-H", "--host", "-L", "--socket-name", "--user", "--note"}
+
+
+def _first_word(argv: list[str]) -> str | None:
+    """命令是哪个词。`webmuxd --user bob start` 里是 `start`,不是 `bob`。"""
+    it = iter(argv)
+    for tok in it:
+        if tok in _TAKES_VALUE:
+            next(it, None)
+            continue
+        if tok.startswith("-"):
+            continue
+        return tok
+    return None
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     """这一页上有什么。**每一样带一个 `@e1`,下一条命令直接拿去用。**"""
     snap = _tab(args).snapshot(interactive=args.interactive,
@@ -686,8 +792,34 @@ def _parser() -> argparse.ArgumentParser:
         s.set_defaults(fn=fn)
         return s
 
-    # **端口在 server 上,不在 session 上**([k](../docs/v2/works/k-one-server.md))
-    st = add("start", cmd_start, target=False, help="起 server(一个口,承载全部 session)")
+    # ---------------------------------------------------------------- server
+    #
+    # **只有起/停/重启收成二级,别的都平铺。**
+    #
+    # 平铺是对的 —— `click` / `goto` / `snapshot` 一天打几十遍,`webmuxd do click`
+    # 只是让每一次都更长。tmux 和 agent-browser 也都这样:**热的动词平铺,
+    # 成组的收进二级**(agent-browser 的二级全是冷的:get / is / mouse / set /
+    # network / storage …)。
+    #
+    # 但 server 这一族非收不可,因为它撞了名字:
+    # **`start` 是我们自己发明的**(tmux 没有,它的 server 隐式起;我们因为端口
+    # 必须显式给才加了它)。发明了 `start` 就欠一个 `stop` —— 而 `stop` 被
+    # 页面那个"停止加载"占着。于是一个刚 `start` 完的人打 `stop`,拿到的是
+    # "这个 server 上还没有 session",方向完全反了。
+    #
+    # 收进二级之后这条歧义自己没了:**server 的东西全在 `server` 底下**,
+    # 所以 bare `stop` 不可能是 server 的。
+    srv = sub.add_parser("server", help="起 / 停 / 重启这个 server")
+    srvsub = srv.add_subparsers(dest="sub")
+
+    def sadd(name, fn, **kw):
+        x = srvsub.add_parser(name, **kw)
+        x.set_defaults(fn=fn, cmd="server")
+        return x
+
+    srv.set_defaults(fn=lambda a: (srv.print_help(), 2)[1], cmd="server")
+
+    st = sadd("start", cmd_start, help="起 server(一个口,承载全部 session)")
     st.add_argument("--port", "-p", type=int,
                     default=int(os.environ.get("WEBMUXD_PORT", "7900")),
                     help="这个口:人打开它看画面,代码连它调 API")
@@ -744,11 +876,13 @@ def _parser() -> argparse.ArgumentParser:
                      help="顺便装系统依赖(要 root,只支持 Debian/Ubuntu)")
     ins.add_argument("--mirror", default=None,
                      help="换下载源。国内:https://cdn.npmmirror.com/binaries/chrome-for-testing")
+    sadd("stop", cmd_kill_server, help="停掉 server 和全部 session")
+    sadd("restart", cmd_restart, help="停掉再起来,端口沿用记着的那个")
+
     add("ls", cmd_ls, target=False, help="列出 session")
     add("info", cmd_info, target=False, help="server 状态和 runtime 探测")
     add("has", cmd_has, help="只返回退出码,给脚本用")
     add("kill", cmd_kill, help="停掉一个 session")
-    add("kill-server", cmd_kill_server, target=False, help="停掉 server 和全部 session")
     a = add("attach", cmd_attach, help="打开画面")
     a.add_argument("-p", "--print-only", action="store_true")
 
@@ -834,6 +968,7 @@ def _parser() -> argparse.ArgumentParser:
     lg.add_argument("--user", dest="log_user", default=None)
     b = add("bundle", cmd_bundle, help="打包日志和截图")
     b.add_argument("-o", "--out", default="bundle.zip")
+
     return p
 
 

@@ -25,6 +25,41 @@ agent-browser 的 `open [url]` **会顺手把浏览器起起来**(daemon 自启)
 `goto` 会拦特权地址:`chrome://` `devtools://` `chrome-extension://` `view-source:`
 一律拒绝 —— **不是做不到,是不该做**。
 
+### 说了 http 就是 http
+
+新版 Chrome 默认开着 **HTTPS-First(Balanced Mode)**:你请求 `http://`,
+它先替你换成 `https://` 试,失败就停在一张
+「This site doesn't support a secure connection」上。
+
+**我们把它关了**([`processes.BASE_ARGS`](../../../webmuxd/processes.py)),
+`webmuxd info` 里报着这一行。
+
+> **这是关掉一个安全特性,所以要说出来。** 判据是这个项目那条老规矩:
+> **显式传入优先** —— 和「端口由你给」同一条。调用方写了 `http://`,
+> 替它改成别的,就是替它改了它说的话。
+
+而且不关的话那条路是**封死的**,不是"少一个选项":那张 interstitial
+从我们这边看是**空文档** —— `certificateErrorPageController` 是空壳、
+`document.body` 长度 0、AX 树空,**有头无头一样**。
+人在画面里看得见那两个按钮、点得动;我们够不着。
+(`kill-tab` 之类的"退出去"还能做,但"进去"做不了。)
+
+站点自己 301 到 https 不受影响 —— 那是站点的决定,不是浏览器替谁做的。
+
+## 1.5 打不开的时候
+
+```console
+$ webmuxd goto -t demo http://nonexistent.invalid/
+✗ nav_failed: http://nonexistent.invalid/ 打不开:net::ERR_NAME_NOT_RESOLVED
+  域名解析不了 —— 地址打错了,还是这台机器没有 DNS?
+```
+
+退出码 **8**。`Page.navigate` 的 `errorText` 一直在,只是以前被扔掉了 ——
+于是打不开的站会打一个 ✓,`url` 还显示成目标地址(Chrome 的错误页保留原地址),
+而 `capture` 是空的。**对 agent 就是"什么都没发生,而且不报错"。**
+
+**光看 `url` 判断不出成没成** —— 唯一可靠的是退出码。
+
 ## 2. `wait` 等的是**那件事**,不是一个秒数
 
 ```bash

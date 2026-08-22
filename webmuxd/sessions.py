@@ -32,7 +32,7 @@ from typing import Any, Protocol
 from webmuxd import config, models, processes, xpra as xpra_mod
 from webmuxd import cursor as cursor_probe
 from webmuxd import capture, locate, probe
-from webmuxd.act import MASK, Executor
+from webmuxd.act import MASK, READ_ACTIONS, Executor
 from webmuxd.browser_ui import Natives
 from webmuxd.cdp import CDP
 from webmuxd.exceptions import (Busy, BusyHuman, SessionNotFound, TabGone,
@@ -396,7 +396,16 @@ class Session:
     async def act(self, *, tab: str | None, actions: list[dict],
                   settle: dict | None = None, note: str | None = None,
                   user: str = "api") -> dict[str, Any]:
-        if self.human_active:
+        # **读不跟人抢,所以不让路。**
+        #
+        # `busy_human` 的意思是"人正在操作,别去抢方向盘" —— 那是对**写**说的。
+        # 一次 `get value` / `is visible` / `count` 什么都不改,人一边打字
+        # 一边读页面正是该允许的事(而且往往正是想看的)。
+        #
+        # 挡住它的下场:人从观看页敲完字,程序想确认一下"进去了吗",
+        # 拿到的是 `busy_human` —— **它没在抢,却被当成在抢。**
+        if self.human_active and not all(a.get("type") in READ_ACTIONS
+                                         for a in actions):
             left = int((self._human_yield - (time.monotonic() - self._human_at)) * 1000)
             raise BusyHuman("人正在操作", code="busy_human",
                             details={"retry_after_ms": max(0, left)})

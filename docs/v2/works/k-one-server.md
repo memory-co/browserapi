@@ -1,6 +1,6 @@
 # k · 一个 server 一个口,session 住在它下面
 
-**一句话**:端口从 session 上收回到 server 上 —— `webmuxd start --port 7900`
+**一句话**:端口从 session 上收回到 server 上 —— `webmuxd server start --port 7900`
 起服务,`webmuxd new --id demo` 加一个 session。
 这不是新架构,是**把一个早就该拆掉的历史包袱拆掉**。
 
@@ -25,7 +25,7 @@ v1 自己把这条写在了对照表里
 ## 2. 目标形状
 
 ```
-webmuxd start --port 7900          # 一个 server,一个口
+webmuxd server start --port 7900          # 一个 server,一个口
     └─ 打开 http://127.0.0.1:7900/ → "暂无 session"
 
 webmuxd new --id demo              # 不带 --port 了
@@ -42,7 +42,7 @@ webmuxd new --id scrape
 | 一个 server 持有全部 session | 没有 server,一个文件登记簿 | **一个 server 持有全部 session** |
 | `tmux new -s demo` 不给端口 | `webmuxd new --port 7900` | `webmuxd new --id demo` |
 | `tmux ls` 问 server | 读那个文件再逐个探活 | 问 server |
-| `tmux kill-server` | 逐个 kill | 真的 kill-server |
+| `tmux kill-server` | 逐个 kill | 真的 `webmuxd server stop` |
 
 ## 3. 那个口上看到什么
 
@@ -98,11 +98,11 @@ WS 那三条通道同理:`/s/demo/channel/cdp`。
 ## 6. CLI
 
 ```
-webmuxd start   --port 7900 [--bind 127.0.0.1]   起 server
+webmuxd server start   --port 7900 [--bind 127.0.0.1]   起 server
 webmuxd new     --id demo [--transport vnc]      加一个 session
 webmuxd ls                                       问 server 要列表
 webmuxd kill    -t demo                          关一个
-webmuxd kill-server                              全关
+webmuxd server stop                              全关
 ```
 
 **`start` 是显式的,不按需自启。** tmux 能自启是因为它用 socket,
@@ -112,7 +112,7 @@ webmuxd kill-server                              全关
 所以没起 server 时 `webmuxd new` **报错并说该跑哪一行**,不偷偷起一个:
 
 ```
-没有在跑的 server —— 先 `webmuxd start --port 7900`
+没有在跑的 server —— 先 `webmuxd server start --port 7900`
 ```
 
 `-L name` / `-S path` 那套换 socket 的做法照抄 tmux:**换 socket = 换一套独立的 server**。

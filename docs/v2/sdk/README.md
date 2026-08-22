@@ -44,7 +44,7 @@ web.session(id="work", port=7900)      # ✗ BadRequest,并说端口去哪儿了
 
 **server 不按需自启。** tmux 能自启是因为它用 socket,没有端口要挑;我们有,
 而那条规矩是「端口由你给」([h §6](../works/h-runtime.md#6-端口由你给))。
-没起就先 `webmuxd start --port 7900`。
+没起就先 `webmuxd server start --port 7900`。
 
 ## 2. `session()` —— 建和取是同一件事
 

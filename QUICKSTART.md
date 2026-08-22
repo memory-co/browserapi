@@ -47,7 +47,7 @@ xpra / Xvfb / PIL。有 root 就直接装(apt / dnf / yum 都认),没 root 就�
 ## 起一个
 
 ```console
-$ webmuxd start --port 7900
+$ webmuxd server start --port 7900
 server  →  http://127.0.0.1:7900/   (还没有 session:webmuxd new --id demo)
 
 $ webmuxd new --id demo

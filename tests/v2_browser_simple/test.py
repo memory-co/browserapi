@@ -98,9 +98,11 @@ def test_a_human_opens_the_page_and_drives_the_browser(cli):
         # 顺序是有意义的:观看端在 `mousedown` 时才把焦点交给隐藏的
         # textarea(IME 要它),**所以"敲字"之前必须先有"点一下"**。
         who.type(WORD)
-        typed = [e for e in cli.snap("demo", "-i") if "type" in e["affords"]]
-        assert typed and typed[0]["value"] == WORD, \
-            f"人敲的字该出现在里面那个框里,实际:{[(e['ref'], e['value']) for e in typed]}"
+        # **等它真的到了里面** —— `who.type` 后面那个固定等待只是个下限,
+        # 满负载时不够(`v2_browser_modes` 就这么红过一次)。
+        cli.until(lambda: cli.out("get", "value", "-t", "demo",
+                                  "@" + box["ref"]).strip(),
+                  WORD, what="人敲的字落进框里")
 
         # ------------------------------------- 他把窗口拉小,画面跟着变
         #

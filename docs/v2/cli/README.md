@@ -1,7 +1,7 @@
 # v2 · cli
 
 **命令行是这个项目的主要使用面。** 不是"顺带给个 CLI" ——
-`webmuxd start / new / goto / click` 就是我们自己测这套东西的方式
+`webmuxd server start / new / goto / click` 就是我们自己测这套东西的方式
 ([tests/v2_cli_simple](../../../tests/v2_cli_simple/)),也是 agent 最省事的接法。
 
 ## 三条对齐
@@ -10,7 +10,7 @@
 
 | 对齐谁 | 管什么 | 一句话 |
 | --- | --- | --- |
-| **tmux + ttyd** | **架构形态** | 一个 server 持有全部 session;`start` / `ls` / `attach` / `kill-server` |
+| **tmux + ttyd** | **架构形态** | 一个 server 持有全部 session;`start` / `ls` / `attach` / `server stop` |
 | **[agent-browser](https://github.com/vercel-labs/agent-browser)** | **命令词汇** | 同一件事就用同一个词、同样的参数位置;别自创方言 |
 | **普通浏览器** | **用户体感** | 地址栏、后退、标签页 —— 人不该为了用它去学新概念 |
 
@@ -27,11 +27,12 @@
 
 | 我们 | agent-browser | |
 | --- | --- | --- |
-| `start --port` | (daemon 自启) | ⚠️ **我们要显式起**:tmux 用 socket 没端口要挑,我们有 |
+| `server start --port` | (daemon 自启) | ⚠️ **我们要显式起**:tmux 用 socket 没端口要挑,我们有 |
+| `server stop` / `server restart` | `close` / (idle 超时) | ⚠️ **只有这三个收进二级**,理由见 [server.md §0](server.md) |
 | `new --id` | `--session <name>` | ⚠️ 会话是**一等命令**,不是一个全局 flag |
 | `ls` | `session list` | ✅ |
 | `attach` | `dashboard start` | ⚠️ 我们的画面口本来就在,`attach` 只是打开它 |
-| `kill -t` / `kill-server` | `close` / (idle 超时) | ✅ |
+| `kill -t` / `server stop` | `close` / (idle 超时) | ✅ |
 | `has -t` | — | ✅ 只回退出码,给脚本用 |
 | `info` / `install` | `doctor` / `install` | ✅ |
 
@@ -107,6 +108,7 @@
 | 5 | `timeout` | 超时 |
 | 6 | `busy` `busy_human` | 有动作在跑,或**人正在操作** |
 | 7 | `chrome_gone` `session_dead` `runtime_unavailable` `port_in_use` | 环境不行:浏览器没了、runtime 起不来、端口被占 |
+| 8 | `nav_failed` | **那一页打不开** —— 改地址、换 https、看网络。和 4(改定位)是两条路 |
 
 **4 / 5 / 6 可以重试,7 该告警。** 表在
 [`cli.py` 的 `EXIT`](../../../webmuxd/cli.py) —— 那是唯一的一份。

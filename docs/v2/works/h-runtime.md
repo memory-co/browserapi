@@ -65,7 +65,7 @@ RUN pip install webmuxd && webmuxd install
 <install 下来的浏览器> --remote-debugging-port=<free> --user-data-dir=<profile>
 ```
 
-一个进程,秒起,是 server 的子进程,`kill-server` 时跟着结束。
+一个进程,秒起,是 server 的子进程,`server stop` 时跟着结束。
 
 启动参数随像素来源不同([c](c-view.md)):`/channel/cdp` 那条以无头方式启动;
 `/channel/xpra` 那条是有头的,由 xpra 拉起,并带 `--kiosk` 与软件 GL 参数。
@@ -165,7 +165,7 @@ CDP 端点,那台机器我们碰不到。因此这条路径上 `/channel/cdp` �
 
 ```bash
 webmuxd new --id work                  # 只绑 127.0.0.1
-webmuxd start --port 7900 --bind 0.0.0.0   # 对外,并打印警告
+webmuxd server start --port 7900 --bind 0.0.0.0   # 对外,并打印警告
 ```
 
 **默认必须是回环**,理由是那个端口上的东西变了:它不再是纯 API,
@@ -182,7 +182,7 @@ webmuxd start --port 7900 --bind 0.0.0.0   # 对外,并打印警告
 **端口是部署决定的,替你猜一个只会让配置与实际不符。**
 
 **一个 server 一个口**,画面与 API 都在它上面,session 是它下面的
-`/s/<id>/`([k](k-one-server.md))。所以 `webmuxd start --port` 是显式的 ——
+`/s/<id>/`([k](k-one-server.md))。所以 `webmuxd server start --port` 是显式的 ——
 tmux 能按需自启是因为它用 socket,没有端口要挑;我们有。
 
 ## 7. 边界之外仍然不碰

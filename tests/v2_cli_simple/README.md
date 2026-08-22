@@ -11,7 +11,7 @@
 
 ```
 webmuxd has -t demo             → 退出码 3(还没有)
-webmuxd start --port …          起服务
+webmuxd server start --port …          起服务
 webmuxd new --id demo           加一个 session      → has 变 0
 webmuxd goto -t demo baidu      打开百度            → 看到:正文、截图
 webmuxd snapshot -t demo -i     这一页上有什么      → @e13 textbox …

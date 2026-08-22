@@ -1,5 +1,89 @@
 # 更新日志
 
+## 0.11.0
+
+**起/停/重启收成二级,别的照旧。**
+
+```console
+$ webmuxd server start --port 7900
+$ webmuxd server stop
+$ webmuxd server restart          # 端口沿用记着的那个
+```
+
+只有这三个动。`click` / `goto` / `snapshot` 一天打几十遍,多一层只是让每次
+都更长 —— tmux 和 agent-browser 也都这样:**热的动词平铺,成组的收进二级**。
+
+为什么偏偏是这三个:**`start` 是我们自己发明的**(tmux 没有,它的 server
+隐式起;我们因为端口必须显式给才加了它)。发明了 `start` 就欠一个 `stop`,
+而 `stop` 被页面那个"停止加载"占着 —— 于是一个刚 `start` 完的人打 `stop`,
+拿到的是「这个 server 上还没有 session」,**方向完全反了**。
+收进二级之后这条歧义自己没了。
+
+搬走的旧名字会说自己搬去哪了,不是让人回 `--help` 里找:
+
+```console
+$ webmuxd start --port 7900
+✗ bad_request: server 那一族收成二级了:`webmuxd server start --port 7900`
+$ webmuxd kill-server
+✗ bad_request: → `webmuxd server stop`
+```
+
+### 说了 http 就是 http
+
+新版 Chrome 默认开着 HTTPS-First:你请求 `http://`,它先替你换成 `https://`
+试,失败就停在一张「This site doesn't support a secure connection」上。
+
+**我们把它关了。** 不关的话那条路是**封死的**,不是"少一个选项" ——
+那张 interstitial 从我们这边看是**空文档**(控制器是空壳、`document.body`
+长度 0、AX 树空,**有头无头一样**)。人在画面里看得见那两个按钮、点得动;
+我们够不着。
+
+> 这是关掉一个安全特性,所以 `webmuxd info` 里报着这一行。
+> 判据是那条老规矩:**显式传入优先** —— 和「端口由你给」同一条。
+
+### 打不开的时候会说打不开
+
+```console
+$ webmuxd goto -t demo http://nonexistent.invalid/
+✗ nav_failed: http://nonexistent.invalid/ 打不开:net::ERR_NAME_NOT_RESOLVED
+  域名解析不了 —— 地址打错了,还是这台机器没有 DNS?
+```
+
+以前**打不开的站会打一个 ✓**:`Page.navigate` 的 `errorText` 被整个扔掉,
+而 `url` 还显示成目标地址(Chrome 的错误页保留原地址),`capture` 是空的。
+**对 agent 就是"什么都没发生,而且不报错"。**
+
+`NavFailed` 这个类、它的 `net_error` 字段、502 那条映射一直都在 ——
+**契约写好了,线没接。** 退出码 **8**,和 4(改定位)是两条不同的下一步。
+
+**光看 `url` 判断不出成没成** —— 唯一可靠的是退出码。
+
+### 读快了 7 倍
+
+`get` / `is` / `count` 现在**不 settle、也不给人让路**:
+
+| | 之前 | 现在 |
+| --- | --- | --- |
+| `get value` | 2.43s | **0.34s** |
+| `click`(真的改了页面) | 2.49s | 2.49s —— 该等 |
+
+`settle` 的意思是"做完之后等页面稳下来",而读没有"做完";
+`busy_human` 的意思是"人正在操作,别抢方向盘",而读不跟人抢 ——
+人一边打字一边读页面,正是该允许的事。
+
+> **凡是按"改不改东西"分的规矩,都要问一遍读该不该在里面。**
+
+### 会改到你的代码
+
+| 以前 | 现在 |
+| --- | --- |
+| `webmuxd start --port 7900` | `webmuxd server start --port 7900` |
+| `webmuxd kill-server` | `webmuxd server stop` |
+| — | `webmuxd server restart` |
+| `goto` 打不开也回 0 | 回 **8**(`nav_failed`) |
+
+`webmuxd info` 没搬 —— 它答的是"这台机器什么情况",不是对 server 的操作。
+
 ## 0.10.0
 
 **这一版是"问一个,别抓一整页"。**

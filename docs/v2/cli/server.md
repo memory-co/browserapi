@@ -4,16 +4,47 @@
 `/s/<id>/`([k](../works/k-one-server.md))。
 
 ```bash
-webmuxd start   --port 7900 [--bind 127.0.0.1]
+webmuxd server start   --port 7900 [--bind 127.0.0.1]
 webmuxd new     --id demo [--transport vnc|jpg|dom] [--url URL] …
 webmuxd ls
 webmuxd attach  -t demo [-p]
 webmuxd has     -t demo
 webmuxd kill    -t demo
-webmuxd kill-server
+webmuxd server stop
 webmuxd info
 webmuxd install [--force] [--with-deps] [--mirror URL]
 ```
+
+## 0. 为什么只有起/停/重启收成二级
+
+**别的都平铺。** `click` / `goto` / `snapshot` 一天打几十遍,
+`webmuxd do click` 只是让每一次都更长。tmux 和 agent-browser 也都这样 ——
+**热的动词平铺,成组的收进二级**(agent-browser 的二级全是冷的:
+`get` / `is` / `mouse` / `set` / `network` / `storage` …)。
+
+server 这三个非收不可,因为**它撞了名字**:
+
+> `start` 是我们自己发明的 —— tmux 没有 `start`,它的 server 隐式起;
+> 我们因为[端口必须显式给](#1-start-是显式的)才加了它。
+>
+> **发明了 `start`,就欠一个 `stop`。** 而 `stop` 被页面那个"停止加载"占着。
+> 于是一个刚 `start` 完的人打 `stop`,拿到的是「这个 server 上还没有 session」——
+> **方向完全反了。**
+
+收进二级之后这条歧义自己没了:**server 的东西全在 `server` 底下**,
+所以裸的 `stop` 不可能是 server 的。
+
+搬走的旧名字会说自己搬去哪了,不是让人回 `--help` 里找:
+
+```console
+$ webmuxd start --port 7900
+✗ bad_request: server 那一族收成二级了:`webmuxd server start --port 7900`
+$ webmuxd kill-server
+✗ bad_request: → `webmuxd server stop`
+```
+
+`info` 没跟着搬 —— 它答的是"这台机器和这个 server 什么情况",
+不是对 server 的操作。
 
 ## 1. `start` 是显式的
 
@@ -27,8 +58,29 @@ agent-browser 的 daemon **按需自启**,闲置一小时自己退出。我们�
 
 ```console
 $ webmuxd new --id demo
-✗ session_not_found: 没有在跑的 server —— 先 `webmuxd start --port 7900`
+✗ session_not_found: 没有在跑的 server —— 先 `webmuxd server start --port 7900`
 ```
+
+### `server restart`
+
+停掉再起来,**端口沿用记着的那个**:
+
+```console
+$ webmuxd server restart
+server  →  http://127.0.0.1:7900/   (还没有 session:webmuxd new --id demo)
+  (顺带停掉了 1 个 session —— 它们不会跟着回来)
+```
+
+两处讲究:
+
+- **端口不重新挑。** 端口是部署决定的,重启时替你换一个等于让配置和实际
+  对不上。记录里读不到就说清楚,不猜。
+- **等那个口真的放开再起。** `kill_server()` 回来只表示"命令送到了",
+  进程还在收尾、端口还占着 —— 立刻 start 会撞 `port_in_use`,
+  而那句话对着一个刚打了 `restart` 的人是没意义的:
+  **他要的口就是那个。**(第一版就是这么红的。)
+- **session 不跟着回来**,所以那一行要说出来 —— 不然人以为 restart 是
+  "原样恢复"。
 
 🔲 **待讨论:闲置自动退出。** agent-browser 有 `--idle-timeout`。
 我们没有 —— 而 tmux 也没有。要不要,取决于"webmuxd 是常驻服务还是随手起的工具"。

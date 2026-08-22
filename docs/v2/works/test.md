@@ -138,7 +138,7 @@ cli.api(...)   # `--json` 那份,它是 API 的原始响应,解析它不算"解�
 ### 5.2 形状:一个 session,加一个**真的**浏览器
 
 ```bash
-webmuxd start --port P
+webmuxd server start --port P
 webmuxd new   --id demo                       # 只有这一个 session
 webmuxd goto  -t demo https://www.baidu.com/
 webmuxd attach -t demo --print-only           # → http://127.0.0.1:P/s/demo/
