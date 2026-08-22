@@ -80,11 +80,22 @@ session 是它下面的 `/s/<id>/`,像 tmux 一个 server 装着全部 session
 webmuxd start    --port 7900
 webmuxd new      --id work
 webmuxd new-tab  -t work -u https://example.com
+
+webmuxd snapshot -t work -i               # 这一页上有什么 → @e1 @e2 …
+webmuxd click    -t work @e2              # 按号点,或者按看得见的字:
 webmuxd click    -t work "Learn more"
+webmuxd fill     -t work @e3 你好          # 清空再填
+webmuxd get value -t work @e3             # 问一个值,别抓一整页
+webmuxd is visible -t work @e3            # 答案在退出码里
+
 webmuxd capture  -t work                  # 正文(--shot 存图)
 webmuxd log      -t work                  # 它都干了什么
 webmuxd kill     -t work
 ```
+
+`@e1` 是 `snapshot` 发的号,**跨命令活着,而且只增不重用** ——
+拿过期的号去点会报错,不会悄悄点到别的东西
+([cli/read.md](docs/v2/cli/read.md))。
 
 **跑起来之后,用浏览器打开 `webmuxd new` 打印的那个地址** —— 然后在另一边敲
 `webmuxd click`,页面会在你眼前跳过去。整条链路通没通,这一眼就看出来了。

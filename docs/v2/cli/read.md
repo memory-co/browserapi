@@ -135,7 +135,23 @@ webmuxd is checked -t demo "同意条款"
 [issue](../issues/每次确认都要抓一整页-于是号在膨胀.md)。
 
 补上 `get` 之后,[`v2_cli_simple`](../../../tests/v2_cli_simple/) 那条流里
-`snapshot` 从**三次降到一次**。
+`snapshot` 从**三次降到一次**,整条流发出去的号从 114 个降到 25 个。
+
+### 读不 settle
+
+`get` / `is` / `count` **跳过那个"等页面稳下来"**
+([`act.READ_ACTIONS`](../../../webmuxd/act.py))。
+
+`settle` 的意思是"做完之后等页面稳下来",而读没有"做完" ——
+它什么都没改。补完 `get` 之后第一次量,它比 `snapshot` 慢六倍
+(2430ms vs 417ms),差的全是这个。
+
+```
+get value    2430ms → 340ms
+click        2490ms → 2490ms      ← 它真的改了页面,该等
+```
+
+**同一件事两个价钱,那是路走错了,不是它本来就贵。**
 
 ### 和 agent-browser 的对照
 

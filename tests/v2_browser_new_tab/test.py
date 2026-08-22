@@ -66,6 +66,12 @@ def test_a_human_opens_and_juggles_tabs(cli):
         assert born["opener"] == next(t["id"] for t in back if t["active"])
 
         # ---------------------------------------- 人点第二个 tab,画面换
+        #
+        # **先等那个 tab 自己加载完再切。** 不等的话切过去是一片还没画完的
+        # 东西,而"画面跟过去了"这条判据要的是**新帧在流**,不是"切了"。
+        # (news.baidu.com 挺重,满负载时它能拖到 30 秒开外。)
+        cli.run("wait", "-t", f"nt:{born['index']}", "--css", "a", "--timeout", "30")
+
         was = who.paint()["sig"]
         who.pick_tab(1)
 

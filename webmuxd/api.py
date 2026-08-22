@@ -444,9 +444,18 @@ class Transport:
     """一个 session(或管理面)的 base URL + token。"""
 
     def __init__(self, base: str, *, token: str | None = None,
-                 timeout: float = 30.0) -> None:
+                 timeout: float = 60.0) -> None:
         self.base = base.rstrip("/")
         self.token = token
+        #: **必须比服务端自己的预算长。**
+        #:
+        #: 原来两边都是 30 秒(`cdp.DEFAULT_TIMEOUT` 也是 30),于是一条 CDP
+        #: 调用卡住的时候两边同时到点,**客户端总是先放弃** —— 人拿到的是
+        #: urllib 的 `TimeoutError` 加一串 traceback,而不是我们那句
+        #: 「✗ timeout: …」。**我们知道发生了什么,却没机会说。**
+        #:
+        #: 实测卡住的是什么:在一个刚打开、还在加载的 tab 上调 `DOM.enable`
+        #: 会等渲染进程,空闲机器上 5 秒,满负载时撞满 30 秒。
         self.timeout = timeout
 
     # ------------------------------------------------------------------

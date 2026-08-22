@@ -40,6 +40,18 @@ NET_WAIT = 1.0
 #: 这几个动作看不出干了什么,日志里标黄(§4)。
 OPAQUE_ACTIONS = frozenset({"js"})
 
+#: **读的动作不 settle。**
+#:
+#: `settle` 的意思是"做完之后等页面稳下来"。读没有"做完" —— 它什么都没改,
+#: 没什么可等的。而在真实站点上那一等是一秒多
+#: ([issue](../docs/v2/issues/每次确认都要抓一整页-于是号在膨胀.md)),
+#: 于是 `get value` 要 2.4 秒,而同样问页面的 `snapshot`(它不走这条路)
+#: 只要 0.4 秒。**同一件事两个价钱,那是路走错了,不是它本来就贵。**
+#:
+#: `wait_for` 不在里面:它等到条件成立之后再让页面稳一下,是有意的 ——
+#: 调用方下一步多半要动手。
+READ_ACTIONS = frozenset({"extract", "count"})
+
 _KEYS = {
     "Enter": (13, "Enter", "\r"), "Tab": (9, "Tab", "\t"),
     "Escape": (27, "Escape", ""), "Backspace": (8, "Backspace", ""),
@@ -292,7 +304,8 @@ class Executor:
                                 target=_target_of(spec), error="bad_request",
                                 message=str(e))
 
-        await self._settler.settle(settle)
+        if kind not in READ_ACTIONS:
+            await self._settler.settle(settle)
         after = await digest(self._cdp, self._sid)
 
         info: dict[str, Any] = {"url": after.url}
