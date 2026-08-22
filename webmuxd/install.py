@@ -24,6 +24,7 @@ docker 那一问整个消失 —— v2 不再关心机器上有没有它(§2)。
 from __future__ import annotations
 
 import json
+import dataclasses
 import os
 import platform
 import shutil
@@ -35,7 +36,7 @@ import urllib.request
 import zipfile
 from typing import Any
 
-from webmuxd import config, xpra as xpra_mod
+from webmuxd import config, models, xpra as xpra_mod
 from webmuxd import rrweb as dom_mod
 from webmuxd.models import PackageFamily
 
@@ -66,12 +67,14 @@ def _cut(s: str, width: int) -> str:
 
 def install(*, version: str = config.PINNED, mirror: str | None = None,
             force: bool = False, with_deps: bool = False,
-            out=sys.stdout, **_compat: Any) -> dict[str, Any]:
+            out=sys.stdout, **_compat: Any) -> models.MachineFacts:
     say = lambda *a: print(*a, file=out)      # noqa: E731
     say("探测环境…")
     say(f"  {_pad('python', 10)} {_pad(platform.python_version(), 38)} {OK}")
 
-    record: dict[str, Any] = {}
+    #: 这一趟探出来的**事实**。形状在 `models.MachineFacts` ——
+    #: **没探到的字段留 None,`save()` 一个都不会写。**
+    facts = models.MachineFacts()
 
     fam = detect()
     rooted = can_root()
@@ -134,9 +137,7 @@ def install(*, version: str = config.PINNED, mirror: str | None = None,
                 lambda: (config.has_cjk_font(), config.FONT_HINT[1]),
                 fam.font if fam else APT.font, good_text="有")
 
-        record["default_browser"] = {
-            "path": path, "version": version, "source": "chrome-for-testing",
-        }
+        facts.browser = models.BrowserFact(path, version, "chrome-for-testing")
 
     # ------------------------------------------------------------------ xpra
     # **画面默认走 xpra**(works/11 §6),所以它和浏览器一样是"跑之前要有的东西",
@@ -149,15 +150,12 @@ def install(*, version: str = config.PINNED, mirror: str | None = None,
         # 每次重新探的问题不在耗时,在于**结果可能和上次不一样** ——
         # 装了新的 xpra、改了 PATH、在 venv 里跑,任一情形都会变,
         # 而报错不会指出"这次用的和上次不是同一个"。
-        table = xpra_mod.probe()
-        table["vfb"] = "Xvfb"                  # 显式钉死,不读发行版配置
-        record["xpra"] = table
-        # Xvfb 单独记一条:runtime 直接把它传给 `--xvfb=`
-        vfb = shutil.which("Xvfb")
-        if vfb:
-            record["xvfb"] = vfb
-        say(f"  {'':10} xpra {table.get('version', '?')} · "
-            f"解释器 {table.get('python', '(读不出 shebang)')}")
+        # **显式钉死 `vfb`,不读发行版配置。**
+        facts.xpra = dataclasses.replace(xpra_mod.probe(), vfb="Xvfb")
+        # Xvfb 单独记一条:起进程的人直接把它传给 `--xvfb=`
+        facts.xvfb = shutil.which("Xvfb") or ""
+        say(f"  {'':10} xpra {facts.xpra.version or '?'} · "
+            f"解释器 {facts.xpra.python or '(读不出 shebang)'}")
 
     # ------------------------------------------------------------- DOM 那条
     # **属于数据,所以下载**([d §2](../docs/v2/works/d-install.md#2-每样东西从哪来))。
@@ -173,8 +171,8 @@ def install(*, version: str = config.PINNED, mirror: str | None = None,
     if ok_dom:
         say(f"  {_pad('DOM 画面', 10)} "
             f"{_pad('rrweb ' + dom_mod.RRWEB_VERSION, 38)} {OK}")
-        record["rrweb"] = {"version": dom_mod.RRWEB_VERSION,
-                           "js": str(dom_mod.paths()["js"])}
+        facts.rrweb = models.RrwebFact(dom_mod.RRWEB_VERSION,
+                                       str(dom_mod.paths()["js"]))
     else:
         # **不静默略过。** DOM 是三种画面之一,下不到就说清楚:
         # 影响的是哪一种、另外两种还在。
@@ -186,12 +184,12 @@ def install(*, version: str = config.PINNED, mirror: str | None = None,
     # 给一句 `apt-get install fonts-noto-cjk` —— 没下过就没有"在哪"可记。
     # 键不在 = 没探到,这正是它该有的样子。
 
-    p = config.save(record)
+    p = config.save(facts)
     say("")
     say(f"记录写到 {p}")
-    if not record.get("default_browser"):
+    if facts.browser is None:
         say(f"{WARN} 没有 default_browser —— 起 session 时得 --browser 指一个")
-    return record
+    return facts
 
 
 # ---------------------------------------------------------------------------

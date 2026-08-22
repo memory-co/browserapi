@@ -34,6 +34,7 @@ from typing import Any, Callable
 import aiohttp
 from aiohttp import WSMsgType, web
 
+from webmuxd import models
 from webmuxd.exceptions import unavailable
 
 #: **虚拟显示由我们指定,不看发行版的配置。**
@@ -128,11 +129,13 @@ def xpra_python(exe: str | None = None) -> str | None:
     return parts[1] if parts[0].endswith("env") and len(parts) > 1 else parts[0]
 
 
-def probe() -> dict[str, str]:
-    """探出这台机器上 VNC 那条腿的路径表([d §1](../docs/v2/works/d-install.md#1-产出一份路径表))。
+def probe() -> models.XpraFact:
+    """探出这台机器上 VNC 那条腿([d §1](../docs/v2/works/d-install.md#1-产出一份路径表))。
 
-    **键在 = 探到了,键不在 = 没探到。** 探不到的一律不写 ——
-    写一个猜的值,下次读的人分不清那是事实还是兜底。
+    **空 = 没探到。** 探不到的一律留空 —— 写一个猜的值,
+    下次读的人分不清那是事实还是兜底。形状在
+    [`models.XpraFact`](models.py):**记录里那一段就是它**,
+    不是"探一个 dict 再由别人拼成记录"。
     """
     out: dict[str, str] = {}
     exe = shutil.which("xpra")
@@ -150,7 +153,8 @@ def probe() -> dict[str, str]:
                 out["version"] = ver[0].replace("xpra", "").strip() or ver[0].strip()
         except Exception:                       # noqa: BLE001
             pass                                # 版本探不到不影响能不能跑
-    return out
+    return models.XpraFact(bin=out.get("bin", ""), python=out.get("python", ""),
+                           version=out.get("version", ""))
 
 
 def available() -> tuple[bool, str]:

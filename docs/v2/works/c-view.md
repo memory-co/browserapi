@@ -544,8 +544,8 @@ xpra 截的是真实的浏览器窗口,所以画面里本来会有 tab 条和地
 
 ```bash
 webmuxd install                                          # 有 root 就把 xpra 那套装上
-webmuxd new --id work --port 7900                        # 默认 xpra
-webmuxd new --id work --port 7900 --transport screencast # 零系统依赖那条
+webmuxd new --id work                        # 默认 xpra
+webmuxd new --id work --transport jpg # 零系统依赖那条
 ```
 
 **默认选择效果更好的一条,而非更易安装的一条。** 安装成本由 `webmuxd install` 承担 ——

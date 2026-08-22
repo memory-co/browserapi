@@ -8,7 +8,9 @@ v1 那 600 行里大半是在验"容器命令怎么拼、镜像标签怎么读",
 而且**画面就在同一个口上**。
 """
 
+import contextlib
 import socket
+import tempfile
 import time
 
 import pytest
@@ -92,7 +94,7 @@ def test_remote_没给_cdp_就拒绝():
 
 def test_remote_的_stop_不动对面():
     """**只停本地的 sessiond,对面一个字节都不动**(works/07 §6)。"""
-    h = SessionInfo("remote", "prod", 7900, {"cdp": "http://elsewhere:9222"})
+    h = SessionInfo("remote", "prod", {"cdp": "http://elsewhere:9222"})
     RemoteRuntime().stop(h)          # 不该抛
     assert h.detail["cdp"] == "http://elsewhere:9222"
 
@@ -111,72 +113,77 @@ def test_端口被占了就说被占了_不替你换一个():
         assert ei.value.details["port"] == taken
 
 
-def test_一个_session_一个口_画面和_api_都在它上面():
-    """v1 的 SessionInfo 有 api_port 和 view_port 两个;v2 只有一个(works/04 §1)。"""
-    h = SessionInfo("process", "work", 7900, {})
-    assert h.api_url == "http://127.0.0.1:7900"
-    assert h.view_url.startswith("http://127.0.0.1:7900/")
-    # v1 里"没有画面"是空字符串 —— v2 画面是我们自己产的,只要活着就有
-    assert h.view_url
+def test_端口不在_session_上():
+    """**一个 server 一个口,session 是它下面的一段路径**
+    ([k](../../docs/v2/works/k-one-server.md))。
+
+    v1 一个 session 两个端口,v2 收成一个,现在收到 server 上 ——
+    那个"一个 session 一个端口"从来不是设计,是 kasm 的 web 口不归我们控制。
+    """
+    h = SessionInfo("process", "work", {})
+    assert h.path() == "/s/work/"
+    assert not hasattr(h, "port"), "端口又回到 session 上了"
 
 
 # ---------------------------------------------------------- 真起真跑
 
-def test_本机起一个_然后画面和_api_都在那个口上():
-    """**这条是真起真跑**:浏览器 + sessiond 起来,lib 连上去点一下。"""
+def test_runtime_只产出一个_cdp_端点():
+    """**这条是真起真跑。** runtime 不再起 sessiond —— 那个进程没有了,
+    server 自己就是([k §5](../../docs/v2/works/k-one-server.md))。
+    """
     if not ProcessRuntime().available()[0]:
         pytest.skip("本机没有浏览器")
 
     impl = ProcessRuntime()
-    port = _free()
-    h = impl.start("t-proc", port=port, transport="screencast")
+    h = impl.start("t-proc", transport="screencast")
     try:
         assert impl.alive(h) and h.kind == "process"
-        assert h.port == port
-
+        cdp = h.detail["cdp"]
+        assert cdp.startswith("http://127.0.0.1:")
         import urllib.request
-        with urllib.request.urlopen(h.view_url, timeout=10) as r:
-            page = r.read()
-        # 画面页就在那个口的根上,而且是我们自己的那一份
-        assert r.status == 200 and b"/channel/cdp" in page,\
-                "内置页得从同一个口拿帧 —— 路径已改叫 /channel/cdp(e §6.1),"\
-                "旧的 /api/view 仍然可用但内置页不再用它"
-
-        web = Webmuxd()
-        sess = web.session(id="t-proc", port=port, runtime="process",
-                           transport="screencast")
-        tab = sess.open("about:blank")
-        assert tab.js("1+1") == 2
-        assert sess.view_url.startswith(f"http://127.0.0.1:{port}")
-        sess.detach()
+        with urllib.request.urlopen(cdp + "/json/version", timeout=10) as r:
+            assert r.status == 200
     finally:
         impl.stop(h)
     time.sleep(0.5)
-    assert not impl.alive(h), "stop 之后进程还活着"
+    assert not impl.alive(h), "stop 之后浏览器还活着"
 
 
 @pytest.mark.slow
-def test_session_拿不到就拉起来_而且第二次给同一个对象():
+def test_两个_session_一个口():
+    """**这就是这次改动要的东西**:一个 server 一个口,session 住在它下面。"""
     if not ProcessRuntime().available()[0]:
         pytest.skip("本机没有浏览器")
 
-    web = Webmuxd()
+    from webmuxd import processes
     port = _free()
-    sess = web.session(id="t-auto", port=port, runtime="process",
-                       transport="screencast")
+    proc = processes.spawn_server(port=port, data=tempfile.mkdtemp(prefix="wm-t-"))
+    assert processes.wait_http(f"http://127.0.0.1:{port}/healthz", 30)
+    web = Webmuxd(port=port)
     try:
-        assert sess.status()["ok"] is True
-        assert web.session(id="t-auto") is sess
+        a = web.session(id="t-a", transport="screencast")
+        b = web.session(id="t-b", transport="screencast")
+        assert a.status()["ok"] and b.status()["ok"]
+        assert web.session(id="t-a") is a, "同一个 id 要给同一个对象"
+        # **同一个口,两段路径**
+        assert a.api_url == f"http://127.0.0.1:{port}/s/t-a"
+        assert b.api_url == f"http://127.0.0.1:{port}/s/t-b"
+        assert {r["id"] for r in web.list()} == {"t-a", "t-b"}
+        web.kill("t-a")
+        assert {r["id"] for r in web.list()} == {"t-b"}
     finally:
-        web.shutdown()
+        with contextlib.suppress(Exception):
+            web.kill_server()
+        time.sleep(1)
+        proc.kill()
     time.sleep(0.5)
-    assert port_free(port), "shutdown 之后端口还占着 —— 进程没清干净"
+    assert port_free(port), "kill-server 之后端口还占着 —— 进程没清干净"
 
 
 def test_v1_的参数名不静默吞掉():
     """从 v1 升上来的人会带着旧名来,**落进 kw 被丢掉最糟**。"""
     web = Webmuxd()
-    for old in ("api_port", "view_port", "image", "network"):
+    for old in ("port", "api_port", "view_port", "image", "network"):
         with pytest.raises(Exception) as ei:
             web.session(id="x", **{old: 1})
         assert old in str(ei.value)
@@ -266,28 +273,27 @@ def test_默认只绑回环():
     assert p.parse_args(["--host", "0.0.0.0"]).bind == "0.0.0.0"
 
 
-def test_绑非回环要留一条警告(tmp_path, monkeypatch):
-    """对外开放是**你的决定**,但不能悄悄发生。"""
+def test_绑非回环要留一条警告(tmp_path, monkeypatch, capsys):
+    """对外开放是**你的决定**,但不能悄悄发生。
+
+    这条跟着端口一起搬到 server 上了 —— 以前每个 session 各绑各的,
+    现在**一个口**,所以警告也只在 `webmuxd start` 那一次说
+    ([k](../../docs/v2/works/k-one-server.md))。
+    """
+    from webmuxd import cli as cli_mod
     from webmuxd import processes as proc_mod
 
     class FakePopen:
-        def __init__(self, args, **kw): self.pid = 1
-        def poll(self): return None
-        def send_signal(self, s): pass
-        def wait(self, timeout=None): return 0
-        def kill(self): pass
+        def __init__(self, *a, **kw): self.pid = 1
+        def terminate(self): pass
 
-    monkeypatch.setattr(proc_mod.subprocess, "Popen", FakePopen)
-    monkeypatch.setattr(proc_mod, "wait_port", lambda *a, **k: True)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(proc_mod, "spawn_server", lambda **kw: FakePopen())
     monkeypatch.setattr(proc_mod, "wait_http", lambda *a, **k: True)
-    monkeypatch.setattr(proc_mod, "spawn_sessiond", lambda *a, **k: FakePopen([]))
+    monkeypatch.setattr(proc_mod, "require_ports", lambda *a, **k: None)
 
-    h = ProcessRuntime().start("x", port=_free(), browser_path="/bin/true",
-                               data_dir=str(tmp_path), bind="0.0.0.0",
-                               transport="screencast")
-    assert any("0.0.0.0" in n for n in h.detail["notes"]), h.detail["notes"]
+    assert cli_mod.main(["start", "--port", "7999", "--bind", "0.0.0.0"]) == 0
+    assert "0.0.0.0" in capsys.readouterr().err, "对外开放却没说一声"
 
-    h2 = ProcessRuntime().start("y", port=_free(), browser_path="/bin/true",
-                                data_dir=str(tmp_path / "2"),
-                                transport="screencast")
-    assert not any("0.0.0.0" in n for n in h2.detail["notes"]), "默认不该报警"
+    assert cli_mod.main(["start", "--port", "7998"]) == 0
+    assert "0.0.0.0" not in capsys.readouterr().err, "默认不该报警"

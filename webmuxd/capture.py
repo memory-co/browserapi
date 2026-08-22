@@ -14,7 +14,8 @@
 >
 > 元素表没有消失,它在 [`locate.py`](locate.py) —— 但那是 `act` 定位用的,
 > `click("登录")` 需要它。**它是动作的一部分,不是一个读的口子。**
-> 详见 [i §3](../docs/v2/works/i-agent-surface.md)。
+> 详见 [i §3](../docs/v2/works/i-agent-surface.md);
+> 线上那两个口子在 [v2/api](../docs/v2/api/)。
 """
 
 from __future__ import annotations

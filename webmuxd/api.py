@@ -31,13 +31,14 @@ from typing import Any, Callable
 
 import websockets
 
-from webmuxd import sessions as rt
+from webmuxd import models
 from webmuxd.exceptions import (BadRequest, ChromeGone, TabGone,
                                 WebmuxdError, from_response)
 
 #: 定位的六种写法(api/act.md §4)。
-_LOCATOR_KEYS = ("text", "role", "name", "label", "element", "observation",
-                 "css", "point", "nth")
+#: **形状在 [`models.Locator`](models.py)** —— 这儿只转发那张键表,
+#: 不再写第二份。写两份的下场:加一种写法要记得改三个地方。
+_LOCATOR_KEYS = models.Locator.KEYS
 
 
 def _locator(target: Any = None, **kw: Any) -> dict[str, Any]:
@@ -826,132 +827,115 @@ class Session:
 # --------------------------------------------------------------------------
 
 class Webmuxd:
+    """一个 server 的客户端。
+
+    **端口在这儿,不在 session 上**([k](../docs/v2/works/k-one-server.md)):
+
+        web  = Webmuxd(port=7900)
+        sess = web.session(id="demo")
+        tab  = sess.open("https://example.com")
+
+    以前是 `web.session(id=, port=)` —— 一个 session 一个端口。
+    那是 kasm 留下的:它的 web 口不归我们控制,所以只能一个 session 一个。
+    画面换成我们自己产的之后,**那条硬约束没有了**。
+    """
+
     def __init__(self, url: str | None = None, *, port: int | None = None,
-                 token: str | None = None, socket: str | None = None,
-                 name: str = "default", user: str = "api",
-                 host: str = "127.0.0.1") -> None:
+                 token: str | None = None, name: str = "default",
+                 user: str = "api", host: str = "127.0.0.1", **_v1: Any) -> None:
         self.user = user
         self.host = host
         self.token = token or os.environ.get("WEBMUXD_TOKEN") or None
-        #: 管理面自己的口 —— **和 session 的两个口无关**。
-        #: 不给就不占网络端口,管理走 socket、靠文件权限鉴权。
-        self.port = port
-        self.socket = socket
         self.name = name
-        self._base = (url or (f"http://{host}:{port}" if port else None))
-        self._t = Transport(self._base, token=self.token) if self._base else None
+        #: **显式传入优先**,其次那份"server 在哪"的记录 ——
+        #: 和配置那条老规矩一致([d](../docs/v2/works/d-install.md))。
+        self.base = (url or (f"http://{host}:{port}" if port else None)
+                     or _recorded_server(name) or f"http://{host}:7900")
+        self.base = self.base.rstrip("/")
+        self._t = Transport(self.base, token=self.token)
         self._live: dict[str, Session] = {}
-        self._handles: dict[str, Any] = {}
         self._lock = threading.Lock()
 
     def __repr__(self) -> str:
-        where = self._base or f"socket:{self.name}"
-        return f"<Webmuxd {where} 管着 {len(self._live)} 个 session>"
+        return f"<Webmuxd {self.base} 管着 {len(self._live)} 个 session>"
 
     # ------------------------------------------------------------------
 
-    def session(self, id: str, *, port: int | None = None,
-                runtime: str | None = None,
+    def list(self) -> list[dict]:
+        """server 上有哪些 —— **和 `webmuxd ls`、和列表页是同一份**。"""
+        return self._t.get("/api/sessions").get("sessions", [])
+
+    def create(self, id: str, **kw: Any) -> dict:
+        """建一个。**同一个 id 再来一次就是接管**,像 `tmux new -A -s`。"""
+        body = {"id": id, **{k: v for k, v in kw.items() if v is not None}}
+        return self._t.post("/api/sessions", body)
+
+    def session(self, id: str, *, runtime: str | None = None,
                 user: str | None = None, **kw: Any) -> Session:
         """拿一个 session。**幂等:同一个 id 永远给你同一个。**
 
-        没有 `create()` 也没有 `get()` —— "建"和"取"是同一件事,像 `tmux new -A -s`。
-
-        **端口必须你给,不自动分配**:端口是部署决定的,我们猜一个只会让你的
-        配置和实际对不上。v2 里只有**一个**口 —— 画面和 API 都在它上面
-        (works/04 §1),所以这条规矩比 v1 好守。
+        没有 `create()` 也没有 `get()` —— "建"和"取"是同一件事。
         """
-        # **旧名不静默吞。** 落进 `**kw` 会被无声丢掉,然后报一个指向别处的错
-        # ——"还不存在,得给 port"。宁可在这儿直说,并指出为什么没了。
+        # **旧名不静默吞。** 落进 `**kw` 会被无声丢掉,然后报一个指向别处的错。
         for old, why in (
-                ("api_port", "v2 只有一个口,叫 `port=`(works/04)"),
-                ("view_port", "v2 只有一个口,画面和 API 在同一个上(works/04)"),
-                ("image", "v2 不碰容器,浏览器用 `browser=` 指(works/07 §2)"),
-                ("network", "v2 不碰容器(works/07 §2)"),
-                ("vnc_port", "v2 没有 VNC(works/01)"),
+                ("port", "端口在 Webmuxd(port=) 上了,一个 server 一个口(k)"),
+                ("api_port", "端口在 Webmuxd(port=) 上了(k)"),
+                ("view_port", "端口在 Webmuxd(port=) 上了(k)"),
+                ("image", "不碰容器,浏览器用 `browser=` 指(h §2)"),
+                ("network", "不碰容器(h §2)"),
+                ("vnc_port", "没有 VNC 口,画面和 API 同一个口"),
                 ("viewport", "改名叫 `window_size=`")):
             if old in kw:
                 raise BadRequest(f"`{old}=` 没有了 —— {why}", code="bad_request")
-        runtime = runtime or rt.DEFAULT
 
         with self._lock:
             have = self._live.get(id)
             if have is not None:
                 # 同一个 id **返回同一个 Python 对象** —— 每个 Session 背后有一条 WS
                 # 和一份内存表,给两个就是两条连接、两份可能不一致的表。
-                if port is not None and have.api_url.endswith(f":{port}") is False:
-                    raise BadRequest(
-                        f"{id} 已经在 {have.api_url},和你给的 port={port} 对不上",
-                        code="bad_request")
                 return have
-
-            if port is None:
-                raise BadRequest(
-                    f"session {id!r} 还不存在,得给 port —— "
-                    "端口是部署决定的,我们不替你分配", code="bad_request")
-
-            api = f"http://{self.host}:{port}"
-            t = Transport(api, token=self.token)
-            owned = False
-            if not t.alive():
-                # 那个口上什么都没有 → **按 runtime 把它拉起来**。
-                # 起不来就抛 RuntimeUnavailable 带 hint,**不静默换一种**
-                # (works/05 §4)。
-                impl = rt.get(runtime)
-                handle = impl.start(id, port=port, token=self.token, **kw)
-                self._handles[id] = (impl, handle)
-                t = Transport(api, token=self.token)
-                owned = True                # 这次真的建起来了 → with 退出时归我们关
-
-            # **画面就是那个口** —— 没有第二个 scheme 要猜,也没有 VNC 口令
-            sess = Session(id, api, view_url=f"http://{self.host}:{port}/",
-                           token=self.token, user=user or self.user,
-                           owned=owned, manager=self)
+            if not any(r["id"] == id for r in self.list()):
+                self.create(id, runtime=runtime, **kw)
+            sess = Session(id, f"{self.base}/s/{id}", token=self.token,
+                           user=user or self.user, manager=self)
             self._live[id] = sess
             return sess
 
     def sessions(self) -> list[Session]:
-        """这个管理实例手里的 session。
+        """server 上的每一个,都变成能操作的 `Session`。
 
-        要列**这台机器上所有**的,得问管理面那个口 —— 那属于 runtime 那一层。
+        要**只看这个实例手里已经连上的**,用 `list()` 那个原始表。
         """
-        if self._t is not None:
-            try:
-                listing = self._t.get("/api/sessions")
-                return [self.session(s["id"], port=s.get("port"))
-                        for s in listing.get("sessions", [])]
-            except Exception:
-                pass
-        return list(self._live.values())
+        return [self.session(r["id"]) for r in self.list()]
 
     def kill(self, id: str) -> None:
-        sess = self._live.get(id)
+        sess = self._live.pop(id, None)
         if sess is not None:
             sess.detach()
-        pair = self._handles.pop(id, None)
-        if pair is not None:
-            impl, handle = pair
-            impl.stop(handle)              # remote 的 stop 是空的:不动对面
-        self._forget(id)
+        self._t.delete(f"/api/sessions/{id}")
+
+    def kill_server(self) -> int:
+        """**一个都不许留**,然后 server 自己也走。"""
+        for sess in list(self._live.values()):
+            sess.detach()
+        self._live.clear()
+        return int(self._t.delete("/api/server").get("killed", 0))
+
+    def info(self) -> dict:
+        return self._t.get("/api/server")
 
     def _forget(self, id: str) -> None:
         self._live.pop(id, None)
 
-    def info(self) -> dict:
-        if self._t is None:
-            return {"version": __import__("webmuxd").__version__, "listen": None,
-                    "sessions": {"total": len(self._live)},
-                    "runtimes": rt.detect(), "default_runtime": rt.DEFAULT}
-        return self._t.get("/api/server")
 
-    def shutdown(self) -> None:
-        """**两种 runtime 的 sessiond 都跟着死** —— 它们都是我们的子进程。
-
-        `remote` 那头的浏览器不归我们,`stop` 不动它(works/07 §6)。
-        """
-        for s in list(self._live.values()):
-            s.detach()
-        for id_, (impl, handle) in list(self._handles.items()):
-            impl.stop(handle)
-            self._handles.pop(id_, None)
-        self._live.clear()
+def _recorded_server(name: str) -> str | None:
+    """那份"server 在哪"的记录 —— 只读,写是 `webmuxd start` 的事。"""
+    import json
+    from pathlib import Path
+    base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
+    try:
+        row = json.loads((Path(base) / "webmuxd" / name / "server.json").read_text())
+    except (OSError, ValueError):
+        return None
+    port = row.get("port") if isinstance(row, dict) else None
+    return f"http://127.0.0.1:{port}" if isinstance(port, int) else None

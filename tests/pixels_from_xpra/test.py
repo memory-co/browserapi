@@ -739,7 +739,6 @@ def _fake_xpra_start(monkeypatch, tmp_path):
     monkeypatch.setattr(xpra_mod, "stop", lambda *a, **k: None)
     monkeypatch.setattr(proc_mod, "wait_port", lambda *a, **k: True)
     monkeypatch.setattr(proc_mod, "wait_http", lambda *a, **k: True)
-    monkeypatch.setattr(proc_mod, "spawn_sessiond", lambda *a, **k: FakePopen([]))
     monkeypatch.setattr(proc_mod.config, "missing_libs", lambda p: [])
     monkeypatch.setattr(proc_mod.config, "has_cjk_font", lambda: True)
     return seen
@@ -755,23 +754,27 @@ def test_默认那条路上_root_也要自动关沙箱并且说出来(monkeypatc
     monkeypatch.setattr(_os, "geteuid", lambda: 0)
     monkeypatch.delenv("WEBMUXD_NO_SANDBOX", raising=False)
 
-    h = ProcessRuntime().start("x", port=65020, browser_path="/bin/true",
+    h = ProcessRuntime().start("x", browser_path="/bin/true",
                                data_dir=str(tmp_path))
     child = [a for a in seen["argv"][0] if a.startswith("--start-child=")][0]
     assert "--no-sandbox" in child, "root 下不加的话浏览器根本起不来"
     assert any("沙箱是关着的" in n for n in h.detail["notes"]), "关了不说等于偷偷关"
 
 
-def test_默认那条路上_绑非回环也要留一条警告(monkeypatch, tmp_path):
-    """对外开放是**你的决定**,但不能悄悄发生 —— 换了默认 transport 不改变这条。"""
+def test_默认那条路上也产出一个_cdp_端点(monkeypatch, tmp_path):
+    """runtime 只产出一个 CDP 端点,**默认那条也一样** ——
+    xpra 那条多起一个 xpra,但交出去的东西是同一种
+    ([k §5](../../docs/v2/works/k-one-server.md#5-一个进程还是每个-session-一个进程))。
+
+    (「绑非回环要报警」跟着端口搬到 `webmuxd start` 上了,
+    见 `one_endpoint/test_绑非回环要留一条警告`。)
+    """
     from webmuxd.sessions import ProcessRuntime
     _fake_xpra_start(monkeypatch, tmp_path)
-    h = ProcessRuntime().start("x", port=65021, browser_path="/bin/true",
-                               data_dir=str(tmp_path), bind="0.0.0.0")
-    assert any("0.0.0.0" in n for n in h.detail["notes"]), h.detail["notes"]
-    h2 = ProcessRuntime().start("y", port=65022, browser_path="/bin/true",
-                                data_dir=str(tmp_path / "2"))
-    assert not any("0.0.0.0" in n for n in h2.detail["notes"]), "默认不该报警"
+    h = ProcessRuntime().start("x", browser_path="/bin/true",
+                               data_dir=str(tmp_path))
+    assert h.detail["cdp"].startswith("http://127.0.0.1:")
+    assert h.detail["xpra_ws"].startswith("ws://"), "VNC 那条得把上游交出来"
 
 
 def test_有头下要显式指定软件_GL_否则_WebGL_整个是关的():
@@ -857,14 +860,14 @@ async def test_切了要留下记录_也要告诉观看者():
 
     class V:
         closed = False
-        async def tell(self, type_, **kw):
-            told.append((type_, kw))
+        async def send(self, payload):
+            told.append(payload)
 
     c.viewers.add(V())
     await c.switch("dom", why="人选的")
-    kinds = [t for t, _ in told]
+    kinds = [t["type"] for t in told]
     assert "mode" in kinds, "得通知观看者"
-    payload = dict(told[[t for t, _ in told].index("mode")][1])
+    payload = told[kinds.index("mode")]
     assert payload["mode"] == "dom" and payload["was"] == "jpg"
     assert payload["why"]                         # 为什么变的
     assert payload["available"]                   # 还能切哪几种
@@ -873,8 +876,8 @@ async def test_切了要留下记录_也要告诉观看者():
 def test_能切哪几种要报出来_界面不该自己再写一遍():
     c = _switchable("jpg")
     info = c.mode_info()
-    names = [m["name"] for m in info["available"]]
+    names = [m["name"] for m in info.to_json()["available"]]
     assert names and set(names) <= {"jpg", "vnc", "dom"}
-    for m in info["available"]:
+    for m in info.to_json()["available"]:
         # 每一种都得带上"一句话体感"和"什么时候选它" —— 那正是使用者要判断的
         assert m["label"] and m["blurb"] and m["when"]

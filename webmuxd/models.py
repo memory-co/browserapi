@@ -35,7 +35,11 @@ __all__ = [
     "ViewMode", "JPG", "VNC", "DOM", "MODES",
     "canon", "describe", "label", "needs_headed", "available_in", "mode_choices",
     "FrameHeader", "Quality",
-    "SessionInfo", "Pending", "PackageFamily",
+    "Hello", "Cast", "Meta", "QualityChanged", "ModeInfo", "ModeError",
+    "CursorChanged",
+    "SessionInfo", "SessionRow", "Pending", "PackageFamily",
+    "LogEntry", "LOG_KINDS", "Download", "Locator",
+    "MachineFacts", "BrowserFact", "XpraFact", "RrwebFact", "FACTS_VERSION",
 ]
 
 
@@ -390,29 +394,66 @@ class Quality:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class SessionRow:
+    """server 上那一行 session —— **列表页、`webmuxd ls`、`GET /api/sessions`
+    用的是同一份**([k §3](../docs/v2/works/k-one-server.md#3-那个口上看到什么))。
+
+    这是**跨语言**的那种:JS 那边 `api.ts` 里有个同名 interface,两边靠
+    这个类对齐。`webmuxjs/server/protocol/http.md` 写的就是它。
+    """
+
+    id: str
+    runtime: str = ""
+    tabs: int = 0
+    active_tab: str | None = None
+    #: 画面走哪条 —— 实现名(`jpg`/`vnc`/`dom`)和界面上那个词
+    view: str = JPG
+    available: list[str] = field(default_factory=list)
+    uptime_s: int = 0
+    notes: list[str] = field(default_factory=list)
+
+    @property
+    def url(self) -> str:
+        """在那个口上的位置。**只有一处拼它。**"""
+        return f"/s/{self.id}/"
+
+    def to_json(self) -> dict[str, Any]:
+        return {"id": self.id, "runtime": self.runtime, "url": self.url,
+                "tabs": self.tabs, "active_tab": self.active_tab,
+                "view": self.view, "view_label": label(self.view),
+                "available": list(self.available),
+                "uptime_s": self.uptime_s, "notes": list(self.notes)}
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> "SessionRow":
+        return cls(id=d.get("id", ""), runtime=d.get("runtime", ""),
+                   tabs=int(d.get("tabs") or 0), active_tab=d.get("active_tab"),
+                   view=d.get("view") or JPG,
+                   available=list(d.get("available") or []),
+                   uptime_s=int(d.get("uptime_s") or 0),
+                   notes=list(d.get("notes") or []))
+
+
+@dataclass
 class SessionInfo:
-    """一个起来了的 session。
+    """一个起来了的 session —— runtime 产出的那个把柄。
 
-    **一个 session 一个端口**,画面和 API 落在同一个上(works/04 §1)。
+    **没有端口。** 端口在 server 上,一个 server 一个口,session 是它下面
+    `/s/<id>/` 的一段路径([k](../docs/v2/works/k-one-server.md))。
+    以前一个 session 一个端口,那是 kasm 留下的 —— 它的 web 口不归我们控制,
+    换成我们自己产画面之后那条硬约束就没了。
 
-    `kind` 决定 `kill-server` 之后它死不死:两种 runtime 的 sessiond 都是
-    server 的子进程,跟着死;`remote` 那头的浏览器不归我们,**不动它**。
+    `kind` 决定 `kill-server` 之后它死不死:`process` 起的浏览器是 server 的
+    子进程,跟着死;`remote` 那头的浏览器不归我们,**不动它**。
     """
 
     kind: str
     id: str
-    port: int
     detail: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def api_url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
-
-    @property
-    def view_url(self) -> str:
-        """**和 API 同一个口。** v1 那个"没有画面就是空字符串"的分支没有了 ——
-        画面是我们自己产的,只要 sessiond 活着它就在。"""
-        return f"http://127.0.0.1:{self.port}/"
+    def path(self) -> str:
+        """这个 session 在那个口上的位置。"""
+        return f"/s/{self.id}/"
 
 
 @dataclass
@@ -443,3 +484,388 @@ class PackageFamily:
     xpra: tuple[str, ...]
     #: 中文字体 —— 没有它页面里的中文全是豆腐块
     font: tuple[str, ...]
+
+# ---------------------------------------------------------------------------
+# 这台机器上的事实 —— `~/.webmuxd.json` 那份路径表
+# ---------------------------------------------------------------------------
+
+#: 记录格式的版本。**格式变了老记录就当没有** —— 重新探,而不是猜字段。
+FACTS_VERSION = 3
+
+
+@dataclass(frozen=True)
+class BrowserFact:
+    """用哪个浏览器,以及它是哪来的。"""
+
+    path: str
+    version: str = ""
+    #: `chrome-for-testing`(我们下的)/ `system`(机器上本来就有的)
+    source: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return _drop_empty({"path": self.path, "version": self.version,
+                            "source": self.source})
+
+    @classmethod
+    def from_json(cls, d: Any) -> "BrowserFact | None":
+        if not isinstance(d, dict) or not d.get("path"):
+            return None
+        return cls(str(d["path"]), str(d.get("version") or ""),
+                   str(d.get("source") or ""))
+
+
+@dataclass(frozen=True)
+class XpraFact:
+    """VNC 那条腿:xpra 在哪、**它自己的解释器**是哪个、版本多少。
+
+    解释器单记一条不是学究气:`xpra` 是带 shebang 的脚本,用的是系统的
+    Python,而 webmuxd 很可能装在一个 venv 里 —— `python3-pil` 要装进
+    **它那个**里面。
+    """
+
+    bin: str = ""
+    python: str = ""
+    version: str = ""
+    #: 传给 `--xvfb=` 的那个。**显式钉死,不读发行版配置。**
+    vfb: str = "Xvfb"
+
+    def to_json(self) -> dict[str, Any]:
+        return _drop_empty({"bin": self.bin, "python": self.python,
+                            "version": self.version, "vfb": self.vfb})
+
+    @classmethod
+    def from_json(cls, d: Any) -> "XpraFact | None":
+        if not isinstance(d, dict) or not d.get("bin"):
+            return None
+        return cls(str(d["bin"]), str(d.get("python") or ""),
+                   str(d.get("version") or ""), str(d.get("vfb") or "Xvfb"))
+
+
+@dataclass(frozen=True)
+class RrwebFact:
+    """DOM 那条腿的记录器:版本 + 落在哪。"""
+
+    version: str = ""
+    js: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return _drop_empty({"version": self.version, "js": self.js})
+
+    @classmethod
+    def from_json(cls, d: Any) -> "RrwebFact | None":
+        if not isinstance(d, dict) or not d.get("js"):
+            return None
+        return cls(str(d.get("version") or ""), str(d["js"]))
+
+
+@dataclass
+class MachineFacts:
+    """`~/.webmuxd.json` —— **这不是配置文件,是机器的事实**。
+
+    `webmuxd install` 探一遍写下来,之后所有命令读它。
+
+    **`None` = 没探到,不是"默认值"。** 这条是整份记录的语义基础:
+    键在 = 探到了,键不在 = 没探到 —— 所以 `to_json()` 里
+    `None` 的字段一个都不写。写一个猜的值,下次读的人分不清
+    那是事实还是兜底([d](../docs/v2/works/d-install.md))。
+    """
+
+    browser: BrowserFact | None = None
+    xpra: XpraFact | None = None
+    rrweb: RrwebFact | None = None
+    #: 传给 `--xvfb=` 的那个可执行文件(和 `xpra.vfb` 是两回事:
+    #: 这个是绝对路径,那个是名字)。
+    xvfb: str = ""
+    #: 下下来的中文字体在哪。**今天不写这个键** —— install 不下字体。
+    fonts_dir: str = ""
+    version: int = FACTS_VERSION
+    at: str = ""
+    #: 别人写进来的键。**原样留着** —— 不是我们的东西,不该被我们吃掉。
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_json(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"version": self.version}
+        if self.at:
+            out["at"] = self.at
+        out.update(self.extra)
+        for key, val in (("default_browser", self.browser), ("xpra", self.xpra),
+                         ("rrweb", self.rrweb)):
+            if val is not None:
+                out[key] = val.to_json()
+        for key, val in (("xvfb", self.xvfb), ("fonts_dir", self.fonts_dir)):
+            if val:
+                out[key] = val
+        return out
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> "MachineFacts":
+        known = {"version", "at", "default_browser", "xpra", "rrweb",
+                 "xvfb", "fonts_dir"}
+        return cls(
+            browser=BrowserFact.from_json(d.get("default_browser")),
+            xpra=XpraFact.from_json(d.get("xpra")),
+            rrweb=RrwebFact.from_json(d.get("rrweb")),
+            xvfb=str(d.get("xvfb") or ""),
+            fonts_dir=str(d.get("fonts_dir") or ""),
+            version=int(d.get("version") or 0), at=str(d.get("at") or ""),
+            extra={k: v for k, v in d.items() if k not in known})
+
+
+def _drop_empty(d: dict[str, Any]) -> dict[str, Any]:
+    """**空的不写。** 键在 = 探到了。"""
+    return {k: v for k, v in d.items() if v}
+
+# ---------------------------------------------------------------------------
+# 下行消息 —— **观看端收到的那六种**
+# ---------------------------------------------------------------------------
+#
+# 这一组是**跨语言**的:JS 那边 `protocol/messages.ts` 里有一一对应的
+# interface,而 `webmuxjs/server/protocol/frames.md` §4 写的就是它们。
+#
+# 上行那张白名单在 `frames.py`(它是**安全边界**,和这些不是一回事):
+# 上行是"观看者能表达什么",这里是"我们会告诉观看者什么"。
+
+
+@dataclass
+class Hello:
+    """连上来第一条 —— **权限只在这时候说一次**。
+
+    鼠标移动一秒几十个事件,逐个回 403 等于自己 DoS 自己。
+    """
+
+    writable: bool
+    transport: str
+    protocol: int = 28
+    w: int = 0
+    h: int = 0
+    #: 画面那一摊的现状,原样带上(`Screencaster.stats()`)。
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_json(self) -> dict[str, Any]:
+        return {"type": "hello", "writable": self.writable,
+                "protocol": self.protocol, "transport": self.transport,
+                **({"w": self.w, "h": self.h} if self.w else {}), **self.extra}
+
+
+@dataclass
+class Cast:
+    """开始/重开一轮 —— 尺寸变了、切了 tab、重新 startScreencast。"""
+
+    tab: str | None
+    w: int
+    h: int
+    format: str = "jpeg"
+    quality: int = 80
+    dsf: float | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        out = {"type": "cast", "tab": self.tab, "w": self.w, "h": self.h,
+               "format": self.format, "quality": self.quality}
+        if self.dsf is not None:
+            out["dsf"] = self.dsf
+        return out
+
+
+@dataclass
+class Meta:
+    """**帧的真实尺寸和 CSS 尺寸不是一回事。**
+
+    `dsf=2` 时 CDP 报 1024×768 而图是 2048×1536 —— 观看端算"有效缩放"
+    只信解码出来的那个,这条只是把两边都说出来。
+    """
+
+    frame_w: int
+    frame_h: int
+    css_w: int
+    css_h: int
+
+    def to_json(self) -> dict[str, Any]:
+        return {"type": "meta", "frame_w": self.frame_w, "frame_h": self.frame_h,
+                "css_w": self.css_w, "css_h": self.css_h}
+
+
+@dataclass
+class QualityChanged:
+    """降质/抽帧 —— **先降画质再抽帧**([c1](../docs/v2/works/c1-quality.md))。"""
+
+    quality: int
+    every_nth: int
+
+    def to_json(self) -> dict[str, Any]:
+        return {"type": "quality", "quality": self.quality,
+                "every_nth": self.every_nth}
+
+
+@dataclass
+class ModeInfo:
+    """现在是哪种画面、能切哪几种。**界面不该自己再写一遍这些字。**
+
+    `why` / `was` 只在真的切过之后才有 —— **切了必须说出来**
+    ([c §9.5](../docs/v2/works/c-view.md#95-切了必须说出来)):
+    画面变了而人不知道为什么,比画面差本身更糟。
+    """
+
+    mode: str
+    available: list[str] = field(default_factory=list)
+    why: str = ""
+    was: str = ""
+
+    @property
+    def label(self) -> str:
+        return label(self.mode)
+
+    def to_json(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "mode": self.mode, "label": self.label,
+            "available": [m.to_json() for m in mode_choices()
+                          if m.name in self.available]}
+        if self.why:
+            out["why"] = self.why
+        if self.was:
+            out["was"] = self.was
+        return out
+
+    def as_message(self) -> dict[str, Any]:
+        return {"type": "mode", **self.to_json()}
+
+
+@dataclass
+class ModeError:
+    """切不动 —— **说清为什么、以及怎么才能有**,不静默留在原来那种。"""
+
+    message: str
+    hint: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        out = {"type": "mode_error", "message": self.message}
+        if self.hint:
+            out["hint"] = self.hint
+        return out
+
+
+@dataclass
+class CursorChanged:
+    """光标。**值已经过白名单** —— 页面能把它设成任意字符串。"""
+
+    cursor: str
+
+    def to_json(self) -> dict[str, Any]:
+        return {"type": "cursor", "cursor": self.cursor}
+
+# ---------------------------------------------------------------------------
+# scrollback 里的一行,和那些挡着页面的东西
+# ---------------------------------------------------------------------------
+
+#: 日志有哪几类。v1 是三类;v2 多出来的四类是**没有桌面之后**那批原生 UI ——
+#: 它们是"页面为什么停住"的唯一解释,不进 scrollback 的话,
+#: 现象就只剩"页面一直没变,而且不知道为什么"。
+LOG_KINDS = ("action", "tab", "session", "dialog", "download", "file",
+             "permission", "auth")
+
+
+@dataclass
+class LogEntry:
+    """`log.jsonl` 里的一行 —— **人和 agent 进同一条流,每条标明是谁做的**
+    ([i §4](../docs/v2/works/i-agent-surface.md))。
+
+    **`fields` 是刻意留的。** 一条 `action` 和一条 `download` 共同的只有
+    上面那几样,剩下的按类不同 —— 把它们全列成字段,等于让这个类跟着
+    每一个动词一起长。跨模块要读的是共同那几样,`fields` 是那一类自己的事。
+    """
+
+    seq: int
+    kind: str
+    at: str = ""
+    tab: str | None = None
+    #: **谁做的** —— `api` / `cli` / `human` / 调用方自己签的名
+    user: str = ""
+    #: 这一步的思考,调用方写进来的
+    note: str = ""
+    fields: dict[str, Any] = field(default_factory=dict)
+
+    def to_json(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"seq": self.seq, "at": self.at, "kind": self.kind}
+        for k, v in (("tab", self.tab), ("user", self.user), ("note", self.note)):
+            if v:
+                out[k] = v
+        out.update(self.fields)
+        return out
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> "LogEntry":
+        known = {"seq", "at", "kind", "tab", "user", "note"}
+        return cls(seq=int(d.get("seq") or 0), kind=str(d.get("kind") or ""),
+                   at=str(d.get("at") or ""), tab=d.get("tab"),
+                   user=str(d.get("user") or ""), note=str(d.get("note") or ""),
+                   fields={k: v for k, v in d.items() if k not in known})
+
+
+@dataclass
+class Download:
+    """一个下载。**它是"页面为什么停住"的一种** —— headless 里没人替你点保存。"""
+
+    id: str
+    file: str = ""
+    url: str = ""
+    bytes: int = 0
+    total: int = 0
+    #: `pending` / `done` / `canceled`
+    state: str = "pending"
+    path: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"id": self.id, "file": self.file, "url": self.url,
+                "bytes": self.bytes, "total": self.total,
+                "state": self.state, "path": self.path}
+
+
+@dataclass(frozen=True)
+class Locator:
+    """**怎么找到那个元素。**
+
+    以前这个形状在三处各拼一份(`act.py` / `api.py` / `cli.py`),
+    而它是**跨 HTTP 的**:SDK 拼出来、服务端解开。三份意味着加一种写法
+    要记得改三个地方 —— 而"记得"从来不是一种机制。
+
+    没有"按编号定位":编号只在一次快照里成立
+    ([locate.resolve](locate.py))。
+    """
+
+    #: 可见文字,最常用
+    text: str = ""
+    role: str = ""
+    name: str = ""
+    #: 表单标签找输入框
+    label: str = ""
+    #: 选择器,逃生舱
+    css: str = ""
+    #: 坐标,最后手段
+    point: tuple[float, float] | None = None
+    #: 多于一个时要第几个
+    nth: int | None = None
+
+    #: 这几个键就是全部。**加一种写法要改这一处,不是三处。**
+    KEYS = ("text", "role", "name", "label", "css", "point", "nth")
+
+    def to_json(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for k in ("text", "role", "name", "label", "css"):
+            if getattr(self, k):
+                out[k] = getattr(self, k)
+        if self.point is not None:
+            out["point"] = list(self.point)
+        if self.nth is not None:
+            out["nth"] = self.nth
+        return out
+
+    def __bool__(self) -> bool:
+        return bool(self.to_json())
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> "Locator":
+        pt = d.get("point")
+        return cls(text=str(d.get("text") or ""), role=str(d.get("role") or ""),
+                   name=str(d.get("name") or ""), label=str(d.get("label") or ""),
+                   css=str(d.get("css") or ""),
+                   point=(float(pt[0]), float(pt[1])) if pt else None,
+                   nth=int(d["nth"]) if d.get("nth") is not None else None)

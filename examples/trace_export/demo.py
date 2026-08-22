@@ -52,7 +52,7 @@ def snap(tab) -> dict | None:
 def main() -> int:
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "webmuxd-trace.zip")
     web = Webmuxd(user="claudecode")
-    sess = web.session(id="trace-demo", port=7932)
+    sess = web.session(id="trace-demo")
     snapshots: dict[int, dict] = {}
     shots: dict[int, bytes] = {}
     try:

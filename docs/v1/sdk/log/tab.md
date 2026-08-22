@@ -21,7 +21,7 @@ e.kind            # "action"
 e.tab             # 哪个 tab
 e.user            # 署名
 e.note            # act() 传的那句思考
-e.action          # click / type / goto ...
+e.action          # click / type / goto / observe ...
 e.target          # 你给的定位:{"text": "登录"}
 e.hit             # 实际命中的:role / name / bbox
 e.ok  e.ms

@@ -19,7 +19,7 @@ CLI 比 lib 多出来的只有两样,都是终端才需要的:
 | README.md(本文) | 概念映射、`-t` 目标语法、配置、退出码 | [api/README.md](../api/README.md) |
 | [install.md](install.md) | `webmuxd install` —— 装一次,之后别再问 | —— |
 | [tabs.md](tabs.md) | `tabs` `new-tab` `select-tab` `goto` `back` … | [api/tabs.md](../api/tabs.md) |
-| [act.md](act.md) | `click` `type` `capture` `send` | [api/act.md](../api/act.md) |
+| [act.md](act.md) | `click` `type` `observe` `capture` `send` | [api/act.md](../api/act.md) |
 | [log.md](log.md) | `log` `bundle` | [api/log.md](../api/log.md) |
 | [server.md](server.md) | `new` `ls` `attach` `share` `kill` `runtime` | [api/server.md](../api/server.md) |
 
@@ -35,7 +35,7 @@ tmux 给多路复用与持久化,ttyd 给 web 暴露,概念见 [works/05](../wor
 | window | **tab** | 浏览器标签页,见 [tabs.md](tabs.md) |
 | pane | — | 不做:一块 VNC 屏同时只显示一个 tab |
 | `send-keys` | `click` / `type` / `key` / `send` | 往里面打东西,见 [act.md](act.md) |
-| `capture-pane` | `capture` | 把里面的内容抓出来 —— **一张图,或正文** |
+| `capture-pane` | `capture` / `observe` | 把里面的内容抓出来 |
 | scrollback | `log` | 操作日志 |
 | `~/.tmux.conf` | **不做** | 参数从 lib 传,见 §5 |
 | ttyd `-p` / `-b` | server `:7800` + `/s/<id>/` | 见 [server.md](server.md) |
@@ -76,8 +76,7 @@ webmuxd 不猜,因为点错浏览器的代价比敲错终端大。
 `--json` 是 CLI 和 API 之间的逃生舱:
 
 ```bash
-webmuxd capture -t work | grep 订单            # 正文
-webmuxd capture -t work --shot p.webp          # 那一刻的页面
+webmuxd observe -t work --json | jq '.elements[] | select(.role=="button")'
 ```
 
 ## 4. 命令总表
@@ -89,7 +88,7 @@ server start-server  kill-server  server  info            → server.md
 tab    new-tab  tabs  select-tab  kill-tab  move-tab
        goto  back  forward  reload  stop  dialog          → tabs.md
 操作   click  type  key  scroll  wait  send               → act.md
-看     capture  url  status                               → act.md
+看     capture  observe  url  status                      → act.md
 日志   log  bundle                                        → log.md
 流     log -f                                          → log.md
 ```
@@ -170,6 +169,7 @@ esac
 | `goto` `back` `forward` `reload` `stop` | `POST /api/tabs/{id}/...` | [tabs.md](tabs.md) |
 | `dialog` | `POST /api/tabs/{id}/dialog` | [tabs.md](tabs.md) |
 | `click` `type` `key` `scroll` `wait` `send` | `POST /api/act` | [act.md](act.md) |
+| `observe` | `GET /api/observe` | [act.md](act.md) |
 | `capture --text` | `GET /api/text` | [act.md](act.md) |
 | `capture --shot` | `GET /api/screenshot` | [act.md](act.md) |
 | `url` `status` | `GET /api/status` | [act.md](act.md) |

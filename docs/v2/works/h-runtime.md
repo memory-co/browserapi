@@ -136,8 +136,8 @@ cookie、登录态、缓存都在 profile 里。因此 session 无法像 tmux �
 不启动任何东西,只记下那个端点:
 
 ```python
-sess = web.session(id="cloud", port=7900,
-                   runtime="remote", cdp="wss://chrome.example.com?token=…")
+sess = web.session(id="cloud", runtime="remote",
+                   cdp="wss://chrome.example.com?token=…")
 print(sess.view_url)      # http://127.0.0.1:7900/  ← 画面由我们产,浏览器是他们的
 ```
 
@@ -164,8 +164,8 @@ CDP 端点,那台机器我们碰不到。因此这条路径上 `/channel/cdp` �
 (客户端一侧),再用它表示「绑哪个地址」必然冲突。
 
 ```bash
-webmuxd new --id work --port 7900                  # 只绑 127.0.0.1
-webmuxd new --id work --port 7900 --bind 0.0.0.0   # 对外,并打印警告
+webmuxd new --id work                  # 只绑 127.0.0.1
+webmuxd start --port 7900 --bind 0.0.0.0   # 对外,并打印警告
 ```
 
 **默认必须是回环**,理由是那个端口上的东西变了:它不再是纯 API,
@@ -180,7 +180,10 @@ webmuxd new --id work --port 7900 --bind 0.0.0.0   # 对外,并打印警告
 ## 6. 端口由你给
 
 **端口是部署决定的,替你猜一个只会让配置与实际不符。**
-一个 session 一个端口,画面与 API 在同一个上。
+
+**一个 server 一个口**,画面与 API 都在它上面,session 是它下面的
+`/s/<id>/`([k](k-one-server.md))。所以 `webmuxd start --port` 是显式的 ——
+tmux 能按需自启是因为它用 socket,没有端口要挑;我们有。
 
 ## 7. 边界之外仍然不碰
 

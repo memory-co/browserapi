@@ -35,8 +35,8 @@ from webmuxd import capture, probe
 from webmuxd.act import MASK, Executor
 from webmuxd.browser_ui import Natives
 from webmuxd.cdp import CDP
-from webmuxd.exceptions import (Busy, BusyHuman, TabGone, UsageError,
-                                unavailable)
+from webmuxd.exceptions import (Busy, BusyHuman, SessionNotFound, TabGone,
+                                UsageError, unavailable)
 from webmuxd.log import Log, Seq
 from webmuxd.models import SessionInfo
 
@@ -534,7 +534,7 @@ class Runtime(Protocol):
     def available(self) -> tuple[bool, str]:
         """能不能用,以及不能用时那句**有用的**提示。"""
 
-    def start(self, id: str, *, port: int, **opts: Any) -> SessionInfo: ...
+    def start(self, id: str, **opts: Any) -> SessionInfo: ...
 
     def stop(self, handle: SessionInfo) -> None: ...
 
@@ -553,12 +553,17 @@ class ProcessRuntime:
         except Exception as e:
             return False, str(e)
 
-    def start(self, id: str, *, port: int, url: str = "about:blank",
+    def start(self, id: str, *, url: str = "about:blank",
               window_size: str = "", browser_path: str | None = None,
               proxy: str | None = None, data_dir: str | None = None,
-              token: str | None = None, bind: str = "127.0.0.1",
               dsf: float = 1.0, view: dict[str, Any] | None = None,
               transport: str | None = None, **_opts: Any) -> SessionInfo:
+        """起一个浏览器,**产出一个 CDP 端点**。
+
+        它不再起 sessiond —— 那个进程没有了,server 自己就是
+        ([k §5](../docs/v2/works/k-one-server.md#5-一个进程还是每个-session-一个进程))。
+        所以这儿也不再要 `port` / `bind` / `token`:那些是 server 的事。
+        """
         asked = transport                      # 用户显式说的,还是默认来的
         transport = resolve_transport(transport)
         # **参数先对,再动机器。** 这一条和浏览器、端口都无关,放最前面 ——
@@ -577,7 +582,6 @@ class ProcessRuntime:
                 "把 --window-size 开大(比如 2048x1536)是等价的做法;"
                 "要 dsf 就用 --transport jpg")
         exe = processes.resolve_browser(browser_path)
-        processes.require_ports(port)
 
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
@@ -595,9 +599,8 @@ class ProcessRuntime:
 
         if transport == models.VNC:
             return self._start_xpra(
-                id, exe=exe, port=port, url=url, work=work, cdp_port=cdp_port,
-                proxy=proxy, token=token, bind=bind, view=view or {},
-                notes=notes)
+                id, exe=exe, url=url, work=work, cdp_port=cdp_port,
+                proxy=proxy, view=view or {}, notes=notes)
 
         args = [exe, *processes.BASE_ARGS,
                 f"--remote-debugging-port={cdp_port}",
@@ -646,32 +649,20 @@ class ProcessRuntime:
                 "浏览器起来了但 CDP 没监听" + (f":{why}" if why else ""),
                 f"完整日志在 {log_path};手工跑一遍:{' '.join(args[:3])} …")
 
-        procs["sessiond"] = processes.spawn_sessiond(
-            f"http://127.0.0.1:{cdp_port}", port=port, bind=bind,
-            data=os.path.join(work, "data"), token=token,
-            # **画面模式必须传下去。** 漏了这一个键的表现是:
-            # `--transport dom` 一路顺利地起来了,而 sessiond 用的是默认的 jpg ——
+        return SessionInfo(self.name, id, {
+            "cdp": f"http://127.0.0.1:{cdp_port}",
+            "cdp_port": cdp_port, "work": work, "browser": exe,
+            # **画面模式必须跟着走。** 漏了这一个键踩过一次:
+            # `--transport dom` 一路顺利地起来了,而画面用的是默认的 jpg ——
             # 观看端收得到 hello/cast,DOM 事件一条没有,**全程不报错**。
-            view={**(view or {}), "dsf": dsf, "transport": transport})
-        if bind not in ("127.0.0.1", "localhost", "::1"):
-            notes.append(f"画面口绑在 {bind} —— **这台机器网络能到的人,"
-                         f"拿到 token 就能操作这个浏览器**")
-        if not processes.wait_http(f"http://127.0.0.1:{port}/healthz", 30):
-            processes._kill_all(procs)
-            raise unavailable(self.name, "sessiond 没起来",
-                              "手工跑一遍 python -m webmuxd.serve 看报什么")
-
-        return SessionInfo(self.name, id, port,
-                      {"cdp_port": cdp_port, "work": work, "browser": exe,
-                       "bind": bind,
-                       "pids": {k: p.pid for k, p in procs.items()},
-                       "notes": notes, "_procs": procs})
+            "view": {**(view or {}), "dsf": dsf, "transport": transport},
+            "pids": {k: p.pid for k, p in procs.items()},
+            "notes": notes, "_procs": procs})
 
     # ------------------------------------------------------------------ xpra
 
-    def _start_xpra(self, id: str, *, exe: str, port: int, url: str, work: str,
-                    cdp_port: int, proxy: str | None, token: str | None,
-                    bind: str, view: dict[str, Any],
+    def _start_xpra(self, id: str, *, exe: str, url: str, work: str,
+                    cdp_port: int, proxy: str | None, view: dict[str, Any],
                     notes: list[str]) -> SessionInfo:
         """xpra 那条画面路 —— docs/v2/works/11 · 12。
 
@@ -714,31 +705,19 @@ class ProcessRuntime:
             raise unavailable(self.name, "xpra 的 ws 口没起来",
                               f"日志在 {sess.log_path};{xpra_mod.tail(sess.log_path)}")
 
-        procs: dict[str, subprocess.Popen] = {}
-        procs["sessiond"] = processes.spawn_sessiond(
-            f"http://127.0.0.1:{cdp_port}", port=port, bind=bind,
-            data=os.path.join(work, "data"), token=token,
-            view={**view, "transport": models.VNC, "xpra-ws": sess.ws_url})
-        if bind not in ("127.0.0.1", "localhost", "::1"):
-            notes.append(f"画面口绑在 {bind} —— **这台机器网络能到的人,"
-                         f"拿到 token 就能操作这个浏览器**")
-        if not processes.wait_http(f"http://127.0.0.1:{port}/healthz", 30):
-            processes._kill_all(procs)
-            xpra_mod.stop(sess)
-            raise unavailable(self.name, "sessiond 没起来",
-                              f"日志在 {os.path.join(work, 'sessiond.log')}")
-        return SessionInfo(self.name, id, port,
-                      {"cdp_port": cdp_port, "work": work, "browser": exe,
-                       "bind": bind, "transport": models.VNC, "display": display,
-                       "xpra_ws_port": ws_port, "xpra_log": sess.log_path,
-                       "pids": {"sessiond": procs["sessiond"].pid,
-                                "xpra": sess.proc.pid},
-                       "notes": notes, "_procs": procs, "_xpra": sess})
+        return SessionInfo(self.name, id, {
+            "cdp": f"http://127.0.0.1:{cdp_port}",
+            "cdp_port": cdp_port, "work": work, "browser": exe,
+            "transport": models.VNC, "display": display,
+            "xpra_ws": sess.ws_url, "xpra_ws_port": ws_port,
+            "xpra_log": sess.log_path,
+            "view": {**view, "transport": models.VNC},
+            "pids": {"xpra": sess.proc.pid},
+            "notes": notes, "_xpra": sess})
 
     def stop(self, handle: SessionInfo) -> None:
         # **xpra 先停。** 它 `--exit-with-children`,而且 `xpra stop` 会把
-        # Xvfb 和那个有头 chrome 一起收干净 —— 反过来先杀 sessiond 的话,
-        # 那三个进程会留在机器上。
+        # Xvfb 和那个有头 chrome 一起收干净。
         sess = handle.detail.get("_xpra")
         if sess is not None:
             xpra_mod.stop(sess)
@@ -751,11 +730,14 @@ class ProcessRuntime:
                 os.kill(pid, signal.SIGTERM)
 
     def alive(self, handle: SessionInfo) -> bool:
-        procs = handle.detail.get("_procs") or {}
-        p = procs.get("sessiond")
+        """**浏览器还在不在。** 它是这条 runtime 唯一起的东西了。"""
+        sess = handle.detail.get("_xpra")
+        if sess is not None:
+            return sess.proc.poll() is None
+        p = (handle.detail.get("_procs") or {}).get("browser")
         if p is not None:
             return p.poll() is None
-        pid = (handle.detail.get("pids") or {}).get("sessiond")
+        pid = (handle.detail.get("pids") or {}).get("browser")
         if not pid:
             return False
         try:
@@ -777,9 +759,8 @@ class RemoteRuntime:
     def available(self) -> tuple[bool, str]:
         return True, ""
 
-    def start(self, id: str, *, port: int, cdp: str | None = None,
-              data_dir: str | None = None, token: str | None = None,
-              bind: str = "127.0.0.1", view: dict[str, Any] | None = None,
+    def start(self, id: str, *, cdp: str | None = None,
+              data_dir: str | None = None, view: dict[str, Any] | None = None,
               transport: str | None = None, **_opts: Any) -> SessionInfo:
         # **remote 上能用 JPG 和 DOM,不能用 VNC。**
         # VNC 要截的是那个浏览器所在机器上的 X 显示,而 remote 的浏览器根本
@@ -801,49 +782,29 @@ class RemoteRuntime:
             raise unavailable(self.name, "runtime=remote 得给 cdp=",
                               "cdp 指向对面那个浏览器的 CDP 端点,"
                               "http://host:port 或 ws://…")
-        processes.require_ports(port)
-        # `http://` 的先探一下,**探不到就直说** —— 起完 sessiond 再发现
-        # 连不上,报的错会指向我们自己而不是那个端点。
-        # `ws://` 没有可探的 HTTP 面,交给 sessiond 去连。
+        # `http://` 的先探一下,**探不到就直说** —— 等接上去才发现连不上,
+        # 报的错会指向我们自己而不是那个端点。
+        # `ws://` 没有可探的 HTTP 面,交给连接那一步。
         if cdp.startswith("http") and not processes.wait_http(cdp.rstrip("/") + "/json/version", 10):
             raise unavailable(self.name, f"{cdp} 探不到",
                               "确认对面在跑,而且这台机器连得上")
 
         work = data_dir or tempfile.mkdtemp(prefix=f"webmuxd-{id}-")
         os.makedirs(work, exist_ok=True)
-        proc = processes.spawn_sessiond(cdp, port=port, bind=bind, view=view,
-                              data=os.path.join(work, "data"), token=token)
-        if not processes.wait_http(f"http://127.0.0.1:{port}/healthz", 30):
-            proc.terminate()
-            raise unavailable(self.name, "sessiond 没起来",
-                              f"手工跑一遍看报什么:python -m webmuxd.serve --cdp {cdp}")
-        return SessionInfo(self.name, id, port,
-                      {"cdp": cdp, "work": work, "owned_browser": False,
-                       "pids": {"sessiond": proc.pid}, "_procs": {"sessiond": proc}})
+        return SessionInfo(self.name, id, {
+            "cdp": cdp, "work": work, "owned_browser": False,
+            "view": {**(view or {}), "transport": transport}})
 
     def stop(self, handle: SessionInfo) -> None:
-        """停本地的 sessiond,**对面一个字节都不动**。"""
-        import contextlib
-        import signal
-        procs = handle.detail.get("_procs") or {}
-        p = procs.get("sessiond")
-        if p is not None:
-            with contextlib.suppress(Exception):
-                p.terminate()
-                p.wait(timeout=5)
-            return
-        pid = (handle.detail.get("pids") or {}).get("sessiond")
-        if pid:
-            with contextlib.suppress(OSError):
-                os.kill(pid, signal.SIGTERM)
+        """**对面一个字节都不动。** 那个浏览器不归我们 ——
+        我们这边要收的连接由 `Server.close()` 关掉了,这儿没有进程要杀。"""
 
     def alive(self, handle: SessionInfo) -> bool:
-        return processes.wait_http(f"http://127.0.0.1:{handle.port}/healthz", 3)
-
-
-# --------------------------------------------------------------------------
-# 两种 runtime 共用的:端口、SessionInfo、探活(原 runtime/base.py)
-# --------------------------------------------------------------------------
+        """对面还在不在。"""
+        cdp = handle.detail.get("cdp") or ""
+        if not cdp.startswith("http"):
+            return True                        # ws:// 没有可探的 HTTP 面
+        return processes.wait_http(cdp.rstrip("/") + "/json/version", 3)
 
 
 # --------------------------------------------------------------------------
@@ -884,3 +845,141 @@ def detect() -> dict[str, bool]:
 
 __all__ = ["get", "detect", "default", "DEFAULT", "SessionInfo", "Runtime",
            "ProcessRuntime", "RemoteRuntime"]
+
+
+# --------------------------------------------------------------------------
+# server —— **一个 server 持有全部 session**([k](../docs/v2/works/k-one-server.md))
+# --------------------------------------------------------------------------
+
+class Server:
+    """所有 session 的那张表:建一个、找一个、关一个。
+
+    **一个进程持有全部 session**,不是"每个 session 一个 sessiond 再代理" ——
+    那样每一帧多一跳,而帧是热路径
+    ([k §5](../docs/v2/works/k-one-server.md#5-一个进程还是每个-session-一个进程))。
+
+    代价说清楚:**这个进程挂了,所有 session 的连接和 tab 表一起没。**
+    和 tmux 一样(`process` 的 pane 是 server 的子进程)。
+    """
+
+    def __init__(self, *, data_root: str | Path, bind: str = "127.0.0.1") -> None:
+        self.data_root = Path(data_root)
+        self.data_root.mkdir(parents=True, exist_ok=True)
+        self.bind = bind
+        self.started_at = time.time()
+        self._sessions: dict[str, Session] = {}
+        self._info: dict[str, SessionInfo] = {}
+        self._lock = asyncio.Lock()
+
+    # ------------------------------------------------------------------ 查
+
+    def __contains__(self, sid: str) -> bool:
+        return sid in self._sessions
+
+    def __len__(self) -> int:
+        return len(self._sessions)
+
+    def get(self, sid: str) -> Session:
+        """**认不出的 id 就抛,不猜。**"""
+        s = self._sessions.get(sid)
+        if s is None:
+            raise SessionNotFound(
+                f"没有叫 {sid!r} 的 session",
+                code="session_not_found",
+                details={"have": sorted(self._sessions)})
+        return s
+
+    def info(self, sid: str) -> SessionInfo:
+        return self._info[sid]
+
+    def rows(self) -> list[models.SessionRow]:
+        """有哪些 —— **列表页、`webmuxd ls`、`GET /api/sessions` 同一份**。
+
+        形状在 [`models.SessionRow`](models.py),JS 那边有个同名 interface
+        跟它对齐。
+        """
+        out = []
+        for sid in sorted(self._sessions):
+            s, i = self._sessions[sid], self._info[sid]
+            out.append(models.SessionRow(
+                id=sid, runtime=i.kind, tabs=len(s.tabs.list()),
+                active_tab=s.tabs.active, view=s.view.mode,
+                available=list(s.view.available),
+                uptime_s=int(time.time() - s.started_at),
+                notes=i.detail.get("notes") or []))
+        return out
+
+    def list_json(self) -> dict[str, Any]:
+        return {"sessions": [r.to_json() for r in self.rows()],
+                "uptime_s": int(time.time() - self.started_at)}
+
+    # ------------------------------------------------------------------ 建
+
+    async def create(self, sid: str, *, runtime: str = DEFAULT,
+                     **opts: Any) -> SessionInfo:
+        """起一个 session:runtime 给一个 CDP 端点,我们在这个进程里接上它。
+
+        **同一个 id 再来一次不是错误** —— 已经在跑就把它给你,
+        和 `tmux new -A` 一个意思。
+        """
+        async with self._lock:
+            if sid in self._sessions:
+                return self._info[sid]
+
+            work = self.data_root / sid
+            info = get(runtime).start(sid, data_dir=str(work), **opts)
+            cdp = None
+            try:
+                cdp = await CDP.connect(info.detail["cdp"])
+                session = Session(cdp, data_dir=work / "data", view={
+                    **(info.detail.get("view") or {}),
+                    "has_xpra": bool(info.detail.get("xpra_ws"))})
+                await session.start()
+            except Exception:
+                # **起了一半要收干净。** 留下一个连不上的 chrome,
+                # 下一次 `new` 会撞上那个 profile 目录,报的是完全不相干的错。
+                if cdp is not None:
+                    with contextlib.suppress(Exception):
+                        await cdp.close()
+                with contextlib.suppress(Exception):
+                    get(runtime).stop(info)
+                raise
+            self._sessions[sid] = session
+            self._info[sid] = info
+            log.info("session %s 起来了(%s,画面走 %s)",
+                     sid, info.kind, session.view.mode)
+            return info
+
+    def adopt(self, sid: str, session: Session,
+              info: SessionInfo | None = None) -> None:
+        """接管一个**已经建好**的 session。
+
+        `create()` 那条路是"我起浏览器、我连上去";这条是"东西已经在了,
+        挂进表里"。今天只有测试用它 —— 但 v1 设想过的"server 重启后
+        按标记重新收养"([k §5](../docs/v2/works/k-one-server.md#5-一个进程还是每个-session-一个进程))
+        要落地的话,进来的也是这个口子。
+        """
+        self._sessions[sid] = session
+        self._info[sid] = info or SessionInfo("adopted", sid, {})
+
+    # ------------------------------------------------------------------ 关
+
+    async def close(self, sid: str) -> None:
+        async with self._lock:
+            session = self._sessions.pop(sid, None)
+            info = self._info.pop(sid, None)
+            if session is None or info is None:
+                raise SessionNotFound(f"没有叫 {sid!r} 的 session",
+                                      code="session_not_found")
+        with contextlib.suppress(Exception):
+            await session.close()
+        with contextlib.suppress(Exception):
+            await session.cdp.close()
+        get(info.kind).stop(info)
+        log.info("session %s 关了", sid)
+
+    async def close_all(self) -> None:
+        """`kill-server`。**一个都不许留** —— 留下的是没人管的 chrome。"""
+        for sid in list(self._sessions):
+            with contextlib.suppress(Exception):
+                await self.close(sid)

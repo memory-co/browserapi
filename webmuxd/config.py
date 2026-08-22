@@ -41,18 +41,18 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from webmuxd.models import FACTS_VERSION, BrowserFact, MachineFacts
 
 #: 记录格式的版本。**格式变了老记录就当没有** —— 重新探,而不是猜字段。
 #:
 #: 2 → 3:从"只记浏览器"扩成 [d §1](../docs/v2/works/d-install.md#1-产出一份路径表)
 #: 那张完整的路径表。老记录缺后面那些键,补不出来也不该猜 —— 重新探一遍。
-FORMAT_VERSION = 3
-
-#: 记录里认得的键。多出来的原样留着(是别人写的,不该被我们吃掉),
-#: 但我们只读这几个。
 #:
-#: **每一项都要有一个"runtime 拿它干什么"**,否则就不该记 ——
+#: **形状在 [`models.MachineFacts`](models.py)**,这儿只是转发一个名字 ——
+#: 版本号和形状必须是同一处说了算。
+FORMAT_VERSION = FACTS_VERSION
+
+#: 记录里认得的键 —— **每一项都要有一个"谁拿它干什么"**,否则就不该记:
 #: 记了没人读的东西,过期了也没人发现。
 #:
 #:   default_browser  起浏览器,并锁住版本
@@ -60,6 +60,9 @@ FORMAT_VERSION = 3
 #:   xpra             起 VNC 那条:bin / 它自己的解释器 / 版本
 #:   xvfb             传给 `--xvfb=`,**不由发行版配置决定**
 #:   rrweb            DOM 那条的记录器:版本 + 落在哪
+#:
+#: 多出来的键原样留着(是别人写的,不该被我们吃掉)—— 那是
+#: `MachineFacts.extra`。
 KEYS = ("default_browser", "fonts_dir", "xpra", "xvfb", "rrweb")
 
 
@@ -68,37 +71,42 @@ def path() -> Path:
                 or (Path.home() / ".webmuxd.json"))
 
 
-def load() -> dict[str, Any] | None:
-    """读记录。没有、读不动、版本对不上,一律当没有。"""
-    p = path()
+def load() -> MachineFacts | None:
+    """读记录 —— **回一个 `MachineFacts`,不是一坨 dict**。
+
+    没有、读不动、版本对不上,一律当没有。
+    """
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(path().read_text())
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(data, dict) or data.get("version") != FORMAT_VERSION:
         return None
-    return data
+    return MachineFacts.from_json(data)
 
 
-def save(record: dict[str, Any]) -> Path:
-    """整份重写。**值是 None 的键直接不写** —— 没探到就是没有,
-    留一个旧值比留空更糟。"""
+def save(facts: MachineFacts) -> Path:
+    """整份重写。
+
+    **没探到的键一个都不写** —— 那条语义在 `MachineFacts.to_json()` 里,
+    这儿只管落盘:补上时间戳,原子替换。
+    """
     p = path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    body = {k: v for k, v in record.items() if v is not None}
-    out = {"version": FORMAT_VERSION,
-           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-           **body}
+    out = MachineFacts(**{**vars(facts),
+                          "at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                              time.gmtime())}).to_json()
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(out, ensure_ascii=False, indent=1))
     tmp.replace(p)                       # 原子替换,别让半份记录被读到
     return p
 
 
-def get(key: str) -> Any:
-    """记录里的某个值,没有就 None。"""
+def browser() -> BrowserFact | None:
+    """记录里那个浏览器。**没有 `get(key)` 了** —— 一个字符串键换一个
+    `Any`,等于把形状又交回给调用方去猜。"""
     rec = load()
-    return (rec or {}).get(key)
+    return rec.browser if rec else None
 
 
 def stale_hint(what: str) -> str:

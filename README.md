@@ -25,8 +25,8 @@ webmuxd 让这两件事落在**同一个浏览器**上:
 ```python
 from webmuxd import Webmuxd
 
-web  = Webmuxd(user="claudecode")            # 空壳,不起任何东西
-sess = web.session(id="work", port=7900)     # 这行才起一个浏览器
+web  = Webmuxd(port=7900, user="claudecode") # 一个 server,一个口
+sess = web.session(id="work")                # 这行才起一个浏览器
 tab  = sess.open("https://example.com")
 
 tab.type("手机号", "13800000000")
@@ -58,8 +58,8 @@ webmuxd install          # 下浏览器 + 把环境弄齐(有 root 会顺手装�
 ```python
 from webmuxd import Webmuxd
 
-web = Webmuxd()
-sess = web.session(id="work", port=7900)
+web = Webmuxd(port=7900)
+sess = web.session(id="work")
 tab = sess.open("https://news.ycombinator.com")
 
 print(tab.text())                     # 正文
@@ -68,12 +68,17 @@ tab.click("new")
 ```
 
 `session(id=...)` 是幂等的 —— 同一个 id 再调一次拿到同一个,不会起第二个浏览器。
-**端口必须你给**:端口是部署决定的,替你猜一个只会让配置和实际对不上。
+
+**端口在 `Webmuxd()` 上,不在 session 上** —— 一个 server 一个口,
+session 是它下面的 `/s/<id>/`,像 tmux 一个 server 装着全部 session
+([k](docs/v2/works/k-one-server.md))。端口必须你给:
+端口是部署决定的,替你猜一个只会让配置和实际对不上。
 
 ### 用命令行
 
 ```bash
-webmuxd new      --id work --port 7900
+webmuxd start    --port 7900
+webmuxd new      --id work
 webmuxd new-tab  -t work -u https://example.com
 webmuxd click    -t work "Learn more"
 webmuxd capture  -t work                  # 正文(--shot 存图)
@@ -172,8 +177,8 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 
 ```bash
 webmuxd install                                          # 有 root 就把它装上
-webmuxd new --id work --port 7900                        # 默认就是 xpra
-webmuxd new --id work --port 7900 --transport screencast # 零系统依赖那条
+webmuxd new --id work                        # 默认就是 xpra
+webmuxd new --id work --transport jpg # 零系统依赖那条
 webmuxd info                                             # 这台机器上能不能走
 ```
 

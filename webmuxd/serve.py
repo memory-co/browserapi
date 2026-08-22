@@ -1,4 +1,4 @@
-"""sessiond 的 HTTP 壳 —— docs/v1/api/。
+"""**那个口** —— 一个 server,全部 session 都在它下面(docs/v2/api/)。
 
 **这一层不写业务逻辑。** 它只做序列化和鉴权 —— 多写一行判断,就是漂移的开始
 (works/02 §2)。每个端点几乎都是一句"调 core 的某个方法,把结果 dump 成 JSON"。
@@ -12,20 +12,22 @@ import contextlib
 import json
 import logging
 import os
+import signal
+import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from aiohttp import WSMsgType, web
 
-from webmuxd import models
 from webmuxd import xpra as relay
-from webmuxd.cdp import CDP
-from webmuxd.exceptions import BadRequest, ReadOnly, WebmuxdError
+from webmuxd.exceptions import (BadRequest, ReadOnly, SessionNotFound,
+                                WebmuxdError)
 from webmuxd import capture
+from webmuxd import models
 from webmuxd import input as input_leg
 from webmuxd.frames import HEADER_SIZE, UPSTREAM
 from webmuxd.screen import Viewer
-from webmuxd.sessions import Session
+from webmuxd.sessions import Server, Session
 
 #: 设了就要 `Authorization: Bearer <token>`,没设就不鉴权(api/README §1)。
 TOKEN = os.environ.get("WEBMUXD_TOKEN") or ""
@@ -71,7 +73,10 @@ async def auth(request: web.Request, handler: Callable[..., Awaitable]) -> web.R
 
     # 一次性观看 token(`POST /api/live-token` 签的)—— 只读的写操作 403
     if given:
-        known, read_only = request.app["session"].check_token(given)
+        sid = request.match_info.get("sid") if request.match_info else None
+        known, read_only = (request.app["server"].get(sid).check_token(given)
+                            if sid and sid in request.app["server"]
+                            else (False, True))
         if known:
             if read_only and request.method in _WRITE_METHODS:
                 return _err(ReadOnly("这是只读链接", code="read_only"))
@@ -103,68 +108,81 @@ async def errors(request: web.Request, handler: Callable[..., Awaitable]) -> web
         return _err(BadRequest("请求体不是合法 JSON", code="bad_request"))
 
 
-def build(session: Session, *, xpra_ws: str = "") -> web.Application:
+def build(server: Server) -> web.Application:
+    """**一个 server 一个口,session 是它下面的一段路径。**
+
+    路由全部带 `/s/{sid}/` 前缀 —— 拿 session 走 `_s(request)` 一个入口,
+    所以这一层是"加前缀 + 换那一个函数",不是重写
+    ([k §4](../docs/v2/works/k-one-server.md#4-路由sid-前缀))。
+    """
     app = web.Application(middlewares=[errors, auth])
-    app["session"] = session
-    #: transport=xpra 时,上游那个 xpra 的 ws 地址。空字符串 = 没这条路。
-    app["xpra_ws"] = xpra_ws
+    app["server"] = server
     r = app.router
 
-    r.add_get("/api/status", h_status)
-    r.add_get("/api/viewport", h_viewport)
-    r.add_post("/api/reset", h_reset)
+    r.add_get("/s/{sid}/api/status", h_status)
+    r.add_get("/s/{sid}/api/viewport", h_viewport)
+    r.add_post("/s/{sid}/api/reset", h_reset)
 
-    r.add_get("/api/tabs", h_tabs)
-    r.add_post("/api/tabs", h_tab_new)
-    r.add_post("/api/tabs/reorder", h_reorder)
-    r.add_get("/api/tabs/{id}", h_tab_one)
-    r.add_delete("/api/tabs/{id}", h_tab_close)
-    r.add_post("/api/tabs/{id}/activate", h_tab_activate)
-    r.add_post("/api/tabs/{id}/dialog", h_dialog)
-    r.add_get("/api/tabs/{id}/history", h_history)
+    r.add_get("/s/{sid}/api/tabs", h_tabs)
+    r.add_post("/s/{sid}/api/tabs", h_tab_new)
+    r.add_post("/s/{sid}/api/tabs/reorder", h_reorder)
+    r.add_get("/s/{sid}/api/tabs/{id}", h_tab_one)
+    r.add_delete("/s/{sid}/api/tabs/{id}", h_tab_close)
+    r.add_post("/s/{sid}/api/tabs/{id}/activate", h_tab_activate)
+    r.add_post("/s/{sid}/api/tabs/{id}/dialog", h_dialog)
+    r.add_get("/s/{sid}/api/tabs/{id}/history", h_history)
     for verb in ("goto", "back", "forward", "reload", "stop"):
-        r.add_post(f"/api/tabs/{{id}}/{verb}", _nav_handler(verb))
+        r.add_post(f"/s/{{sid}}/api/tabs/{{id}}/{verb}", _nav_handler(verb))
 
-    r.add_post("/api/act", h_act)
-    r.add_get("/api/screenshot", h_screenshot)
-    r.add_get("/api/res", h_res)
-    r.add_get("/api/view/mode", h_mode_get)
-    r.add_post("/api/view/mode", h_mode_set)
-    r.add_get("/api/rrweb.js", h_rrweb_js)
-    r.add_get("/api/rrweb.css", h_rrweb_css)
-    r.add_get("/api/text", h_text)
+    r.add_post("/s/{sid}/api/act", h_act)
+    r.add_get("/s/{sid}/api/screenshot", h_screenshot)
+    r.add_get("/s/{sid}/api/res", h_res)
+    r.add_get("/s/{sid}/api/view/mode", h_mode_get)
+    r.add_post("/s/{sid}/api/view/mode", h_mode_set)
+    r.add_get("/s/{sid}/api/rrweb.js", h_rrweb_js)
+    r.add_get("/s/{sid}/api/rrweb.css", h_rrweb_css)
+    r.add_get("/s/{sid}/api/text", h_text)
 
-    r.add_get("/api/log", h_log)
-    r.add_get("/api/log/bundle", h_bundle)
-    r.add_get("/api/log/{seq}/shot", h_log_shot)
+    r.add_get("/s/{sid}/api/log", h_log)
+    r.add_get("/s/{sid}/api/log/bundle", h_bundle)
+    r.add_get("/s/{sid}/api/log/{seq}/shot", h_log_shot)
 
     # 没有桌面之后那六类 —— **每类一个事件 + 一个端点,不动架构**
     # (works/06 §2)。事件走 /api/events,端点在这儿。
-    r.add_get("/api/pending", h_pending)
-    r.add_get("/api/downloads", h_downloads)
-    r.add_get("/api/downloads/{id}", h_download_file)
-    r.add_post("/api/upload", h_upload)
-    r.add_get("/api/files", h_files)
-    r.add_post("/api/file-chooser/{id}", h_file_fill)
-    r.add_get("/api/permissions", h_perms)
-    r.add_post("/api/permissions", h_perm_grant)
-    r.add_delete("/api/permissions", h_perm_reset)
-    r.add_post("/api/auth", h_auth_set)
-    r.add_delete("/api/auth", h_auth_clear)
+    r.add_get("/s/{sid}/api/pending", h_pending)
+    r.add_get("/s/{sid}/api/downloads", h_downloads)
+    r.add_get("/s/{sid}/api/downloads/{id}", h_download_file)
+    r.add_post("/s/{sid}/api/upload", h_upload)
+    r.add_get("/s/{sid}/api/files", h_files)
+    r.add_post("/s/{sid}/api/file-chooser/{id}", h_file_fill)
+    r.add_get("/s/{sid}/api/permissions", h_perms)
+    r.add_post("/s/{sid}/api/permissions", h_perm_grant)
+    r.add_delete("/s/{sid}/api/permissions", h_perm_reset)
+    r.add_post("/s/{sid}/api/auth", h_auth_set)
+    r.add_delete("/s/{sid}/api/auth", h_auth_clear)
 
     # 还没做:/api/tabs/{id}/favicon、/api/live-token、/api/openapi.json
-    r.add_get("/api/events", h_events)
+    r.add_get("/s/{sid}/api/events", h_events)
     # 画面 —— v2 新增的两条,和 API 同一个口(works/04 §1)
     # **通道 = 一个上游系统的连接**([e §6.1](../docs/v2/works/e-client.md#61-通道--一个上游系统的连接))。
     # 路径前缀本身就是模型的一部分:看到 `/channel/x` 就知道它是一条通道。
     # 旧路径留着 —— 已经写进别人的脚本里了,**说不认就不认是另一种毛病**。
-    r.add_get("/channel/cdp", h_view)
-    r.add_get("/api/view", h_view)                  # 旧名,别删
+    r.add_get("/s/{sid}/channel/cdp", h_view)
+    r.add_get("/s/{sid}/api/view", h_view)                  # 旧名,别删
     # xpra 那条画面路。**和 API 同一个口**,而且上行过白名单(works/11 §2.2)
-    r.add_get("/channel/rrweb", h_rrweb)
-    r.add_get("/channel/xpra", h_xpra)
-    r.add_get("/xpra", h_xpra)                      # 旧名,别删
-    r.add_get("/static/{name}", h_static)
+    r.add_get("/s/{sid}/channel/rrweb", h_rrweb)
+    r.add_get("/s/{sid}/channel/xpra", h_xpra)
+    r.add_get("/s/{sid}/xpra", h_xpra)                      # 旧名,别删
+    r.add_get("/s/{sid}/static/{name}", h_static)
+    # server 自己那一层:有哪些 session
+    r.add_get("/api/sessions", h_sessions)
+    r.add_post("/api/sessions", h_session_new)
+    r.add_delete("/api/sessions/{sid}", h_session_close)
+    r.add_get("/api/server", h_server)
+    r.add_delete("/api/server", h_server_kill)
+
+    r.add_get("/s/{sid}/", h_index)
+    r.add_get("/s/{sid}", h_index)
     r.add_get("/", h_index)
     # 浏览器每开一次页面都会去要它。不接的话日志里每次多一条 404 ——
     # **日志里的噪声会盖住真的问题**,这是花一行就能消掉的那种。
@@ -173,8 +191,17 @@ def build(session: Session, *, xpra_ws: str = "") -> web.Application:
     return app
 
 
+def _srv(request: web.Request) -> Server:
+    return request.app["server"]
+
+
 def _s(request: web.Request) -> Session:
-    return request.app["session"]
+    """**这一个函数就是"哪个 session"的全部答案。**
+
+    35 处 handler 都走它 —— 所以从"一个进程一个 session"变成
+    "一个进程 N 个 session",改的是这里,不是它们。
+    """
+    return _srv(request).get(request.match_info["sid"])
 
 
 async def _body(request: web.Request) -> dict:
@@ -217,7 +244,7 @@ async def h_mode_get(request: web.Request) -> web.Response:
     **能切哪几种是起 session 时定的,不是运行时算的**
     ([c §9.3](../docs/v2/works/c-view.md#93-能切到哪几条起-session-的时候就定了))。
     """
-    return _json(_s(request).view.mode_info())
+    return _json(_s(request).view.mode_info().to_json())
 
 
 async def h_mode_set(request: web.Request) -> web.Response:
@@ -487,14 +514,65 @@ _STATIC_SUFFIX = frozenset({".js", ".css", ".map", ".woff2"})
 
 
 async def h_index(request: web.Request) -> web.Response:
-    """内置观看页面。
+    """内置页 —— `/` 是那张 session 列表,`/s/<id>/` 是那个 session 的画面。
 
-    **它不是"界面"**(works/04 §2):画面 + 一条 tab 条 + 一个地址栏,没有会话
-    列表、没有登录页、没有设置面板。存在的唯一理由是"跑起来之后用浏览器打开
-    这个地址,链路通没通一眼就看出来"。上层要自己画,用的是同一组接口。
+    **它不是"界面"**:画面 + 一条 tab 条 + 一个地址栏,加上一张
+    "有哪些 session"的清单。没有登录页、没有设置面板、**没有仪表盘** ——
+    `tmux ls` 就是一行一个,没有 CPU 曲线
+    ([k §3](../docs/v2/works/k-one-server.md#3-那个口上看到什么))。
+
+    **同一个文件。** 走哪条由地址决定,客户端自己认
+    —— 服务端这儿没有第二份 HTML。
     """
+    sid = request.match_info.get("sid")
+    if sid and sid not in _srv(request):
+        raise SessionNotFound(f"没有叫 {sid!r} 的 session",
+                              code="session_not_found",
+                              details={"have": sorted(_srv(request)._sessions)})
     return web.FileResponse(client_dir() / "index.html",
                             headers={"Cache-Control": "no-store"})
+
+
+# ------------------------------------------------------------------ server
+
+async def h_sessions(request: web.Request) -> web.Response:
+    """有哪些 session。**列表页和 `webmuxd ls` 用的是同一份。**"""
+    return _json(_srv(request).list_json())
+
+
+async def h_session_new(request: web.Request) -> web.Response:
+    body = await _body(request)
+    sid = str(body.get("id") or "").strip()
+    if not sid:
+        raise BadRequest("要给 session 起个名字", code="bad_request",
+                         details={"how": 'POST /api/sessions {"id": "demo"}'})
+    opts = {k: v for k, v in body.items() if k != "id"}
+    info = await _srv(request).create(sid, **opts)
+    return _json({"id": sid, "url": info.path(), "runtime": info.kind,
+                  "notes": info.detail.get("notes") or []})
+
+
+async def h_session_close(request: web.Request) -> web.Response:
+    sid = request.match_info["sid"]
+    await _srv(request).close(sid)
+    return _json({"closed": sid})
+
+
+async def h_server(request: web.Request) -> web.Response:
+    srv = _srv(request)
+    return _json({"ok": True, "sessions": len(srv),
+                  "uptime_s": int(time.time() - srv.started_at),
+                  "api": {"version": "1.0", "schema": "v1"}})
+
+
+async def h_server_kill(request: web.Request) -> web.Response:
+    """`kill-server` —— **一个都不许留**,然后自己也走。"""
+    srv = _srv(request)
+    n = len(srv)
+    await srv.close_all()
+    asyncio.get_running_loop().call_later(0.2, lambda: os.kill(os.getpid(),
+                                                               signal.SIGTERM))
+    return _json({"killed": n})
 
 
 async def h_static(request: web.Request) -> web.FileResponse:
@@ -566,7 +644,7 @@ async def h_xpra(request: web.Request) -> web.WebSocketResponse:
     那条"一个口",以及 token 要在我们这儿校验一次 —— xpra 自己的鉴权
     是进程级的,不认我们的只读 token。
     """
-    upstream = request.app.get("xpra_ws") or ""
+    upstream = _srv(request).info(request.match_info["sid"]).detail.get("xpra_ws") or ""
     if not upstream:
         raise BadRequest("这个 session 不是 xpra 模式,没有这条画面路",
                          code="not_found",
@@ -586,8 +664,10 @@ async def h_view(request: web.Request) -> web.WebSocketResponse:
     # **权限只在连接建立时说一次。** 鼠标移动一秒几十个事件,逐个回 403
     # 等于自己 DoS 自己(works/04 §3)。
     # `stats()` 里已经带了 `transport` —— 别再显式传一遍(会是 TypeError)。
-    await v.tell("hello", writable=writable, protocol=HEADER_SIZE,
-                 **{k: val for k, val in s.view.stats().items() if k != "viewers"})
+    stats = {k: val for k, val in s.view.stats().items()
+             if k not in ("viewers", "transport")}
+    await v.send(models.Hello(writable=writable, protocol=HEADER_SIZE,
+                              transport=s.view.mode, extra=stats).to_json())
     await s.view.add_viewer(v)
     try:
         async for msg in ws:
@@ -627,7 +707,8 @@ async def _view_msg(s: Session, v: Viewer, m: dict) -> None:
         try:
             await s.view.switch(str(m.get("mode") or ""), why="人选的")
         except WebmuxdError as e:
-            await v.tell("mode_error", message=e.message, **(e.details or {}))
+            await v.send(models.ModeError(
+                e.message, (e.details or {}).get("hint", "")).to_json())
     else:
         await input_leg.deliver(s, s.view.target_session, m)
 
@@ -713,77 +794,52 @@ async def h_auth_clear(request: web.Request) -> web.Response:
 
 
 # --------------------------------------------------------------------------
-# sessiond 的进程入口(原 serve/__main__.py)
+# server 的进程入口 —— **一个 server 一个口**([k](../docs/v2/works/k-one-server.md))
 # --------------------------------------------------------------------------
 
 async def _run(args: argparse.Namespace) -> None:
-    cdp = await CDP.connect(args.cdp)
-    session = Session(cdp, data_dir=args.data, view={
-        "width": args.width, "height": args.height,
-        "fmt": args.format, "quality": args.quality, "dsf": args.dsf,
-        "min_quality": args.min_quality, "transport": args.transport,
-        # **能切到哪几种,起的时候就定了。** VNC 要一个真实的 X 显示,
-        # 而那是起 session 时选的 —— 有 xpra 的上游地址就说明有
-        # ([c §9.3](../docs/v2/works/c-view.md#93-能切到哪几条起-session-的时候就定了))。
-        "has_xpra": bool(args.xpra_ws)})
-    await session.start()
-
-    runner = web.AppRunner(build(session, xpra_ws=args.xpra_ws))
+    server = Server(data_root=args.data, bind=args.bind)
+    runner = web.AppRunner(build(server))
     await runner.setup()
     site = web.TCPSite(runner, args.bind, args.port)
     await site.start()
-    logging.info("sessiond 起来了:画面 http://%s:%d/  API /api  (CDP %s,画面走 %s)",
-                 args.bind, args.port, args.cdp, args.transport)
+    logging.info("server 起来了:http://%s:%d/  (还没有 session ——"
+                 " `webmuxd new --id demo`)", args.bind, args.port)
     if args.bind not in ("127.0.0.1", "localhost", "::1"):
         logging.warning("绑在 %s —— **这台机器网络能到的人,拿到 token 就能"
-                        "操作这个浏览器**", args.bind)
+                        "操作这里的浏览器**", args.bind)
+
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(sig, stop.set)
     try:
-        await asyncio.Event().wait()          # 一直跑到被杀
+        await stop.wait()
     finally:
-        await session.close()
+        # **一个都不许留** —— 留下的是没人管的 chrome
+        await server.close_all()
         await runner.cleanup()
-        await cdp.close()
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(prog="sessiond")
-    p.add_argument("--cdp", default=os.environ.get("WEBMUXD_CDP",
-                                                  "http://127.0.0.1:9222"))
+    p = argparse.ArgumentParser(prog="webmuxd-server")
     # **默认只绑回环。**
     #
-    # v1 这儿是 `0.0.0.0`,那时候 sessiond 跑在容器里 —— 那个 `0.0.0.0` 是
-    # **容器内的**,外面还有 `docker -p` 那一层决定暴不暴露。v2 没有容器了,
+    # v1 这儿是 `0.0.0.0`,那时候它跑在容器里 —— 那个 `0.0.0.0` 是**容器内的**,
+    # 外面还有 `docker -p` 那一层决定暴不暴露。v2 没有容器了,
     # `0.0.0.0` 就是真的 0.0.0.0([h](../docs/v2/works/h-runtime.md))
     # —— 前提变了,默认值必须跟着变。
     #
-    # 而且 v2 的 `/` 是**能直接操作浏览器**的画面口,不是 v1 那个纯 API 口。
+    # 而且 `/s/<id>/` 是**能直接操作浏览器**的画面口,不是 v1 那个纯 API 口。
     p.add_argument("--bind", "--host", dest="bind", default="127.0.0.1",
                    help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放")
     p.add_argument("--port", type=int,
                    default=int(os.environ.get("WEBMUXD_PORT", "7900")))
     p.add_argument("--data", default=os.environ.get("WEBMUXD_DATA", "/data"))
-    # 清晰度那三个独立的旋钮([e1](../docs/v2/works/e1-wire-format.md))
-    p.add_argument("--width", type=int, default=1024)
-    p.add_argument("--height", type=int, default=768)
-    p.add_argument("--format", default="jpeg", choices=["jpeg", "png", "webp"])
-    p.add_argument("--quality", type=int, default=80)
-    p.add_argument("--min-quality", type=int, default=25, dest="min_quality")
-    p.add_argument("--dsf", type=float, default=1.0)
-    # **画面用哪种。** 默认 JPG —— 它开箱即用。
-    # 取值归一交给 `view.modes`,**这儿不再写第二份名单** ——
-    # 写两份的下场刚踩过:上层已经改叫 vnc,这里还只认 xpra,
-    # 报的是 argparse 的 `invalid choice`,和"画面"两个字都不沾边。
-    p.add_argument("--transport", default=models.JPG,
-                   metavar="{jpg,vnc,dom}")
-    p.add_argument("--xpra-ws", dest="xpra_ws", default="",
-                   help="VNC 那条上游 xpra 的 ws 地址")
     args = p.parse_args()
-    canon = models.canon(args.transport)
-    if canon is None:
-        p.error(f"没有 {args.transport!r} 这种画面,只有 "
-                + " / ".join(models.label(m) for m in models.MODES))
-    args.transport = canon
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
     asyncio.run(_run(args))
 
 

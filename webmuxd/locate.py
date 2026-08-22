@@ -18,6 +18,7 @@ from typing import Any
 
 from webmuxd.cdp import CDP, CDPError
 from webmuxd.exceptions import BadRequest, NotClickable, NotFound
+from webmuxd import models
 from webmuxd.models import Element, Size, Snapshot
 
 #: 筛选规则的版本。**改了规则就要 +1** —— 日志里记着它,
@@ -156,9 +157,9 @@ async def _boxes(cdp: CDP, session_id: str,
 # 定位
 # ---------------------------------------------------------------------------
 
-#: 定位的六种写法(api/act.md §4)。
-LOCATOR_KEYS = ("text", "role", "name", "label", "css",
-                "point", "nth")
+#: 定位的几种写法。**形状在 [`models.Locator`](models.py)**,
+#: 这儿只转发 —— 加一种写法改那一处。
+LOCATOR_KEYS = models.Locator.KEYS
 
 
 def _norm(s: str) -> str:

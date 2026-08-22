@@ -15,6 +15,19 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from webmuxd.cdp import CDP
 from webmuxd.serve import build
+from webmuxd.sessions import Server
+
+
+def _one(session, sid: str = "work"):
+    """一个只装着这一个 session 的 server。
+
+    **测试也走 `/s/<id>/`** —— 那是真实的地址形状,绕过它就等于不测路由
+    ([k §4](../../docs/v2/works/k-one-server.md#4-路由s-id-前缀))。
+    """
+    import tempfile
+    srv = Server(data_root=tempfile.mkdtemp(prefix="wm-srv-"))
+    srv.adopt(sid, session)
+    return srv
 from webmuxd.sessions import Session
 
 FILE_BODY = b"webmuxd v2 native ui"
@@ -55,7 +68,7 @@ async def live(chromium_endpoint, tmp_path):
     conn = await CDP.connect(chromium_endpoint)
     session = Session(conn, data_dir=tmp_path, human_yield_ms=0)
     await session.start()
-    client = TestClient(TestServer(build(session)))
+    client = TestClient(TestServer(build(_one(session))))
     await client.start_server()
     probe = await CDP.connect(chromium_endpoint)
     try:
@@ -100,7 +113,7 @@ async def test_confirm_挡住页面_回填之后才继续(live, target):
     # tab 上也要看得见 —— 弹窗挡住了页面,它不只是一条通知
     assert session.tabs.get(tab.id).dialog["message"] == "删掉吗?"
 
-    r = await client.post(f"/api/tabs/{tab.id}/dialog", json={"accept": True})
+    r = await client.post(f"/s/work/api/tabs/{tab.id}/dialog", json={"accept": True})
     assert r.status == 200
 
     got = await _wait(lambda: session.native.dialogs.pending == {} or None)
@@ -121,9 +134,9 @@ async def test_不给_accept_就是_400_不替你决定(live, target):
         session_id=sid, timeout=30))
     await _wait(lambda: session.native.dialogs.list_json())
 
-    r = await client.post(f"/api/tabs/{tab.id}/dialog", json={})
+    r = await client.post(f"/s/work/api/tabs/{tab.id}/dialog", json={})
     assert r.status == 400, "**不替用户决定** —— accept 没有默认值"
-    await client.post(f"/api/tabs/{tab.id}/dialog", json={"accept": False})
+    await client.post(f"/s/work/api/tabs/{tab.id}/dialog", json={"accept": False})
 
 
 async def test_超时走_dismiss_而且写进日志(live, target):
@@ -162,9 +175,9 @@ async def test_下载落到_session_目录_而且取得回来(live, target):
     item = done[0]
     assert item["file"] == "报表.bin"
 
-    r = await client.get("/api/downloads")
+    r = await client.get("/s/work/api/downloads")
     assert r.status == 200 and (await r.json())["downloads"][0]["file"] == "报表.bin"
-    r = await client.get(f"/api/downloads/{item['id']}")
+    r = await client.get(f"/s/work/api/downloads/{item['id']}")
     assert r.status == 200 and await r.read() == FILE_BODY
 
     rows = list(session.log.read(limit=50, kind="download"))
@@ -178,7 +191,7 @@ async def test_文件选择拦得下来_填得进去(live, target):
     tab = await session.open_tab(target + "/page")
     sid = await _sid(probe, tab)
 
-    r = await client.post("/api/upload?name=票据.txt", data=b"hello")
+    r = await client.post("/s/work/api/upload?name=票据.txt", data=b"hello")
     assert r.status == 201 and (await r.json())["files"] == ["票据.txt"]
 
     await probe.send("Runtime.evaluate",
@@ -187,7 +200,7 @@ async def test_文件选择拦得下来_填得进去(live, target):
     pend = await _wait(lambda: session.native.files.list_json())
     assert pend[0]["mode"] in ("selectSingle", "selectMultiple")
 
-    r = await client.post(f"/api/file-chooser/{pend[0]['id']}",
+    r = await client.post(f"/s/work/api/file-chooser/{pend[0]['id']}",
                           json={"files": ["票据.txt"]})
     assert r.status == 200
 
@@ -200,7 +213,7 @@ async def test_文件选择拦得下来_填得进去(live, target):
 
 async def test_上传的名字过一道_不带路径出去(live):
     session, client, _ = live
-    r = await client.post("/api/upload?name=../../etc/passwd", data=b"x")
+    r = await client.post("/s/work/api/upload?name=../../etc/passwd", data=b"x")
     saved = (await r.json())["files"][0]
     assert "/" not in saved and ".." not in saved
 
@@ -209,20 +222,20 @@ async def test_上传的名字过一道_不带路径出去(live):
 
 async def test_默认全拒_显式才给(live):
     session, client, _ = live
-    r = await client.get("/api/permissions")
+    r = await client.get("/s/work/api/permissions")
     assert (await r.json())["default"] == "deny"
 
-    r = await client.post("/api/permissions", json={"names": ["geolocation"]})
+    r = await client.post("/s/work/api/permissions", json={"names": ["geolocation"]})
     assert r.status == 200 and (await r.json())["names"] == ["geolocation"]
-    assert "geolocation" in (await (await client.get("/api/permissions")).json())["granted"]["*"]
+    assert "geolocation" in (await (await client.get("/s/work/api/permissions")).json())["granted"]["*"]
 
-    assert (await client.delete("/api/permissions")).status == 200
-    assert (await (await client.get("/api/permissions")).json())["granted"] == {}
+    assert (await client.delete("/s/work/api/permissions")).status == 200
+    assert (await (await client.get("/s/work/api/permissions")).json())["granted"] == {}
 
 
 async def test_不认识的权限名要说出来_而不是原样丢给_cdp(live):
     _, client, _ = live
-    r = await client.post("/api/permissions", json={"names": ["随便编的"]})
+    r = await client.post("/s/work/api/permissions", json={"names": ["随便编的"]})
     assert r.status == 400
     body = await r.json()
     assert "随便编的" in body["error"]["details"]["unknown"]
@@ -240,17 +253,17 @@ async def test_认证默认不开_撞上_401_再设凭证重进(live, target):
     sid = await _sid(probe, tab)
 
     # 没开拦截时,401 是**看得见的失败**(服务器那个 body),不是页面静止
-    await client.post(f"/api/tabs/{tab.id}/goto", json={"url": target + "/secret"})
+    await client.post(f"/s/work/api/tabs/{tab.id}/goto", json={"url": target + "/secret"})
     await asyncio.sleep(0.3)
     v = await probe.send("Runtime.evaluate",
                          {"expression": "document.body.innerText",
                           "returnByValue": True}, session_id=sid)
     assert "进来了" not in (v["result"]["value"] or "")
 
-    r = await client.post("/api/auth", json={"user": "u", "password": "p"})
+    r = await client.post("/s/work/api/auth", json={"user": "u", "password": "p"})
     assert r.status == 200 and session.native.auth.on is True
 
-    await client.post(f"/api/tabs/{tab.id}/reload", json={})
+    await client.post(f"/s/work/api/tabs/{tab.id}/reload", json={})
     await asyncio.sleep(0.8)
     v = await probe.send("Runtime.evaluate",
                          {"expression": "document.body.innerText",
@@ -262,7 +275,7 @@ async def test_认证默认不开_撞上_401_再设凭证重进(live, target):
     # **凭证不进日志** —— 和动作层那条同一个规矩
     assert all(e.get("password") in (None, "***") for e in rows)
 
-    assert (await client.delete("/api/auth")).status == 200
+    assert (await client.delete("/s/work/api/auth")).status == 200
     assert session.native.auth.on is False
 
 
@@ -277,8 +290,8 @@ async def test_挡着页面的东西一次给全(live, target):
         session_id=sid, timeout=30))
     await _wait(lambda: session.native.dialogs.list_json())
 
-    body = await (await client.get("/api/pending")).json()
+    body = await (await client.get("/s/work/api/pending")).json()
     assert body["dialogs"] and body["dialogs"][0]["subtype"] == "confirm"
     assert set(body) == {"dialogs", "file_choosers", "downloads",
                          "permissions", "auth"}
-    await client.post(f"/api/tabs/{tab.id}/dialog", json={"accept": False})
+    await client.post(f"/s/work/api/tabs/{tab.id}/dialog", json={"accept": False})

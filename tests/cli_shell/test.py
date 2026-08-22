@@ -62,40 +62,35 @@ def test_talking_to_a_missing_session_is_3(home, capsys):
     assert "session_not_found" in capsys.readouterr().err
 
 
-def test_no_session_at_all_is_3_not_a_crash(home, capsys):
+def test_没有_server_时说的是去_start(home, capsys):
+    """**server 不按需自启** —— 那条规矩是"端口由你给"(h §6),
+    所以这儿只能说该跑哪一行,不能替人挑一个口。"""
     assert run("tabs") == 3
-    assert "没有在跑的 session" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "没有在跑的 server" in err and "webmuxd start" in err
 
 
 # -------------------------------------------------------------- 登记簿
 
-def test_registry_probes_liveness_instead_of_trusting_the_file(home):
-    """**文件只是线索,`alive()` 才是真相**(works/05 §6)。"""
+def test_登记的只剩_server_在哪(home):
+    """以前这儿是一张 session 表,`ls` 要读表再逐个探活 ——
+    **那个文件在冒充 server**。现在有真的了(k)。"""
     reg = Registry(name="default")
-    from webmuxd.models import SessionInfo
-    reg.put(SessionInfo("process", "ghost", 9, {"pids": {"sessiond": 999999}}))
-
-    rows = reg.list()
-    assert rows[0]["id"] == "ghost"
-    assert rows[0]["state"] == "dead", "文件里有就当它活着 —— 那就成了骗人"
+    reg.put(port=7999, bind="127.0.0.1", pid=999999)
+    assert reg.read()["port"] == 7999
 
 
-def test_ls_shows_dead_ones_with_how_to_clean_them(home, capsys):
-    from webmuxd.models import SessionInfo
-    Registry(name="default").put(SessionInfo("process", "stale", 9,
-                                        {"pids": {"sessiond": 999999}}))
+def test_文件会撒谎_探不到就当没有(home):
+    """进程被 OOM 杀了它不知道 —— **按记录去连,连不上就当没有**。"""
+    reg = Registry(name="default")
+    reg.put(port=_free(), bind="127.0.0.1", pid=999999)   # 那个口上什么都没有
+    assert reg.read() is not None, "记录还在"
+    assert reg.base() is None, "但探不到 —— 就不该说它在"
+
+
+def test_没有_server_时_ls_不崩(home, capsys):
     assert run("ls") == 0
-    out = capsys.readouterr().out
-    assert "stale" in out and "dead" in out
-    assert "webmuxd kill" in out, "看得到死的,却不告诉人怎么清 —— 说了等于没说"
-
-
-def test_ls_json_is_the_raw_shape(home, capsys):
-    from webmuxd.models import SessionInfo
-    Registry(name="default").put(SessionInfo("process", "x", 1234, {}))
-    assert run("--json", "ls") == 0
-    d = json.loads(capsys.readouterr().out)
-    assert d["sessions"][0]["port"] == 1234
+    assert "webmuxd start" in capsys.readouterr().out
 
 
 def test_info_reports_probed_runtimes(home, capsys):
@@ -111,36 +106,63 @@ def test_kill_a_missing_session_is_3(home):
 # ------------------------------------------------------- 起不来要说清楚
 
 def test_没有浏览器时退出码_7_而且提示指向_install(home, capsys, monkeypatch):
-    """**不静默降级** —— 随便挑一个浏览器等于让你以为在跑钉死的那一版。"""
+    """**不静默降级** —— 随便挑一个浏览器等于让你以为在跑钉死的那一版。
+
+    这条现在跨 HTTP:浏览器是**在 server 进程里**起的,所以环境变量要在
+    `start` 之前设好 —— 这本身就是新模型的一条事实,值得钉住。
+    错误在 server 里抛,`code` 和 `hint` 都要原样传回来。
+    """
     monkeypatch.setenv("WEBMUXD_BROWSER", "/根本没有这个/chrome")
-    code = run("new", "-s", "w", "-p", str(_free()))
-    err = capsys.readouterr().err
+    assert run("start", "--port", str(_free())) == 0
+    capsys.readouterr()
+    try:
+        code = run("new", "-s", "w")
+        err = capsys.readouterr().err
+    finally:
+        run("kill-server")
     assert code == 7
     assert "runtime_unavailable" in err and "install" in err
 
 
-def test_remote_without_cdp_exits_7(home, capsys):
-    assert run("new", "-s", "r", "-p", str(_free()), "--runtime", "remote") == 7
+def test_remote_without_cdp_exits_7(server, capsys):
+    assert run("new", "-s", "r", "--runtime", "remote") == 7
     assert "cdp" in capsys.readouterr().err
+
+
+def test_端口被占了要说清是哪一种(home, capsys):
+    """**"被占"和"没权限"指向不同的下一步**,不能糊成一句 ——
+    报"被占了"会让人去查一个根本不存在的进程。"""
+    from webmuxd.cli import EXIT
+    assert run("start", "--port", "1") == EXIT["port_in_use"]
+    assert "root" in capsys.readouterr().err
 
 
 # ------------------------------------------------------------ 真跑一遍
 
 @pytest.fixture
-def session(home):
+def server(home):
+    """一个真 server。**每个用例一套** —— 端口和登记簿都是独立的。"""
+    port = _free()
+    assert run("start", "--port", str(port)) == 0
+    yield port
+    run("kill-server")
+
+
+@pytest.fixture
+def session(server):
     if not ProcessRuntime().available()[0]:
         pytest.skip("本机没有 chromium")
-    port = _free()
-    assert run("new", "-s", "work", "-p", str(port), "--runtime", "process") == 0
-    yield port
+    assert run("new", "-s", "work", "--runtime", "process") == 0
+    yield server
     run("kill", "-t", "work")
 
 
 @pytest.mark.slow
 def test_new_is_idempotent(session, capsys):
     """同一个 id 再建一次是接管,不报错(像 `tmux new -A -s`)。"""
-    assert run("new", "-s", "work", "-p", str(session), "--runtime", "process") == 0
-    assert "已经在跑" in capsys.readouterr().out
+    assert run("new", "-s", "work", "--runtime", "process") == 0
+    out = capsys.readouterr().out
+    assert "/s/work/" in out, "第二次要把同一个给你(像 tmux new -A -s)"
 
 
 @pytest.mark.slow
@@ -215,37 +237,27 @@ def test_send_is_the_escape_hatch(session, capsys, tmp_path):
     assert code == 0, capsys.readouterr().err
 
 
-# ------------------------------------------------- 升级之后表里还有旧行
+# ------------------------------------------------- 升级之后留下的旧文件
 
-def test_登记表里的旧行不该把命令带崩(home, capsys):
-    """**0.5.1 真的崩过。**
+def test_上一版的_sessions_json_不该把命令带崩(home, capsys):
+    """**0.5.1 真的崩过一次**,起因是登记表里留着上一版的行。
 
-    v1 的行是 `api_port` / `view_port`,v2 只有 `port`。升级之后表里还留着旧行,
-    而代码里是 `row["port"]` —— 第一条命令就 KeyError,报错还完全不指方向。
+    这一版换了文件名(`sessions.json` → `server.json`),所以旧文件我们
+    **根本不看**。但那个文件还躺在目录里 —— 它的存在不该影响任何一条命令。
 
-    规矩和环境记录那条一样:**格式对不上就当没有**。差别是这儿要说出来 ——
-    那些 session 可能还真在跑,人得知道去自己清。
+    规矩不变:**格式对不上就当没有**。
     """
     reg = Registry(name="default")
-    reg.file.write_text(json.dumps({
+    (reg.dir / "sessions.json").write_text(json.dumps({
         "work": {"id": "work", "runtime": "container",
-                 "api_port": 7900, "view_port": 6901, "detail": {}},
-        "ok": {"id": "ok", "runtime": "process", "port": 7777, "detail": {}},
-    }, ensure_ascii=False))
-
-    rows = reg.list()                       # 不该抛
-    assert [r["id"] for r in rows] == ["ok"], "旧行该被滤掉,好行该留着"
-
-    err = capsys.readouterr().err
-    assert "读不懂" in err and "work" in err, "扔掉了却不说,人不知道去清什么"
-    assert str(reg.file) in err, "得告诉人表在哪"
+                 "api_port": 7900, "view_port": 6901, "detail": {}}}))
+    assert reg.read() is None, "没有 server.json 就是没有"
+    assert run("ls") == 0                   # 不该抛
+    assert "webmuxd start" in capsys.readouterr().out
 
 
-def test_ls_遇到旧行照常列出好的那些(home, capsys):
+def test_server_json_读不懂就当没有(home):
     reg = Registry(name="default")
-    reg.file.write_text(json.dumps({
-        "老的": {"id": "老的", "runtime": "container", "api_port": 1, "detail": {}},
-    }, ensure_ascii=False))
-    assert run("ls") == 0
-    out = capsys.readouterr().out
-    assert "没有 session" in out, "全是旧行的话,等于一个都没有"
+    for junk in ("{既不是 json", "[]", '{"port": "7900"}', ""):
+        reg.file.write_text(junk)
+        assert reg.read() is None, junk

@@ -44,7 +44,9 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {
-      output: { entryFileNames: "[name].js", assetFileNames: "[name][extname]" },
+      output: {
+        entryFileNames: "[name].js", assetFileNames: "[name][extname]",
+      },
     },
   },
   server: {

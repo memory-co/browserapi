@@ -201,7 +201,7 @@ def test_内置页不往这条通道发东西():
     code = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", "", ch, flags=re.S))
     assert ".send(" not in code, "这条通道上不该有上行"
 
-    main = pathlib.Path("webmuxjs/client/src/viewer/main.ts").read_text()
+    main = pathlib.Path("webmuxjs/client/src/viewer/session-view.ts").read_text()
     assert "/channel/rrweb" in main, "内置页得连这条通道"
 
 
@@ -265,7 +265,8 @@ def test_install_会把它下下来_并记进路径表():
 
     src = inspect.getsource(install)
     assert "dom_mod.download()" in src, "install 得负责下"
-    assert 'record["rrweb"]' in src, "得记进路径表,否则没人知道装的是哪一版"
+    assert "facts.rrweb = models.RrwebFact" in src, \
+        "得记进路径表,否则没人知道装的是哪一版"
     # 下不到只影响一种画面,得说清楚 —— 不能让人以为整个装挂了
     assert "jpg / vnc 不受影响" in src
 

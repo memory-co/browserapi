@@ -456,7 +456,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `cli/__main__.py` `cli/registry.py` | `cli.py` | 连同它自己那套调用代码(§3.5) |
 | `cli/install.py` + `cli/deps.py` | **`install.py` 一个文件** | 只有一个调用方,没有单独的测试(§3.7) |
 | `core/cdp.py` `tabs.py` `act.py` `locate.py` | 同名平铺 | |
-| `core/observe.py` | **`capture.py`**,而且只剩两个函数 | 那一包东西砍了 —— 读只剩「一张图和正文」([api/act.md §1](../../v1/api/act.md#1-读--一张图和正文)) |
+| `core/observe.py` | **`capture.py`**,而且只剩两个函数 | 那一包东西砍了 —— 读只剩「一张图和正文」([v2/api](../api/)) |
 | `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
 | `core/log.py` | `log.py` | |
 | `browser.py` | **`install.py`**(下载 / 镜像 / 测速)+ **`config.py`**(路径在哪 / 这台机器缺什么) | 装完之后"浏览器在哪"就是配置(§3.3)。**探测那半要跟着配置走**,因为第 1 层的 `processes.py` 要用它,而 `install.py` 在第 5 层 |

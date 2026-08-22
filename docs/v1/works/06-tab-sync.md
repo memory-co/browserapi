@@ -205,7 +205,7 @@ WS /api/events?after=118&types=tab.*
 ```
 
 **这是内部机制,不是产品面。** 写脚本的人碰不到(lib 替他订了),
-模型更碰不到(它只看 `screenshot()` / `text()` 和[日志](../api/log.md))。
+模型更碰不到(它只看 `observe()` 和[日志](../api/log.md))。
 所以它**不在 [api/](../api/) 的规格里** —— 契约就是这一节。
 
 ### 信封

@@ -47,10 +47,17 @@ xpra / Xvfb / PIL。有 root 就直接装(apt / dnf / yum 都认),没 root 就�
 ## 起一个
 
 ```console
-$ webmuxd new --id demo --port 7900
-       ⚠ 页面跑在这台机器上,**没有隔离** —— 要隔离见 docs/v2/works/07 §2
-demo  →  http://127.0.0.1:7900/   (API 在同一个口:http://127.0.0.1:7900/api)
+$ webmuxd start --port 7900
+server  →  http://127.0.0.1:7900/   (还没有 session:webmuxd new --id demo)
+
+$ webmuxd new --id demo
+       ⚠ 页面跑在这台机器上,**没有隔离** —— 要隔离见 docs/v2/works/h-runtime.md §2
+demo  →  http://127.0.0.1:7900/s/demo/
 ```
+
+**一个 server 一个口。** 打开 `http://127.0.0.1:7900/` 是那张 session 列表
+(还没建的时候它会告诉你怎么建),点进去就是那个浏览器 ——
+像 tmux 一个 server 装着全部 session([k](docs/v2/works/k-one-server.md))。
 
 **如果你是 root**(云主机、容器里常见),会多一行:
 
@@ -92,8 +99,8 @@ CLI 只是薄薄一层,**库才是主体**:
 ```python
 from webmuxd import Webmuxd
 
-web  = Webmuxd(user="me")                       # 空壳管理实例
-sess = web.session(id="demo", port=7900)        # 一个浏览器,一个口
+web  = Webmuxd(port=7900, user="me")            # 连上那个 server
+sess = web.session(id="demo")                   # 一个浏览器
 print(sess.view_url)                            # 人从这儿进去看
 
 tab = sess.open("https://example.com")          # 一个页面
@@ -132,9 +139,9 @@ python examples/quickstart.py
 | `1.00x` + `q80` 都正常 | 那才轮到编码 | `--quality 95` 或 `--format png` |
 
 ```bash
-webmuxd new --id work --port 7900 --quality 95      # 编码那一档
-webmuxd new --id work --port 7900 --dsf             # 观看端是 Retina 才开,= 2
-webmuxd new --id work --port 7900 --min-quality 40  # 链路差时最多降到 40
+webmuxd new --id work --quality 95      # 编码那一档
+webmuxd new --id work --dsf             # 观看端是 Retina 才开,= 2
+webmuxd new --id work --min-quality 40  # 链路差时最多降到 40
 ```
 
 **`--dsf` 默认是关的,而且它不是"越大越清晰"的旋钮** —— 它只用来匹配观看端的 dpr。
@@ -210,8 +217,8 @@ RUN pip install webmuxd && webmuxd install     # 容器里是 root,依赖它自�
 或者让浏览器待在别处,只把 CDP 端点给我们:
 
 ```python
-sess = web.session(id="cloud", port=7900,
-                   runtime="remote", cdp="wss://chrome.example.com?token=…")
+sess = web.session(id="cloud", runtime="remote",
+                   cdp="wss://chrome.example.com?token=…")
 print(sess.view_url)   # 画面还是我们产的,连的是他们的浏览器
 ```
 

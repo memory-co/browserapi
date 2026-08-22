@@ -13,6 +13,7 @@ import json
 import pytest
 
 from webmuxd import config
+from webmuxd.models import BrowserFact, MachineFacts
 from webmuxd import install as install_mod
 from webmuxd import install as deps_mod
 from webmuxd.install import install
@@ -79,15 +80,15 @@ def test_垃圾文件当没有而不是崩掉(record_file):
 
 
 def test_写完读得回来(record_file):
-    config.save({"default_browser": {"path": "/x/chrome", "version": "1.2.3.4"}})
+    config.save(MachineFacts(browser=BrowserFact("/x/chrome", "1.2.3.4")))
     rec = config.load()
-    assert rec["default_browser"]["path"] == "/x/chrome"
-    assert rec["version"] == config.FORMAT_VERSION and "at" in rec
+    assert rec.browser.path == "/x/chrome"
+    assert rec.version == config.FORMAT_VERSION and rec.at
 
 
 def test_值是_None_的键直接不写(record_file):
-    config.save({"default_browser": None})
-    assert "default_browser" not in config.load()
+    config.save(MachineFacts())
+    assert config.load().browser is None, "没探到就不该写,读出来也不该有"
 
 
 # ---------------------------------------------------------------- install
@@ -95,10 +96,10 @@ def test_值是_None_的键直接不写(record_file):
 def test_install_记下浏览器(record_file, fake_download):
     out = io.StringIO()
     rec = install(out=out, force=True)
-    assert rec["default_browser"]["path"] == fake_download["path"]
-    assert rec["default_browser"]["version"] == config.PINNED
-    assert config.load()["default_browser"]["source"] == "chrome-for-testing"
-    assert "docker" not in config.load(), "v2 不再关心机器上有没有 docker"
+    assert rec.browser.path == fake_download["path"]
+    assert rec.browser.version == config.PINNED
+    assert config.load().browser.source == "chrome-for-testing"
+    assert "docker" not in config.load().extra, "v2 不再关心机器上有没有 docker"
 
 
 def test_install_是幂等的(record_file, fake_download, monkeypatch):
@@ -116,8 +117,8 @@ def test_下不到就不写那个键_并且给出退路(record_file, fake_downlo
     fake_download["fail"] = True
     out = io.StringIO()
     rec = install(out=out)
-    assert "default_browser" not in rec
-    assert "default_browser" not in (config.load() or {})
+    assert rec.browser is None, "下不到就不该记一个假路径"
+    assert config.load() is None or config.load().browser is None
     text = out.getvalue()
     assert install_mod.CN_MIRROR in text, "到不了源时该把国内那个源说出来"
 
@@ -179,7 +180,7 @@ def test_with_deps_还认_但会说它已经是默认了(record_file, fake_downl
 def test_记录里的浏览器会被用上(record_file, tmp_path):
     exe = tmp_path / "recorded-chrome"
     exe.write_text("#!/bin/sh\n")
-    config.save({"default_browser": {"path": str(exe), "version": "1.2.3.4"}})
+    config.save(MachineFacts(browser=BrowserFact(str(exe), "1.2.3.4")))
     assert resolve_browser() == str(exe)
 
 
@@ -188,7 +189,7 @@ def test_传进来的赢过记录(record_file, tmp_path):
     a, b = tmp_path / "a", tmp_path / "b"
     for p in (a, b):
         p.write_text("#!/bin/sh\n")
-    config.save({"default_browser": {"path": str(a), "version": "1"}})
+    config.save(MachineFacts(browser=BrowserFact(str(a), "1")))
     assert resolve_browser(str(b)) == str(b)
 
 
@@ -302,3 +303,60 @@ def test_标记是最后一步写的(tmp_path, monkeypatch):
         "标记写在解压之前 —— 那它就证明不了任何事"
     assert src.index("marker_path") > src.index("exe.chmod"), \
         "标记写在 chmod 之前"
+
+
+# ---------------------------------------- 记录有形状,不是一坨 dict(models)
+
+def test_记录的形状在_models_里(record_file):
+    """**跨边界的数据在 `models.py` 定义一次。**
+
+    这份记录 install 写、起进程的人读、`webmuxd info` 印 —— 三个模块,
+    以前靠三处各自记着"那个 dict 里有什么键"。
+    """
+    from webmuxd.models import MachineFacts, RrwebFact, XpraFact
+
+    facts = MachineFacts(
+        browser=BrowserFact("/x/chrome", "1.2", "chrome-for-testing"),
+        xpra=XpraFact(bin="/usr/bin/xpra", python="/usr/bin/python3",
+                      version="6.6"),
+        rrweb=RrwebFact("2.1.1", "/c/rrweb.js"), xvfb="/usr/bin/Xvfb")
+    config.save(facts)
+
+    got = config.load()
+    assert got.browser.version == "1.2"
+    assert got.xpra.python == "/usr/bin/python3"
+    assert got.xpra.vfb == "Xvfb", "传给 --xvfb 的那个名字要钉死"
+    assert got.rrweb.js == "/c/rrweb.js"
+    assert got.xvfb == "/usr/bin/Xvfb"
+
+
+def test_没探到的键一个都不写(record_file):
+    """**键在 = 探到了,键不在 = 没探到。**
+
+    写一个猜的值,下次读的人分不清那是事实还是兜底 —— 这条是整份记录的
+    语义基础,所以它归 `MachineFacts.to_json()` 管,不靠调用方自觉。
+    """
+    from webmuxd.models import MachineFacts
+
+    config.save(MachineFacts(browser=BrowserFact("/x/chrome")))
+    raw = json.loads(config.path().read_text())
+    assert set(raw) == {"version", "at", "default_browser"}, raw
+    # 空字符串也是"没探到" —— 不是"探到了一个空的"
+    assert set(raw["default_browser"]) == {"path"}, raw["default_browser"]
+
+
+def test_别人写进来的键原样留着(record_file):
+    """**不是我们的东西,不该被我们吃掉。**"""
+    from webmuxd.models import MachineFacts
+
+    config.save(MachineFacts(extra={"someone_else": {"a": 1}}))
+    got = config.load()
+    assert got.extra == {"someone_else": {"a": 1}}
+    config.save(got)                      # 读出来再写回去
+    assert json.loads(config.path().read_text())["someone_else"] == {"a": 1}
+
+
+def test_没有_get_那个字符串键了():
+    """**一个字符串键换一个 `Any`,等于把形状又交回给调用方去猜。**"""
+    assert not hasattr(config, "get"), "config.get 又回来了"
+    assert hasattr(config, "browser")

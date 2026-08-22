@@ -55,10 +55,10 @@ def main() -> None:
     port = free_port()
 
     print("① 管理实例 —— 空壳,不起任何浏览器")
-    web = Webmuxd(user="claudecode")
+    web = Webmuxd(port=port, user="claudecode")
 
     print(f"② 起一个 session(一个浏览器)  一个口 :{port}")
-    sess = web.session(id="quickstart", port=port, runtime="process")
+    sess = web.session(id="quickstart", runtime="process")
     print(f"   画面和 API 在同一个口上:{sess.view_url}")
 
     try:

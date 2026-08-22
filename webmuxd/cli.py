@@ -14,16 +14,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 import sys
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from webmuxd import Webmuxd
 from webmuxd import models
+from webmuxd import processes
 from webmuxd import sessions as rt
 from webmuxd.api import Session, Tab
 from webmuxd.exceptions import WebmuxdError
-from webmuxd.models import SessionInfo
 
 # 退出码 → 错误码(cli/README §6)。4/5/6 可重试,7 该告警。
 EXIT = {
@@ -71,29 +72,39 @@ def _split_target(t: str | None) -> tuple[str | None, str | None]:
     return (sid or None), (tab or None)
 
 
-def _manager(args: argparse.Namespace) -> Webmuxd:
-    return Webmuxd(args.host, token=os.environ.get("WEBMUXD_TOKEN"),
+def _manager(args: argparse.Namespace, base: str) -> Webmuxd:
+    return Webmuxd(base, token=os.environ.get("WEBMUXD_TOKEN"),
                    user=args.user or os.environ.get("WEBMUXD_USER") or "cli",
                    name=args.socket_name)
 
 
+def _server(args: argparse.Namespace) -> Webmuxd:
+    """连上那个 server。**没起就报错并说该跑哪一行** —— 不偷偷起一个。
+
+    tmux 能按需自启是因为它用 socket,没有端口要挑;我们有,
+    而那条规矩是"端口由你给"([h §6](../docs/v2/works/h-runtime.md#6-端口由你给))。
+    """
+    base = args.host or Registry(name=args.socket_name).base()
+    if not base:
+        raise WebmuxdError(
+            "没有在跑的 server —— 先 `webmuxd start --port 7900`",
+            code="session_not_found")
+    return _manager(args, base)
+
+
 def _session(args: argparse.Namespace) -> Session:
     sid, _tab = _split_target(args.target)
-    reg = Registry(name=args.socket_name)
-    rows = reg.list()
+    web = _server(args)
+    rows = web.list()
     if sid is None:
-        live = [r for r in rows if r["state"] == "ready"]
-        if len(live) != 1:
+        if len(rows) != 1:
             # **不猜** —— 点错浏览器的代价比敲错终端大(cli/README §2)
             raise WebmuxdError(
-                f"有 {len(live)} 个 session,得用 -t 指定" if live
-                else "没有在跑的 session", code="session_not_found")
-        sid = live[0]["id"]
-
-    row = reg.get(sid)
-    if row is None:
-        raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-    return _manager(args).session(id=sid, port=row["port"])
+                f"有 {len(rows)} 个 session,得用 -t 指定" if rows
+                else "这个 server 上还没有 session —— `webmuxd new --id demo`",
+                code="session_not_found")
+        sid = rows[0]["id"]
+    return web.session(id=sid)
 
 
 def _tab(args: argparse.Namespace) -> Tab:
@@ -135,97 +146,115 @@ def _fmt(template: str, **fields: Any) -> str:
 # 会话
 # ---------------------------------------------------------------------------
 
+def cmd_start(args: argparse.Namespace) -> int:
+    """起那个 server。**一个 server 一个口,session 住在它下面。**"""
+    reg = Registry(name=args.socket_name)
+    if reg.base():
+        row = reg.read() or {}
+        print(f"已经在跑了  →  http://127.0.0.1:{row.get('port')}/")
+        return 0
+
+    # **端口是部署决定的,我们不替你换一个。**
+    # "被占"和"没权限"分开说 —— 1024 以下要 root,报"被占了"会让人
+    # 去查一个根本不存在的进程。
+    processes.require_ports(args.port, host=args.bind)
+
+    data = str(default_dir(args.socket_name) / "data")
+    proc = processes.spawn_server(port=args.port, bind=args.bind, data=data,
+                                  token=os.environ.get("WEBMUXD_TOKEN"))
+    base = f"http://127.0.0.1:{args.port}"
+    if not processes.wait_http(base + "/healthz", 30):
+        proc.terminate()
+        raise WebmuxdError(f"server 没起来 —— 日志在 {data}/server.log",
+                           code="runtime_unavailable")
+    reg.put(port=args.port, bind=args.bind, pid=proc.pid)
+    _out(args, {"port": args.port, "bind": args.bind, "url": base + "/",
+                "pid": proc.pid},
+         f"server  →  {base}/   (还没有 session:webmuxd new --id demo)")
+    if not args.json and args.bind not in ("127.0.0.1", "localhost", "::1"):
+        print(f"       ⚠ 绑在 {args.bind} —— 这台机器网络能到的人,"
+              "拿到 token 就能操作这里的浏览器", file=sys.stderr)
+    return 0
+
+
 def cmd_new(args: argparse.Namespace) -> int:
     # **命令行 > 环境变量 > 内置默认。** 没有配置文件那一档 ——
     # 参数从 lib 传(sdk/manager.md),CLI 只是把它们摆成 flag。
-    runtime = args.runtime or rt.default()
     url = args.url or os.environ.get("WEBMUXD_START_URL") or "about:blank"
     from webmuxd.screen import DEFAULT_H, DEFAULT_W
     window_size = args.window_size or f"{DEFAULT_W}x{DEFAULT_H}"
-
-    reg = Registry(name=args.socket_name)
-    impl = rt.get(runtime)
-    if reg.get(args.id) and reg.list():
-        row = next((r for r in reg.list() if r["id"] == args.id), None)
-        if row and row["state"] == "ready":
-            # **幂等** —— 同一个 id 再建一次就是接管,不报错(像 tmux new -A -s)
-            print(f"{args.id}  →  已经在跑了")
-            return 0
-        # **死行留着,不提前删。** 下面 reg.put 成功了会覆盖它;而万一起不来,
-        # 留着的这行正是 `webmuxd kill -t <id>` 找得到东西去清的依据 ——
-        # 提前删掉的话,容器还在、登记表里却没它了,kill 只会说 session_not_found。
-
     w, _, h = window_size.partition("x")
-    handle = impl.start(args.id, port=args.port, url=url,
-                        window_size=window_size, proxy=args.proxy,
-                        browser_path=args.browser, cdp=args.cdp,
-                        bind=args.bind, dsf=args.dsf,
-                        transport=args.transport,
-                        view={"width": int(w), "height": int(h),
-                              "format": args.img_format,
-                              "quality": args.quality,
-                              "min-quality": args.min_quality})
-    reg.put(handle)
-    d = handle.detail
-    _out(args, {"id": args.id, "port": handle.port,
-                "cdp_port": d.get("cdp_port"), "browser": d.get("browser"),
-                "view_url": handle.view_url, "api_url": handle.api_url,
-                "notes": d.get("notes") or []},
-         f"{args.id}  →  {handle.view_url}   (API 在同一个口:{handle.api_url}/api)")
+
+    web = _server(args)
+    row = web.create(args.id, runtime=args.runtime, url=url,
+                     window_size=window_size, proxy=args.proxy,
+                     browser_path=args.browser, cdp=args.cdp, dsf=args.dsf,
+                     transport=args.transport,
+                     view={"width": int(w), "height": int(h),
+                           "fmt": args.img_format, "quality": args.quality,
+                           "min_quality": args.min_quality})
+    view_url = web.base + row["url"]
+    _out(args, {**row, "view_url": view_url},
+         f"{args.id}  →  {view_url}")
     if not args.json:
-        for note in d.get("notes") or []:
+        for note in row.get("notes") or []:
             print(f"       ⚠ {note}", file=sys.stderr)
         print("       ⚠ 页面跑在这台机器上,**没有隔离** —— 要隔离见 "
-              "docs/v2/works/07 §2", file=sys.stderr)
-    if not args.json and d.get("view_password"):
-        # 密码是起的时候现生成的,**这是唯一会说出来的一次**
-        # 证书那句只对 https 的镜像成立 —— 镜像的 scheme 是它自己标签说的
-        tail = ("   (自签名证书,浏览器会拦一下)"
-                if d.get("view_scheme") == "https" else "")
-        print(f"       登录 {d.get('view_login')} / {d['view_password']}{tail}")
-    for note in handle.detail.get("notes") or []:
-        print(f"  ⚠ {note}", file=sys.stderr)
+              "docs/v2/works/h-runtime.md §2", file=sys.stderr)
     return 0
 
 
 def cmd_ls(args: argparse.Namespace) -> int:
-    rows = Registry(name=args.socket_name).list()
+    reg = Registry(name=args.socket_name)
+    base = args.host or reg.base()
+    if not base:
+        _out(args, {"sessions": []}, "(没有在跑的 server —— webmuxd start --port 7900)")
+        return 0
+    rows = _manager(args, base).list()
     _out(args, {"sessions": rows})
     if args.json:
         return 0
     if not rows:
-        print("(没有 session)")
+        print(f"(server 在 {base}/,还没有 session)")
         return 0
     for r in rows:
-        ports = str(r["port"])
-        tail = "" if r["state"] == "ready" else \
-            f"  dead — webmuxd kill -t {r['id']} 清掉"
-        print(f"{r['id']:<10} {r['runtime']:<10} {ports:<12} {r['state']}{tail}")
+        print(f"{r['id']:<10} {r['runtime']:<9} {r['view_label']:<5} "
+              f"{r['tabs']} 个 tab   {base}{r['url']}")
     return 0
 
 
 def cmd_has(args: argparse.Namespace) -> int:
-    """只返回退出码,给脚本用:`webmuxd has -t work || webmuxd new ...`"""
+    """只返回退出码,给脚本用:`webmuxd has -t work || webmuxd new --id work`"""
     sid, _ = _split_target(args.target)
-    row = next((r for r in Registry(name=args.socket_name).list()
-                if r["id"] == sid), None)
-    return 0 if row and row["state"] == "ready" else 3
+    base = args.host or Registry(name=args.socket_name).base()
+    if not base:
+        return 3
+    return 0 if any(r["id"] == sid for r in _manager(args, base).list()) else 3
 
 
 def cmd_kill(args: argparse.Namespace) -> int:
     sid, _ = _split_target(args.target)
-    reg = Registry(name=args.socket_name)
-    row = reg.get(sid)
-    if row is None:
-        # v1 这儿还会去按容器名认领一个孤儿容器。v2 没有容器,
-        # 起的两个进程都是我们的子进程 —— 登记表没有就是真没有。
-        raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-    handle = reg.handle(sid)
-    impl = rt.get(row["runtime"])
-    impl.stop(handle)
-    reg.forget(sid)
-    note = "(remote session,对面仍在运行)" if row["runtime"] == "remote" else ""
+    if not sid:
+        raise WebmuxdError("要说关哪个:`webmuxd kill -t demo`", code="bad_request")
+    web = _server(args)
+    runtime = next((r["runtime"] for r in web.list() if r["id"] == sid), "")
+    web.kill(sid)
+    note = "(remote session,对面仍在运行)" if runtime == "remote" else ""
     _out(args, {"id": sid, "removed": True}, f"{sid} 已停掉 {note}".strip())
+    return 0
+
+
+def cmd_kill_server(args: argparse.Namespace) -> int:
+    """**一个都不许留。** 留下的是没人管的 chrome。"""
+    reg = Registry(name=args.socket_name)
+    base = args.host or reg.base()
+    if not base:
+        reg.forget()
+        _out(args, {"killed": 0}, "(没有在跑的 server)")
+        return 0
+    n = _manager(args, base).kill_server()
+    reg.forget()
+    _out(args, {"killed": n}, f"server 停了,连同 {n} 个 session")
     return 0
 
 
@@ -237,7 +266,9 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_info(args: argparse.Namespace) -> int:
     from webmuxd import config
-    rows = Registry(name=args.socket_name).list()
+    reg = Registry(name=args.socket_name)
+    base = args.host or reg.base()
+    rows = _manager(args, base).list() if base else []
     rec = config.load()
     # **xpra 那条路能不能走,现探。** 和 runtime 一样的姿态:
     # 键在=探到了,键不在=没探到 —— 不猜、不缓存。
@@ -251,10 +282,9 @@ def cmd_info(args: argparse.Namespace) -> int:
             "transports": {models.JPG: True, models.VNC: xpra_ok, models.DOM: True},
             "views": [m.to_json() for m in models.mode_choices()],
             "xpra_why": "" if xpra_ok else xpra_why,
-            "env_record": {"at": rec["at"]} if rec else None,
-            "sessions": {"total": len(rows),
-                         "ready": sum(1 for r in rows if r["state"] == "ready"),
-                         "dead": sum(1 for r in rows if r["state"] != "ready")}}
+            "env_record": {"at": rec.at} if rec else None,
+            "server": base or None,
+            "sessions": {"total": len(rows)}}
     _out(args, info,
          "\n".join([f"版本      {info['version']}",
                     f"runtime   " + ", ".join(
@@ -268,9 +298,9 @@ def cmd_info(args: argparse.Namespace) -> int:
                      f"画面      {models.label(models.JPG)},"
                      f"{models.label(models.DOM)} —— "
                      f"**默认的 {models.label(models.VNC)} 用不了**:{xpra_why}"),
-                    f"session   {info['sessions']['ready']} 在跑,"
-                    f"{info['sessions']['dead']} 死了",
-                    (f"记录      {rec['at']}(webmuxd install 探的)" if rec
+                    (f"server    {base}/  ({len(rows)} 个 session)" if base
+                     else "server    没在跑 —— `webmuxd start --port 7900`"),
+                    (f"记录      {rec.at}(webmuxd install 探的)" if rec
                      else "记录      没有 —— 每次都现探,"
                           "跑 `webmuxd install` 可以省掉")]))
     return 0
@@ -278,11 +308,12 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 def cmd_attach(args: argparse.Namespace) -> int:
     sid, _ = _split_target(args.target)
-    row = Registry(name=args.socket_name).get(sid)
-    if not row:
+    web = _server(args)
+    if sid and not any(r["id"] == sid for r in web.list()):
         raise WebmuxdError(f"没有叫 {sid!r} 的 session", code="session_not_found")
-    # **画面一定在** —— 它是我们自己产的,只要 sessiond 活着就有(works/01)
-    url = f"http://127.0.0.1:{row['port']}/"
+    # **画面一定在** —— 它是我们自己产的,只要 server 活着就有。
+    # 不给 id 就开那张列表页。
+    url = web.base + (f"/s/{sid}/" if sid else "/")
     print(url)
     if not args.print_only:
         import webbrowser
@@ -362,17 +393,21 @@ def cmd_dialog(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _locator(args: argparse.Namespace) -> dict:
-    spec: dict[str, Any] = {}
-    if getattr(args, "what", None):
-        spec["text"] = args.what
-    for src, dst in (("role", "role"), ("name", "name"), ("label", "label"),
-                     ("css", "css"), ("nth", "nth")):
-        v = getattr(args, src, None)
-        if v is not None:
-            spec[dst] = v
-    if getattr(args, "at", None):
-        spec["point"] = [float(x) for x in args.at.split(",")]
-    return spec
+    """命令行那几个 flag → 一个定位描述。
+
+    **形状在 [`models.Locator`](models.py)** —— 这儿只管把 flag 摆进去,
+    加一种写法改那一处,不改这三处(SDK / CLI / 执行层)。
+    """
+    at = getattr(args, "at", None)
+    return models.Locator(
+        text=getattr(args, "what", None) or "",
+        role=getattr(args, "role", None) or "",
+        name=getattr(args, "name", None) or "",
+        label=getattr(args, "label", None) or "",
+        css=getattr(args, "css", None) or "",
+        point=tuple(float(x) for x in at.split(",")) if at else None,
+        nth=getattr(args, "nth", None),
+    ).to_json()
 
 
 def _do(args: argparse.Namespace, spec: dict) -> int:
@@ -524,13 +559,18 @@ def _parser() -> argparse.ArgumentParser:
         s.set_defaults(fn=fn)
         return s
 
+    # **端口在 server 上,不在 session 上**([k](../docs/v2/works/k-one-server.md))
+    st = add("start", cmd_start, target=False, help="起 server(一个口,承载全部 session)")
+    st.add_argument("--port", "-p", type=int,
+                    default=int(os.environ.get("WEBMUXD_PORT", "7900")),
+                    help="这个口:人打开它看画面,代码连它调 API")
+    st.add_argument("--bind", default="127.0.0.1",
+                    help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
+                         "拿到 token 的人就能操作这里的浏览器")
+
     n = add("new", cmd_new, target=False, help="起一个 session")
     n.add_argument("--id", "-s", required=True)
     # **一件事一个名字,三层通用**:CLI 用 --x,lib 用 x=,镜像用 WEBMUXD_X。
-    # 旧名留作别名,下一版删。
-    # **一个口** —— 画面和 API 都在它上面(works/04 §1)
-    n.add_argument("--port", "-p", type=int, required=True,
-                   help="这个 session 的口:人打开它看画面,代码连它调 API")
     n.add_argument("--runtime", default=None, choices=["process", "remote"],
                    help="process(默认)= 本机起一个浏览器;"
                         "remote = 你给一个 CDP 端点,浏览器不归我们")
@@ -558,9 +598,6 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--dsf", type=float, nargs="?", const=2.0, default=1.0,
                    help="渲染倍率。**默认关**,只在观看端是高 DPI 屏时才开 —— "
                         "光写 --dsf 就是 2。普通屏上开了反而更糊,还多花 2.6 倍带宽")
-    n.add_argument("--bind", default="127.0.0.1",
-                   help="绑哪个地址。默认只绑本机;填 0.0.0.0 就是对外开放 —— "
-                        "拿到 token 的人就能操作这个浏览器")
     # **画面用哪种。默认 VNC**([c §13])—— 它按 damage 区域编码,
     # 滚动时 `scroll` 包零字节搬像素。`webmuxd install` 会把它装上。
     # 起不来就报错,**不自己换一种**;退路是显式说一声。
@@ -584,6 +621,7 @@ def _parser() -> argparse.ArgumentParser:
     add("info", cmd_info, target=False, help="server 状态和 runtime 探测")
     add("has", cmd_has, help="只返回退出码,给脚本用")
     add("kill", cmd_kill, help="停掉一个 session")
+    add("kill-server", cmd_kill_server, target=False, help="停掉 server 和全部 session")
     a = add("attach", cmd_attach, help="打开画面")
     a.add_argument("-p", "--print-only", action="store_true")
 
@@ -645,7 +683,7 @@ if __name__ == "__main__":
 
 
 # --------------------------------------------------------------------------
-# session 登记簿(原 cli/registry.py)
+# server 在哪 —— **登记的只剩这一件事**([k](../docs/v2/works/k-one-server.md))
 # --------------------------------------------------------------------------
 
 def default_dir(name: str = "default") -> Path:
@@ -654,94 +692,48 @@ def default_dir(name: str = "default") -> Path:
 
 
 class Registry:
+    """记着"这套 server 在哪个口上"。
+
+    以前这儿是一张 session 表,`ls` 要读表再逐个探活 —— 因为没有常驻进程,
+    **这个文件在冒充 server**。现在有真的了,它只剩一行:端口、绑在哪、pid。
+
+    `-L name` / `-S path` 照抄 tmux:**换 socket = 换一套独立的 server**。
+    """
+
     def __init__(self, path: str | Path | None = None, *, name: str = "default") -> None:
         self.dir = Path(path) if path else default_dir(name)
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.file = self.dir / "sessions.json"
-        self._warned_stale = False
+        self.file = self.dir / "server.json"
 
-    # ---------------------------------------------------------------- 读写
-
-    def _read(self) -> dict[str, dict]:
-        """读登记表,**读不懂的行直接扔掉,绝不让它把命令带崩**。
-
-        v1 的行长这样:`{"api_port": 7900, "view_port": 6901, …}`;
-        v2 只有一个 `port`([a](../docs/v2/works/a-architecture.md))。
-        升级之后表里还留着旧行,而 `row["port"]` 会 `KeyError` —— 于是
-        **第一条命令就崩,报错还完全不指方向**。这是 0.5.1 真的发生过的事。
-
-        规矩和环境记录那条一样([v1/cli/install.md](../docs/v1/cli/install.md)):
-        **格式对不上就当没有**。差别是这儿要**说出来** —— 那些 session 可能还
-        真在跑,只是我们管不了了,人得知道去自己清。
+    def read(self) -> dict | None:
+        """**读不懂就当没有。** 和环境记录那条一个姿态 —— 上一版留下的
+        `sessions.json` 我们根本不看,它的存在不该让任何一条命令崩。
         """
         try:
-            raw = json.loads(self.file.read_text() or "{}")
+            row = json.loads(self.file.read_text() or "{}")
         except (OSError, json.JSONDecodeError):
-            return {}
-        if not isinstance(raw, dict):
-            return {}
+            return None
+        return row if isinstance(row, dict) and isinstance(row.get("port"), int) else None
 
-        good, stale = {}, []
-        for key, row in raw.items():
-            if isinstance(row, dict) and isinstance(row.get("port"), int) \
-                    and row.get("runtime") and row.get("id"):
-                good[key] = row
-            else:
-                stale.append(key)
-        if stale and not self._warned_stale:
-            self._warned_stale = True
-            print(f"⚠ 登记表里有 {len(stale)} 行读不懂(多半是 0.4 留下的),已忽略:"
-                  f"{', '.join(sorted(stale))}\n"
-                  f"  那些 session 要是还在跑,得自己清 —— 我们已经管不了它们了。\n"
-                  f"  登记表在 {self.file}", file=sys.stderr)
-        return good
-
-    def _write(self, data: dict[str, dict]) -> None:
+    def put(self, *, port: int, bind: str, pid: int) -> None:
         tmp = self.file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1))
+        tmp.write_text(json.dumps(
+            {"port": port, "bind": bind, "pid": pid,
+             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+            ensure_ascii=False, indent=1))
         tmp.replace(self.file)              # 原子替换,别让半个文件被读到
 
-    def put(self, handle: SessionInfo, **extra: Any) -> None:
-        data = self._read()
-        detail = {k: v for k, v in handle.detail.items() if not k.startswith("_")}
-        data[handle.id] = {"id": handle.id, "runtime": handle.kind,
-                           "port": handle.port, "detail": detail, **extra}
-        self._write(data)
+    def forget(self) -> None:
+        self.file.unlink(missing_ok=True)
 
-    def forget(self, id: str) -> None:
-        data = self._read()
-        if data.pop(id, None) is not None:
-            self._write(data)
+    def base(self) -> str | None:
+        """server 的地址 —— **探得到才算**。
 
-    def get(self, id: str) -> dict | None:
-        return self._read().get(id)
-
-    def handle(self, id: str) -> SessionInfo | None:
-        row = self.get(id)
+        文件会撒谎(进程被 OOM 杀了它不知道),所以按记录去连、连不上就当没有。
+        和"记录会撒谎"那条老规矩([d](../docs/v2/works/d-install.md))一致。
+        """
+        row = self.read()
         if not row:
             return None
-        return _handle_of(row)
-
-    # ---------------------------------------------------------------- 探活
-
-    def list(self) -> list[dict]:
-        """**每次都现场探活。** 死掉的照样列出来,标 `dead` ——
-        看不到它你就不知道该清理什么。"""
-        out = []
-        for row in self._read().values():
-            h = _handle_of(row)
-            try:
-                alive = rt.get(row["runtime"]).alive(h)
-            except Exception:
-                alive = False
-            out.append({**row, "state": "ready" if alive else "dead"})
-        return sorted(out, key=lambda r: r["id"])
-
-    def __iter__(self) -> Iterator[dict]:
-        return iter(self.list())
-
-
-def _handle_of(row: dict) -> SessionInfo:
-    """`_read()` 已经把形状不对的行滤掉了,所以到这儿可以直接取。"""
-    return SessionInfo(row["runtime"], row["id"], row["port"],
-                  dict(row.get("detail") or {}))
+        url = f"http://127.0.0.1:{row['port']}"
+        return url if processes.wait_http(url + "/healthz", 2) else None

@@ -12,8 +12,8 @@ v2:  一个 CDP 端点进  →  webmuxd 自己吐一个 HTTP 口出(画面和 AP
 ```
 
 ```python
-web  = Webmuxd()
-sess = web.session(id="work", port=7900)      # 只剩一个端口
+web  = Webmuxd(port=7900)
+sess = web.session(id="work")      # 只剩一个端口
 tab  = sess.open("https://example.com")
 print(sess.view_url)                          # http://127.0.0.1:7900/ —— 和 API 同一个
 ```
@@ -33,10 +33,24 @@ loopback、KasmVNC 的抽象 socket、kasm 的窗口看门狗)全部仍然成立
 
 | 目录 | 是什么 | 状态 |
 | --- | --- | --- |
-| [`works`](works/) | 设计稿与实测记录 | **本轮先写这个** |
-| `sdk` | Python 包 —— 主体,行为定义在这儿 | 待写,`view/` 一节是新的,其余从 v1 平移 |
-| `api` | HTTP + WS 的线上格式 | 待写,新增 `WS /api/view` |
-| `cli` | `webmuxd` 命令 | 待写,`--view-port` 退役 |
+| [`works`](works/) | 设计稿与实测记录 —— 讲**为什么** | 写完 a–k |
+| [`sdk`](sdk/) | Python 包 —— 主体,行为定义在这儿 | **只写变了的那几处**,其余仍看 v1 |
+| [`api`](api/) | HTTP + WS 的线上格式 | 同上 |
+| [`cli`](cli/) | `webmuxd` 命令 | 同上 |
+| [`issues`](issues/) | 撞上过的坑,以及怎么定的位 | |
+
+**这三篇只写"和 v1 不一样的地方"**,不抄一遍没变的东西 ——
+抄一遍就是两份说同一件事,而两份迟早会不一致。变了的是这些:
+
+| | v1 | v2 |
+| --- | --- | --- |
+| 端口 | 一个 session 两个口 | **一个 server 一个口**,session 是 `/s/<id>/`([k](works/k-one-server.md)) |
+| 画面 | 别人的 VNC 镜像 | **自己产**([c](works/c-view.md)),三种可切 |
+| 读 | `observe()` 回一整包 | **一张图,和正文**([i §3](works/i-agent-surface.md#3-读的那一面一张图和正文)) |
+| runtime | container / process / remote | **process / remote**([h](works/h-runtime.md)) |
+
+**tab、动作、日志、错误模型一个字没动** —— 那几样仍以
+[v1](../v1/) 那份为准。
 
 ## 与上一层的关系
 

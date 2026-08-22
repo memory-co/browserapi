@@ -157,9 +157,9 @@ class Screencaster:
                                             {"targetId": tab.target_id})
             await self._apply_viewport()
             await self._start_cast(locked=True)
-        await self._tell_all("cast", tab=tab_id, w=self.width, h=self.height,
-                             format=self.jpg.format, quality=self.jpg.adaptor.quality,
-                             dsf=self.jpg.dsf)
+        await self._send_all(models.Cast(
+            tab=tab_id, w=self.width, h=self.height, format=self.jpg.format,
+            quality=self.jpg.adaptor.quality, dsf=self.jpg.dsf))
 
     async def _start_cast(self, *, locked: bool = False) -> None:
         if not self.own_frames:
@@ -208,8 +208,9 @@ class Screencaster:
             await self._apply_viewport()
             if self.jpg.on:
                 await self._start_cast(locked=True)    # 重发一次,带上新尺寸
-        await self._tell_all("cast", tab=self._tab, w=width, h=height,
-                             format=self.jpg.format, quality=self.jpg.adaptor.quality)
+        await self._send_all(models.Cast(
+            tab=self._tab, w=width, h=height, format=self.jpg.format,
+            quality=self.jpg.adaptor.quality))
 
     # ------------------------------------------------------------------ 收帧
 
@@ -240,8 +241,8 @@ class Screencaster:
         size = (int(meta.get("deviceWidth") or 0), int(meta.get("deviceHeight") or 0))
         if size != self._last_meta and all(size):
             self._last_meta = size
-            await self._tell_all("meta", frame_w=size[0], frame_h=size[1],
-                                 css_w=self.width, css_h=self.height)
+            await self._send_all(models.Meta(size[0], size[1],
+                                             self.width, self.height))
 
         for v in list(self.viewers):
             with contextlib.suppress(Exception):
@@ -274,8 +275,8 @@ class Screencaster:
         async with self._lock:
             if self.jpg.on:
                 await self._start_cast(locked=True)
-        await self._tell_all("quality", quality=changed.quality,
-                             every_nth=changed.every_nth)
+        await self._send_all(models.QualityChanged(changed.quality,
+                                                   changed.every_nth))
 
     # ------------------------------------------------------------------ 输入
 
@@ -289,10 +290,19 @@ class Screencaster:
         """
         return self._sid
 
-    async def _tell_all(self, type_: str, **payload: Any) -> None:
+    async def _send_all(self, msg: Any) -> None:
+        """把一条下行消息发给所有观看者。
+
+        **收一个对象,不收 `(type, **kw)`** —— 那样每个调用点都在自己拼形状,
+        而形状是跨语言的([models](models.py) ↔ `protocol/messages.ts`)。
+        """
+        payload = msg.to_json() if hasattr(msg, "to_json") else msg
+        # **每条下行都得带 `type`** —— 观看端按它分流,漏了就是**静默失效**:
+        # 消息发出去了、对面一个分支都没进,而且两边都不报错。
+        assert "type" in payload, f"下行消息没有 type:{payload!r}"
         for v in list(self.viewers):
             with contextlib.suppress(Exception):
-                await v.tell(type_, **payload)
+                await v.send(payload)
 
     # ------------------------------------------------------------- 换一种画面
 
@@ -326,7 +336,7 @@ class Screencaster:
                                 "起的时候选 --transport vnc 才会有",
                          "hint": "重新起一个 session:webmuxd new … --transport vnc"})
         if want == self.mode:
-            return self.mode_info()
+            return self.mode_info().to_json()
 
         old = self.mode
         await self._stop_cast()
@@ -350,22 +360,13 @@ class Screencaster:
         log.info("画面从 %s 换成 %s(%s)", models.label(old), models.label(want), why)
         self.session.log.append("session", event="view_mode",
                                 mode=want, was=old, why=why)
-        await self._tell_all("mode", **info)
-        return info
+        await self._send_all(info.as_message())
+        return info.to_json()
 
-    def mode_info(self, *, why: str = "", was: str = "") -> dict[str, Any]:
-        """现在是哪种、能切哪几种。**界面不该自己再写一遍这些字。**"""
-        out: dict[str, Any] = {
-            "mode": self.mode,
-            "label": models.label(self.mode),
-            "available": [m.to_json() for m in models.mode_choices()
-                          if m.name in self.available],
-        }
-        if why:
-            out["why"] = why
-        if was:
-            out["was"] = was
-        return out
+    def mode_info(self, *, why: str = "", was: str = "") -> models.ModeInfo:
+        """现在是哪种、能切哪几种。**形状在 [`models.ModeInfo`](models.py)** ——
+        界面不该自己再写一遍这些字,我们也不该在这儿手拼一份。"""
+        return models.ModeInfo(self.mode, list(self.available), why=why, was=was)
 
     # ------------------------------------------------------------------ 观测
 
@@ -469,9 +470,11 @@ class Viewer:
             await self._write(newest, newest_id)
         return rtt
 
-    async def tell(self, type_: str, **payload: Any) -> None:
+    async def send(self, payload: dict[str, Any]) -> None:
+        """一条下行 JSON。**payload 里已经带着 `type`** ——
+        形状归 [`models`](models.py) 管,这一层只管发出去。"""
         if not self.closed:
-            await self._send_json({"type": type_, **payload})
+            await self._send_json(payload)
 
     def stats(self) -> dict[str, Any]:
         return {"name": self.name, "writable": self.writable,

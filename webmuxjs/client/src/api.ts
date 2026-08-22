@@ -39,23 +39,27 @@ export class Api {
   /**
    * @param auth `?t=…` 或空串。**token 只在这一个地方拼**,
    *   别处都从这儿要 —— 散在各处拼的话,漏一个就是一条 401。
+   * @param base session 的前缀,`/s/demo` 这种;server 那一层是空串。
+   *   **一个 server 一个口,session 是它下面的一段路径**
+   *   ([k](../../../docs/v2/works/k-one-server.md))。
    */
-  constructor(readonly auth: string) {}
+  constructor(readonly auth: string, readonly base = "") {}
 
   private url(path: string): string {
-    if (!this.auth) return "/api" + path;
-    return "/api" + path + (path.includes("?") ? "&" + this.auth.slice(1) : this.auth);
+    const p = this.base + "/api" + path;
+    if (!this.auth) return p;
+    return p + (path.includes("?") ? "&" + this.auth.slice(1) : this.auth);
   }
 
   /** WS 地址 —— `location.protocol` 决定 ws 还是 wss。 */
   ws(path: string): string {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    return proto + "//" + location.host + path + this.auth;
+    return proto + "//" + location.host + this.base + path + this.auth;
   }
 
   /** 静态资源(重放器、xpra 客户端)也要带 token。 */
   asset(path: string): string {
-    return path + this.auth;
+    return this.base + path + this.auth;
   }
 
   fetch(path: string, opt?: RequestInit): Promise<Response> {
@@ -132,4 +136,41 @@ export function takeToken(): string {
   const t = new URLSearchParams(location.search).get("t") || "";
   if (t) history.replaceState({}, "", location.pathname);
   return t ? "?t=" + encodeURIComponent(t) : "";
+}
+
+/** server 上那一行 session。 */
+export interface SessionRow {
+  id: string;
+  runtime: string;
+  url: string;
+  tabs: number;
+  active_tab: string | null;
+  view: string;
+  view_label: string;
+  available: string[];
+  uptime_s: number;
+  notes: string[];
+}
+
+/**
+ * 这个页面在看哪个 session —— **地址说了算**。
+ *
+ * `/` 是那张列表,`/s/demo/` 是 demo 的画面。服务端两条路由回的是
+ * **同一个文件**,认路是客户端的事。
+ */
+export function currentSession(): string {
+  const m = location.pathname.match(/^\/s\/([^/]+)/);
+  return m ? decodeURIComponent(m[1]!) : "";
+}
+
+/** server 那一层的接口(不带 session 前缀)。 */
+export class ServerApi {
+  constructor(readonly auth: string) {}
+
+  async sessions(): Promise<{ sessions: SessionRow[]; uptime_s: number }> {
+    const r = await fetch("/api/sessions" + this.auth,
+                          { headers: { "content-type": "application/json" } });
+    if (!r.ok) throw new Error("拿不到 session 列表:" + r.status);
+    return r.json();
+  }
 }

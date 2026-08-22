@@ -23,7 +23,6 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Any
 
 from webmuxd import config
 from webmuxd.exceptions import PortInUse, unavailable
@@ -53,10 +52,9 @@ def resolve_browser(explicit: str | None = None) -> str:
                 return cand
             raise unavailable("process", f"指定的浏览器不在:{cand}",
                               "确认路径,或者跑 `webmuxd install` 下一个")
-    rec = (config.get("default_browser") or {})
-    p = rec.get("path") if isinstance(rec, dict) else None
-    if p and os.path.exists(p):
-        return p
+    rec = config.browser()
+    if rec and os.path.exists(rec.path):
+        return rec.path
     got = config.find()
     if got:
         return got
@@ -181,27 +179,22 @@ def wait_port(port: int, timeout: float = 30.0, host: str = "127.0.0.1") -> bool
 # 区别只在那个端点是我们起的还是你给的。
 # --------------------------------------------------------------------------
 
-def spawn_sessiond(cdp: str, *, port: int, data: str, bind: str = "127.0.0.1",
-                   token: str | None = None, view: dict[str, Any] | None = None,
-                   extra_env: dict[str, str] | None = None) -> subprocess.Popen:
-    """起 sessiond,**不等它** —— 等在调用方那儿,因为失败时要连浏览器一起收。
+def spawn_server(*, port: int, data: str, bind: str = "127.0.0.1",
+                 token: str | None = None) -> subprocess.Popen:
+    """起那个 server 进程,**不等它** —— 等在调用方那儿。
 
-    `start_new_session` 脱离调用者的进程组:CLI 是一次性的命令,不脱离的话
-    `webmuxd new` 一退出就把刚起的东西带走了。
+    `start_new_session` 脱离调用者的进程组:`webmuxd start` 是一次性的命令,
+    不脱离的话它一退出就把刚起的 server 带走了。
+
+    **它的输出不能扔。** 和浏览器那条是同一个教训:扔掉之后它崩了、
+    降质了、报警了,外面一概看不见。落到 data 目录旁边。
     """
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path), **(extra_env or {})}
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
     if token:
         env["WEBMUXD_TOKEN"] = token
-    # **sessiond 自己的输出也不能扔。** 和浏览器那条(works/07)是同一个教训:
-    # 扔掉之后它崩了、降质了、报警了,外面一概看不见。落到 data 目录旁边。
-    os.makedirs(os.path.dirname(data) or ".", exist_ok=True)
-    log_path = os.path.join(os.path.dirname(data) or ".", "sessiond.log")
-    log_file = open(log_path, "ab", buffering=0)
-    argv = [sys.executable, "-m", "webmuxd.serve", "--cdp", cdp,
-            "--bind", bind, "--port", str(port), "--data", data]
-    for k, v in (view or {}).items():
-        if v is not None:
-            argv += [f"--{k}", str(v)]
+    os.makedirs(data, exist_ok=True)
+    log_file = open(os.path.join(data, "server.log"), "ab", buffering=0)
     return subprocess.Popen(
-        argv, env=env, stdout=log_file, stderr=log_file,
-        start_new_session=True)
+        [sys.executable, "-m", "webmuxd.serve",
+         "--bind", bind, "--port", str(port), "--data", data],
+        env=env, stdout=log_file, stderr=log_file, start_new_session=True)

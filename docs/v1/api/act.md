@@ -1,47 +1,122 @@
-# 页面上的动作与读
+# 页面上的动作与观测
 
-**做**是 `POST /api/act`;**读**只有两个口子,而且都直接回字节,不是 JSON。
-三个都是**页面级**的,接受可选的 `tab` 参数([README §2](README.md#2-一条贯穿全局的规则tab-参数))。
+两个端点:**看**(`GET /api/observe`)和 **做**(`POST /api/act`)。
+两个都是**页面级**的,接受可选的 `tab` 参数([README §2](README.md#2-一条贯穿全局的规则tab-参数))。
 
-操作日志在 [log.md](log.md)。Python 侧这几件事都挂在 `Tab` 上 ——
+设计目标:一次 `observe` 返回的东西**直接能喂给多模态模型**,调用方零解析。
+
+操作日志在 [log.md](log.md)。Python 侧这两件事都挂在 `Tab` 上 ——
 [sdk/tab/input.md](../sdk/tab/input.md) 和 [sdk/tab/read.md](../sdk/tab/read.md)。
 
-## 1. 读 —— 一张图和正文
+## 1. `GET /api/observe` —— 看
 
 ```
-GET /api/screenshot?tab=t_3&full_page=false     → image/webp
-GET /api/text?tab=t_3                           → text/plain
+GET /api/observe?tab=t_3&annotate=true&viewport_only=false&max_elements=150
 ```
 
-就这么多。
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `tab` | 当前激活 | 观测哪个 tab |
+| `annotate` | `true` | 截图上是否画元素编号框(Set-of-Mark) |
+| `viewport_only` | `false` | 只要视口内的元素,压体积 |
+| `max_elements` | `150` | 上限,超出按"视口内 → 离视口远近"排序截断 |
+| `text` | `digest` | `none` / `digest`(前 4000 字) / `full` |
 
-> **这儿以前是 `GET /api/observe`**:一次调用回一整包 —— 筛过的元素表、
-> 编好的号、一次观测的 id、盲区 notes、页面信息、截图、正文。砍了。
->
-> 判据是这项目那句老话:**tmux 会做这个吗?** 它有 `capture-pane`,
-> 就是这两样;它没有"把屏幕上的东西筛一遍编上号再给你"。那是一套
-> **关于 agent 该怎么用浏览器的意见** —— 意见该留在调用方那边。
->
-> 元素表没消失,它在**定位**那一侧(§4):`{"text": "登录"}` 就是拿它做的。
-> **它是动作的一部分,不是一个读的口子。**
+```jsonc
+{
+  "observation_id": "obs_01J9X...",
+  "tab": "t_3",
+  "at": "2026-08-08T14:22:31.412Z",
 
-### 1.1 出图的两个地方
+  "page": {
+    "url": "https://shop.example.com/checkout",
+    "title": "结算",
+    "loading": false,
+    "scroll": { "y": 1240, "max_y": 4820 },
+    "window_size": { "w": 1024, "h": 680 }
+  },
+
+  "screenshot": {
+    "url": "/api/observe/obs_01J9X.../screenshot",   // 标注版
+    "plain_url": "/api/observe/obs_01J9X.../screenshot?annotate=false",
+    "w": 1024, "h": 680, "format": "webp"
+  },
+
+  "elements": [
+    { "id": 12,
+      "role": "button",              // 可访问性 role
+      "name": "提交订单",            // 可访问性名字
+      "value": null,
+      "bbox": [820, 612, 140, 40],   // 视口坐标 x,y,w,h
+      "in_viewport": true,
+      "enabled": true,
+      "affords": ["click", "hover"], // 这个元素支持哪些动作
+      "hint": "form#checkout > 主按钮" // 人可读定位提示,排查时有用
+    },
+    { "id": 13, "role": "textbox", "name": "优惠码", "value": "",
+      "bbox": [420, 560, 260, 36], "in_viewport": true, "enabled": true,
+      "affords": ["type", "click"], "hint": "input#coupon" }
+  ],
+
+  "text": "结算\n收货地址 ...",
+
+  "tabs": [                          // ← 让 agent 知道有哪些 tab,见 §5
+    { "id": "t_3", "index": 0, "active": true,  "title": "结算" },
+    { "id": "t_7", "index": 1, "active": false, "title": "帮助中心" }
+  ],
+
+  "notes": [
+    "页面有 3 个 iframe,其中 1 个跨域读不到",
+    "元素被截断:实际 212 个,返回前 150 个"
+  ]
+}
+```
+
+### 1.1 元素表怎么筛
+
+不能把整棵可访问性树倒给模型(几千节点,又贵又吵)。规则:
+
+1. **可交互优先**:role 属于 button / link / textbox / checkbox / radio / combobox /
+   menuitem / tab / slider…,或挂了 click 监听,或 `contenteditable`
+2. **看得见**:bbox 非零、没被 `display:none`/`visibility:hidden`/零透明度藏起来、没被完全遮挡
+3. **去噪**:只套一层的嵌套可点击容器合并成最内层有名字的那个;名字和 value 都空的纯装饰元素丢掉。
+   **但这条只管靠"可聚焦"混进来的东西** —— 真正的表单控件(checkbox / textbox / 这类
+   role 明确的)即使没有标签也留着,一个裸 checkbox 你照样得能勾它
+4. **默认给整页**,但标注 `in_viewport`,让模型知道"这个要滚下去才点得到"
+5. **上限 150**,截断了必须在 `notes` 里说清楚截掉了多少
+
+> 这套规则是整个系统**最容易出质量问题的地方**。它有版本号,
+> 每条日志都记录用的哪个版本,否则筛选规则一升级,历史日志里的元素编号就对不上了。
+
+### 1.2 `notes` 是刻意的
+
+明确告诉调用方**这次观测的盲区**:跨域 iframe 读不到、元素被截断、页面还在加载。
+不说的话,模型会把"没看见"当成"不存在",然后自信地做错决定。
+
+### 1.3 给模型的紧凑表示
+
+`elements` 压成这样直接进 prompt(SDK 的 `obs.as_prompt()`
+见 [sdk/tab/read.md §1](../sdk/tab/read.md#1-tabobserve),CLI 的 `webmuxd observe` 也是这个排版):
+
+```
+[12] button  "提交订单"
+[13] textbox "优惠码" = ""
+[14] link    "返回购物车"        (需下滑)
+[15] button  "删除"              (禁用)
+```
+
+### 1.4 三个出图的地方
 
 | 端点 | 是什么 |
 | --- | --- |
-| `GET /api/screenshot?full_page=` | **现拍一张** |
+| `GET /api/screenshot?full_page=` | **现拍一张**,干净的 |
+| `GET /api/observe/{obs_id}/screenshot[?annotate=false]` | 那次观测拍的,默认**画了编号** |
 | `GET /api/log/{seq}/shot` | 每个动作后自动拍的,见 [log.md](log.md) |
 
-`full_page` 拍的是整个滚动区域,**不是人在画面上看到的东西** ——
+都直接返回图片字节,不是 JSON。
+
+`full_page` 拍的是整个滚动区域,**不是人在 VNC 画面上看到的东西** ——
 要"所见即所得"就别带它。
-
-### 1.2 要像素就得切到前台
-
-Chromium **不渲染后台 tab**,所以 `screenshot` 对非激活 tab 会**先切过去**。
-`text` 不用切(读的是 DOM,不是像素)。
-
-> 它一声不吭地切,而且不和 `act` 排队 ——
-> 已知的口子,见 [issue](../../v2/issues/读一眼会改状态却不排队.md)。
 
 ## 2. `POST /api/act` —— 做
 
@@ -123,6 +198,7 @@ Chromium **不渲染后台 tab**,所以 `screenshot` 对非激活 tab 会**先�
 | `wait_for` | `text` / `css` / `url_contains` / `ms` | |
 | `extract` | 定位 + `mode`:`text`/`html`/`table`/`attr` | 取数据 |
 | `screenshot` | `full_page` | 非激活 tab 会先被切到前台 |
+| `observe` | 同 §1 参数 | 在动作串中间插一次观测 |
 | `tab_new` / `tab_activate` / `tab_close` | `url` / `id` | **见 §5** |
 | `js` | `expression` | 逃生舱,日志标黄 |
 
@@ -142,6 +218,7 @@ Chromium **不渲染后台 tab**,所以 `screenshot` 对非激活 tab 会**先�
 { "text": "提交订单" }                          // 可见文字,最常用
 { "role": "button", "name": "登录" }            // role + 名字,消歧
 { "label": "手机号" }                           // 表单标签找输入框
+{ "element": 12, "observation": "obs_..." }     // observe() 给的编号
 { "css": "#pay" }                               // 选择器,逃生舱
 { "point": [890, 632] }                         // 坐标,最后手段
 ```
@@ -149,30 +226,6 @@ Chromium **不渲染后台 tab**,所以 `screenshot` 对非激活 tab 会**先�
 **文字匹配语义**(定死,不猜):精确匹配优先 → 没有则子串匹配 → 大小写不敏感 →
 仍然多于一个就返回 `404 not_found` 并列出全部候选,**绝不随便挑一个**。
 要指定第几个就加 `"nth": 1`。
-
-**没有"按编号定位"。** 编号只在一次快照里成立,而快照是每次 `act` 自己抓的、
-不对外 —— 拿上一次的编号来点,点到的可能是另一个东西,**而且不报错**。
-候选里回的 `role` + `name` 才是**跨快照仍然成立**的说法,重试拿那两样。
-
-> 以前有 `{"element": 12, "observation": "obs_..."}`,靠"这个编号是哪次观测的"
-> 来挡陈旧编号。`observe` 砍掉之后没有"一次观测"了,那道挡板没了落点 ——
-> **留着键而挡不住,比没有这个键更坏。**
-
-### 4.0 元素表怎么筛
-
-定位要先有一张元素表。不能把整棵可访问性树倒给模型(几千节点,又贵又吵),
-所以有这几条 —— **它们现在只服务定位,不再出现在任何响应里**:
-
-1. **可交互优先**:role 属于 button / link / textbox / checkbox / radio / combobox /
-   menuitem / tab / slider…,或挂了 click 监听,或 `contenteditable`
-2. **看得见**:bbox 非零、没被 `display:none`/`visibility:hidden`/零透明度藏起来、没被完全遮挡
-3. **去噪**:只套一层的嵌套可点击容器合并成最内层有名字的那个;名字和 value 都空的纯装饰元素丢掉。
-   **但这条只管靠"可聚焦"混进来的东西** —— 真正的表单控件(checkbox / textbox / 这类
-   role 明确的)即使没有标签也留着,一个裸 checkbox 你照样得能勾它
-4. **上限 150**,超出按"视口内 → 离视口远近"排序截断
-
-> 这套规则是整个系统**最容易出质量问题的地方**。它有版本号,
-> 每条日志都记录用的哪个版本 —— 否则筛选规则一升级,历史日志里的编号就对不上了。
 
 ### 4.1 `text` 什么时候是定位,什么时候是内容
 
@@ -184,7 +237,7 @@ Chromium **不渲染后台 tab**,所以 `screenshot` 对非激活 tab 会**先�
 ```
 
 **规则:`type` 动作的 `text` 是内容,不参与定位**,它的定位只看
-`label` / `role`+`name` / `css` / `point`。其余动作的 `text` 是定位。
+`label` / `role`+`name` / `element` / `css` / `point`。其余动作的 `text` 是定位。
 
 一个动作要是既需要定位又需要文本内容,就只能这么切 —— 换个键名(比如 `value`)
 会和 `select` 的 `value` 再撞一次。
@@ -197,7 +250,7 @@ Chromium **不渲染后台 tab**,所以 `screenshot` 对非激活 tab 会**先�
 tab 的增删和页面动作在这儿咬合。
 
 **观测里带 `tabs` 数组**,所以调用方每一步都知道有哪些 tab。
-点了个 `target=_blank` 的链接之后,下一次 `GET /api/tabs` 里就会多一个,
+点了个 `target=_blank` 的链接之后,下一次 `observe()` 里就会多一个,
 `after.new_tabs` 也会当场告诉你:
 
 ```jsonc
@@ -222,8 +275,8 @@ tab 的增删和页面动作在这儿咬合。
 **对非激活 tab 的输入是允许的**(CDP 输入投给 target,不走屏幕焦点),
 但 VNC 画面只显示激活的那个,所以人看不见。这类动作在日志里标 `background: true`。
 
-**要像素的不行**:Chromium 不渲染后台 tab。`GET /api/screenshot`
-以及动作串里的 `screenshot` 指向非激活 tab 时,**先切前台再拍**,
+**要像素的不行**:Chromium 不渲染后台 tab。`GET /api/observe`、`GET /api/screenshot`、
+以及动作串里的 `observe` / `screenshot` 指向非激活 tab 时,**先切前台再拍**,
 响应带 `activated: true`。见 [README §2](README.md#2-一条贯穿全局的规则tab-参数)。
 
 ## 6. 一个典型的循环
@@ -231,15 +284,15 @@ tab 的增删和页面动作在这儿咬合。
 两个端点交替,不需要第三个:
 
 ```
-GET  /api/screenshot         → 一张图        GET /api/text → 正文
+GET  /api/observe            → 标注截图 + 元素表 + tab 列表 + notes
       ↓  喂给模型(图 + as_prompt 排版 + tabs + notes + 最近几条 log)
 POST /api/act  { actions, note, user }
       ↓  ok:继续下一轮
-         !ok:把 candidates 喂回模型自我纠正(拿 role + name 重试)
+         !ok:把 candidates 喂回模型自我纠正,不用重新 observe
 ```
 
 `note` 带上这一步的思考,`user` 带上是谁在动,两个都落进操作日志([log.md](log.md))。
 一次 `act` 执行一串动作,省掉每个动作一次往返。
 
-写成代码见 [sdk/tab/read.md §3](../sdk/tab/read.md#4-怎么和模型接起来)。
+写成代码见 [sdk/tab/read.md §3](../sdk/tab/read.md#5-怎么和模型接起来)。
 跑的时候上层那个画面里能实时看着它点。

@@ -14,6 +14,19 @@ from webmuxd import Tab, Webmuxd
 from webmuxd.cdp import CDP
 from webmuxd.exceptions import BadRequest, NotFound, RuntimeUnavailable, TabGone
 from webmuxd.serve import build
+from webmuxd.sessions import Server
+
+
+def _one(session, sid: str = "work"):
+    """一个只装着这一个 session 的 server。
+
+    **测试也走 `/s/<id>/`** —— 那是真实的地址形状,绕过它就等于不测路由
+    ([k §4](../../docs/v2/works/k-one-server.md#4-路由s-id-前缀))。
+    """
+    import tempfile
+    srv = Server(data_root=tempfile.mkdtemp(prefix="wm-srv-"))
+    srv.adopt(sid, session)
+    return srv
 from webmuxd.sessions import Session as CoreSession
 
 
@@ -84,7 +97,7 @@ def live(request):
             sess = CoreSession(cdp, data_dir=f"/tmp/libdata-{api_port}",
                                human_yield_ms=0)
             await sess.start()
-            runner = aioweb.AppRunner(build(sess))
+            runner = aioweb.AppRunner(build(_one(sess)))
             await runner.setup()
             await aioweb.TCPSite(runner, "127.0.0.1", api_port).start()
             box["ready"] = True
@@ -113,8 +126,9 @@ def page_url(live):
 
 @pytest.fixture
 def sess(live):
-    web = Webmuxd(user="claudecode")
-    s = web.session(id="work", port=live[0])
+    # **端口在 Webmuxd 上,不在 session 上**(k)
+    web = Webmuxd(port=live[0], user="claudecode")
+    s = web.session(id="work")
     yield s
     # sessiond 是模块级共享的,用完把 tab 清掉 —— 不然下一个用例
     # 按标题找 tab 会匹配到上一个用例留下的那个
@@ -128,45 +142,45 @@ def sess(live):
 
 # ------------------------------------------------------------- 三个对象
 
-def test_manager_is_an_empty_shell():
-    """`Webmuxd()` 不起容器、不占端口 —— 它只是"我要开始管 session 了"。"""
-    web = Webmuxd()
-    assert web.port is None
-    assert web.sessions() == []
+def test_端口在_manager_上_不在_session_上(live):
+    """**一个 server 一个口**([k](../../docs/v2/works/k-one-server.md))。
+
+    以前是 `web.session(id=, port=)` —— 那是 kasm 留下的:它的 web 口
+    不归我们控制,只能一个 session 一个。画面自己产之后那条硬约束没了。
+    """
+    web = Webmuxd(port=live[0])
+    assert web.base == f"http://127.0.0.1:{live[0]}"
+    # 旧写法**不静默吞** —— 落进 **kw 会被无声丢掉,然后报一个指向别处的错
+    with pytest.raises(BadRequest) as ei:
+        web.session(id="work", port=live[0])
+    assert "Webmuxd(port=" in str(ei.value)
 
 
 def test_session_is_idempotent_and_returns_the_same_object(live):
     """**同一个 id 永远给你同一个 session**,连 Python 对象都是同一个 ——
     每个 Session 背后有一条 WS 和一份内存表,给两个就是两条连接
     (sdk/manager.md §1)。"""
-    web = Webmuxd()
-    a = web.session(id="work", port=live[0])
+    web = Webmuxd(port=live[0])
+    a = web.session(id="work")
     b = web.session(id="work")
     assert a is b
     a.detach()
 
 
-def test_a_new_id_without_ports_is_refused(live):
-    """端口是**部署决定**的,我们不替你分配。"""
-    web = Webmuxd()
-    with pytest.raises(BadRequest) as ei:
-        web.session(id="全新的")
-    assert "port" in str(ei.value)
+def test_没有_server_就说没有_不猜一个(live):
+    """**server 不按需自启。** tmux 能自启是因为它用 socket 没端口要挑;
+    我们有,而那条规矩是"端口由你给"(h §6)。"""
+    from webmuxd.exceptions import ChromeGone
+    web = Webmuxd(port=_free_port())          # 那个口上什么都没有
+    with pytest.raises(ChromeGone):
+        web.list()
 
 
-def test_那个口上什么都没有就去起_起不来要说清是哪一种(live):
-    """两种失败指向**不同的下一步**,所以不能糊成一句。"""
-    from webmuxd.exceptions import PortInUse
-    web = Webmuxd()
-
-    # 1024 以下要 root —— 报"被占了"会让人去查一个不存在的进程
-    with pytest.raises(PortInUse) as pi:
-        web.session(id="没起来的", port=1)
-    assert pi.value.details["reason"] == "privileged"
-
-    # runtime 自己起不来 —— 这条要给 hint
+def test_起不来的_session_要说清并且给_hint(live):
+    """runtime 自己起不来 —— 这条要给 hint,而且**要跨过 HTTP 传回来**。"""
+    web = Webmuxd(port=live[0])
     with pytest.raises(RuntimeUnavailable) as ei:
-        web.session(id="没端点的", port=_free_port(), runtime="remote")
+        web.session(id="没端点的", runtime="remote")
     assert ei.value.hint
 
 

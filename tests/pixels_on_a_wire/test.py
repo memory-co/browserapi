@@ -13,6 +13,19 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from webmuxd.cdp import CDP
 from webmuxd.serve import build
+from webmuxd.sessions import Server
+
+
+def _one(session, sid: str = "work"):
+    """一个只装着这一个 session 的 server。
+
+    **测试也走 `/s/<id>/`** —— 那是真实的地址形状,绕过它就等于不测路由
+    ([k §4](../../docs/v2/works/k-one-server.md#4-路由s-id-前缀))。
+    """
+    import tempfile
+    srv = Server(data_root=tempfile.mkdtemp(prefix="wm-srv-"))
+    srv.adopt(sid, session)
+    return srv
 from webmuxd.sessions import Session
 from webmuxd import cursor as cursor_probe
 from webmuxd.frames import HEADER_SIZE, parse_header
@@ -38,7 +51,7 @@ async def live(chromium_endpoint, tmp_path):
     conn = await CDP.connect(chromium_endpoint)
     session = Session(conn, data_dir=tmp_path, human_yield_ms=0)
     await session.start()
-    client = TestClient(TestServer(build(session)))
+    client = TestClient(TestServer(build(_one(session))))
     await client.start_server()
     probe = await CDP.connect(chromium_endpoint)          # 第二条,只用来读真相
     try:
@@ -78,7 +91,7 @@ async def _open(session, url):
 async def test_一连上就有画面而且帧头是我们说的那个形状(live):
     session, client, _ = live
     tab = await _open(session, MOVING)
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         frames, notes = await _frames(ws, 3)
 
     hello = next(m for m in notes if m["type"] == "hello")
@@ -99,7 +112,7 @@ async def test_一连上就有画面而且帧头是我们说的那个形状(live
 async def test_没人看就不产帧(live):
     session, client, _ = live
     await _open(session, MOVING)
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         await _frames(ws, 2)
         assert session.view.stats()["on"] is True
     await asyncio.sleep(0.3)
@@ -112,8 +125,8 @@ async def test_没人看就不产帧(live):
 async def test_不回_ack_的客户端被卡住而正常的那个不受影响(live):
     session, client, _ = live
     await _open(session, MOVING)
-    async with client.ws_connect("/api/view") as slow, \
-               client.ws_connect("/api/view") as fast:
+    async with client.ws_connect("/s/work/api/view") as slow, \
+               client.ws_connect("/s/work/api/view") as fast:
         got_fast, _ = await _frames(fast, 6)                      # 这个照常回 ack
 
         got_slow = []
@@ -135,7 +148,7 @@ async def test_active_就是_screencast_挂在哪个_target_上(live):
     session, client, _ = live
     a = await _open(session, MOVING)
     b = await _open(session, MOVING)
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         await _frames(ws, 2)
         assert session.view.stats()["tab"] == session.tabs.active == b.id
 
@@ -156,7 +169,7 @@ async def test_后台_tab_不产帧(live):
     session, client, _ = live
     await _open(session, MOVING)          # 这个会被挤到后台
     front = await _open(session, STILL)
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         frames, _ = await _frames(ws, 1, timeout=15)
         assert frames
         # 前台是那个静止页,后台那个一直在动 —— 如果后台也产帧,
@@ -180,7 +193,7 @@ async def test_点击落在远端页面上(live):
     tab = await _open(session, MOVING)
     sid = (await probe.send("Target.attachToTarget",
                             {"targetId": tab.target_id, "flatten": True}))["sessionId"]
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         await _frames(ws, 2)
         await ws.send_json({"type": "mouse", "event": "down", "x": 60, "y": 40,
                             "button": 0, "buttons": 1, "clicks": 1})
@@ -201,7 +214,7 @@ async def test_打字进得去而且页面收到的是真实_keydown(live):
                             {"targetId": tab.target_id, "flatten": True}))["sessionId"]
     await probe.send("Runtime.evaluate", {"expression": "box.focus()"}, session_id=sid)
 
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         await _frames(ws, 2)
         for ch in "hi":
             await ws.send_json({"type": "key", "event": "down", "key": ch, "code": "Key" + ch.upper()})
@@ -228,7 +241,7 @@ async def test_中文走_insertText_一次送最终文本(live):
                             {"targetId": tab.target_id, "flatten": True}))["sessionId"]
     await probe.send("Runtime.evaluate", {"expression": "box.focus()"}, session_id=sid)
 
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         await _frames(ws, 2)
         await ws.send_json({"type": "text", "text": "提交订单"})
         await asyncio.sleep(0.5)
@@ -246,7 +259,7 @@ async def test_只读连接的输入被服务端丢掉(live, monkeypatch):
                             {"targetId": tab.target_id, "flatten": True}))["sessionId"]
     token = session.mint_token(read_only=True, ttl_s=60)
 
-    async with client.ws_connect(f"/api/view?t={token}") as ws:
+    async with client.ws_connect(f"/s/work/api/view?t={token}") as ws:
         _, notes = await _frames(ws, 2)
         hello = next(m for m in notes if m["type"] == "hello")
         assert hello["writable"] is False
@@ -347,7 +360,7 @@ async def test_没额度时缓冲留最新那帧_并且帧号跟着走():
 async def test_真链路上回显帧号之后算得出_rtt(live):
     session, client, _ = live
     await _open(session, MOVING)
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         # _frames 里的 ack 是裸的 {"type":"ack"} —— 这里手动带上帧号
         got = 0
         async with asyncio.timeout(15):
@@ -380,7 +393,7 @@ async def test_链路慢了会降质_而且降的过程进_scrollback(live, monk
     session, client, _ = live
     await _open(session, MOVING)
     seen = []
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         n = 0
         with contextlib.suppress(asyncio.TimeoutError):
             async with asyncio.timeout(20):
@@ -483,7 +496,7 @@ async def test_人的动作进日志_但密码不进(live):
                      session_id=sid)
     await asyncio.sleep(0.6)                 # 躲开"这是我们刚发的那一下"那个窗口
 
-    async with client.ws_connect("/api/view") as ws:
+    async with client.ws_connect("/s/work/api/view") as ws:
         await ws.send_json({"type": "mouse", "event": "down", "x": 80, "y": 12,
                             "button": 0, "buttons": 1, "clicks": 1})
         await ws.send_json({"type": "mouse", "event": "up", "x": 80, "y": 12,

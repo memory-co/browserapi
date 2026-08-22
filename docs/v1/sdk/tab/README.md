@@ -16,7 +16,7 @@ print(tab.url, tab.title)
 | README.md(本文) | 拿句柄、读属性、生命周期 | `sess.open` `sess.tab` `sess.tabs` `tab.url` … |
 | [navigate.md](navigate.md) | **走到哪** | `goto` `back` `forward` `reload` `stop` `activate` `close` `history` |
 | [input.md](input.md) | **往里做** | `click` `type` `key` `select` `check` `scroll` `upload` `wait_for` `js` `act` |
-| [read.md](read.md) | **往外看** | `screenshot` `text` `extract` |
+| [read.md](read.md) | **往外看** | `observe` `screenshot` `text` `extract` |
 
 这个 tab 干过什么在 [../log/tab.md](../log/tab.md),它怎么生怎么死在
 [../log/session.md](../log/session.md) —— 日志不分 tab,是一个文件筛出来的
@@ -112,7 +112,7 @@ sess.tab("t_7").click("确认")      # 人在画面上看不见,日志里标 bac
 
 CDP 的输入投递给 target,不走屏幕焦点。但 VNC 画面只显示激活的那个。
 
-**要像素就不行** —— Chromium 不渲染后台 tab,所以 `screenshot()`
+**要像素就不行** —— Chromium 不渲染后台 tab,所以 `observe()` / `screenshot()`
 会先把那个 tab 切到前台,画面会跳。见 [read.md §3](read.md#3-要像素就得切到前台)。
 
 ## 5. 新 tab 从哪来
