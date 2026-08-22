@@ -46,7 +46,7 @@ loopback、KasmVNC 的抽象 socket、kasm 的窗口看门狗)全部仍然成立
 | --- | --- | --- |
 | 端口 | 一个 session 两个口 | **一个 server 一个口**,session 是 `/s/<id>/`([k](works/k-one-server.md)) |
 | 画面 | 别人的 VNC 镜像 | **自己产**([c](works/c-view.md)),三种可切 |
-| 读 | `observe()` 回一整包 | **一张图,和正文**([i §3](works/i-agent-surface.md#3-读的那一面一张图和正文)) |
+| 读 | `observe()` 回一整包 | **一张图、正文、一张带 `@e1` 的元素表**([i §3](works/i-agent-surface.md#3-读的那一面一张图正文和一张元素表)) |
 | runtime | container / process / remote | **process / remote**([h](works/h-runtime.md)) |
 
 **tab、动作、日志、错误模型一个字没动** —— 那几样仍以

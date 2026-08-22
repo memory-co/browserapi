@@ -53,7 +53,7 @@
 
 ### 操作 —— [act.md](act.md)
 
-`click` `type` `key` `scroll` `send` ✅;
+`click` `type` `key` `scroll` `send` ✅,五种定位含 `@e1`;
 `fill` `select` `check` `upload` `hover` `drag` `dblclick` ⚠️ **后端有动词,CLI 没暴露**;
 `dialog --dismiss/--text` ✅ 对上 `dialog accept|dismiss`;
 `mouse move/down/up/wheel` 🔲 —— 观看端那条通道有,CLI 没有。
@@ -61,7 +61,8 @@
 ### 读 —— [read.md](read.md)
 
 `capture`(正文 / 截图)`status` ✅;
-`snapshot`(带 ref 的可访问性树)🔲 —— **这条要先想清楚**,见那一篇;
+`snapshot -i -s --viewport --max`(带 `@e1` 的元素表)✅ ——
+**号只增不重用**,这一条我们和 agent-browser 不一样,理由见那一篇;
 `get text/html/attr/box`、`is visible/enabled` 🔲。
 
 ### 排查 —— [debug.md](debug.md)

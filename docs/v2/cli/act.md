@@ -11,15 +11,24 @@ webmuxd scroll -t demo --dy 600
 webmuxd send   -t demo '[{"type":"…"}]'
 ```
 
-## 1. 定位:按人看得见的字
+## 1. 定位:五种写法,一条梯子
 
 ```bash
+webmuxd click -t demo @e7                           # snapshot 给的号,最准
 webmuxd click -t demo "提交订单"                    # 可见文字,最常用
 webmuxd click -t demo --role button --name 登录      # 消歧
 webmuxd type  -t demo --label 手机号 13800000000     # 表单标签找输入框
 webmuxd click -t demo --css "#pay"                  # 逃生舱
 webmuxd click -t demo --at 890,632                  # 最后手段
 ```
+
+**`@e7` 从 [`snapshot`](read.md) 来,是最准的一种** —— 它指着一个具体的
+DOM 节点,不靠名字去猜,所以不会"匹配到 3 个"。程序驱动优先用它。
+
+**可见文字是给人写的那一种** —— 手敲一条命令的时候没人想先跑 snapshot。
+两种都要,它们服务的是不同的场合。
+
+> `@` 打头一律当号。真有个按钮叫「@提醒」怎么办?写 `--name "@提醒"`。
 
 **多于一个就报 `not_found` 并列出全部候选,绝不随便挑一个**
 ([i §2②](../works/i-agent-surface.md#2-动词表))。重试拿候选里的
@@ -34,7 +43,7 @@ webmuxd click -t demo --at 890,632                  # 最后手段
 | `find role <r> click` | `click --role <r> --name <n>` ✅ |
 | `find label <l> type <v>` | `type --label <l> <v>` ✅ |
 | `find nth <n> <sel> click` | `click --css <sel> --nth <n>` ✅ |
-| `@e1` 这种 **ref** | 🔲 **没有** —— 见 [read.md](read.md) 里 `snapshot` 那一节 |
+| `click @e1` | `click @e1` ✅ —— 见 [read.md](read.md);**号只增不重用**,这一条和它不一样 |
 
 > **为什么 CSS 不是默认。** agent-browser 面向的是"agent 先 snapshot 拿 ref、
 > 或者开发者自己写选择器"。我们面向的是"照着人看到的东西操作" ——

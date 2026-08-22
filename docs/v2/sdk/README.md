@@ -77,23 +77,35 @@ web.kill_server()   # 停 server 和全部 session,一个都不留
 ## 3. 读:一张图,和正文
 
 ```python
-tab.screenshot()      # bytes —— 那一刻的页面(WebP)
-tab.text()            # str   —— 正文
+tab.screenshot()      # bytes    —— 那一刻的页面(WebP)
+tab.text()            # str      —— 正文
+tab.snapshot()        # Snapshot —— 元素表,每样带一个 @e1
 ```
 
-**就这两样。** v1 那个 `observe()`(一次调用回筛过的元素表、编号、
-盲区 notes、页面信息、截图、正文)砍了 ——
-判据是那句老话:**tmux 会做这个吗?** 它有 `capture-pane`,就是这两样;
-它没有"把屏幕上的东西筛一遍编上号再给你"。理由写在
-[i §3](../works/i-agent-surface.md#3-读的那一面一张图和正文)。
+**三样,要哪样取哪样。** v1 那个 `observe()` 一次回一整包(元素表、编号、
+盲区 notes、页面信息、截图、正文),那个形状没有回来。
 
-跟着一起走的是**按编号定位**:
+`snapshot()` 的旋钮在调用方手上 —— `interactive` / `selector` /
+`viewport` / `max_elements`,库不替你定死筛到什么程度。这一版为什么
+推翻了上一版"砍掉它"的决定,写在
+[i §3](../works/i-agent-surface.md#3-读的那一面一张图正文和一张元素表)。
 
 ```python
+snap = tab.snapshot(interactive=True)
+print(snap.as_prompt())      # @e1   button    "登录"
+tab.click(snap[1])           # 或者 tab.click("@e1")
+```
+
+定位因此有了最准的一种:
+
+```python
+tab.click("@e13")                     # snapshot 给的号,最准
 tab.click("提交订单")                  # 按人看得见的字
 tab.click(role="button", name="登录")  # 消歧
-tab.click(候选里的那一项)               # 拿 role + name 重试
+tab.click(候选里的那一项)               # 有号就用号,没有就 role + name
 ```
+
+**`@` 打头一律当号。** 真有个按钮叫「@提醒」就写 `tab.click(name="@提醒")`。
 
 ```python
 try:
@@ -103,9 +115,11 @@ except NotFound as e:
     tab.click(e.details["candidates"][0])
 ```
 
-**候选里那个 `id` 别拿去点。** 编号只在一次快照里成立,而快照是每次 `act`
-自己抓的 —— 拿上一次的编号点,点到的可能是另一个东西,**而且不报错**。
-能跨快照成立的是 `role` + `name`(必要时 `nth`)。
+**候选里那个 `id` 别拿去点** —— 它是 `act` 内部那次快照的序号,不是 `ref`。
+`ref` 只有走过 `snapshot()` 的元素才有,而它**只增不重用**:
+拿过期的号去点会报错,不会点到另一个东西
+([RefTable](../../../webmuxd/models.py))。没有号的时候,能跨快照成立的说法是
+`role` + `name`(必要时 `nth`)。
 
 `tab.extract(loc, mode=)` 仍在,它是[动词表](../works/i-agent-surface.md#2-动词表)
 里的一个动作,走 `POST /api/act`,进日志。

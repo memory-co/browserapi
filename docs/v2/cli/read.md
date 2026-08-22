@@ -1,50 +1,81 @@
 # cli · 读
 
 ```bash
-webmuxd capture -t demo             # 正文
-webmuxd capture -t demo --shot p.webp   # 那一刻的页面
-webmuxd url     -t demo
-webmuxd status  -t demo
+webmuxd snapshot -t demo [-i] [-s CSS] [--viewport] [--max N]   # 这页上有什么
+webmuxd capture  -t demo                # 正文
+webmuxd capture  -t demo --shot p.webp  # 那一刻的页面
+webmuxd url      -t demo
+webmuxd status   -t demo
 ```
 
-**读只有两样:一张图,和正文。** 对应 tmux 的 `capture-pane` ——
-这是形态那条([README](README.md#三条对齐))决定的。
+**读是三样:一张元素表、正文、一张图。** 对应 tmux 的 `capture-pane` ——
+"把里面的东西抓出来",三种粒度而已。
 
-## 1. `snapshot` —— 这一条要先想清楚
+## 1. `snapshot` —— 这一页上有什么
 
-agent-browser 的核心工作流是:
+```bash
+webmuxd snapshot -t demo             # 全部:能点的 + 有名字的结构
+webmuxd snapshot -t demo -i          # 只要能点能填的
+webmuxd snapshot -t demo -s "#content"   # 只看这棵子树
+webmuxd snapshot -t demo --viewport  # 只要视口内的
+webmuxd snapshot -t demo --json      # 带 bbox / affords / enabled
+```
+
+```console
+$ webmuxd snapshot -t demo -i
+@e1   combobox  "" 
+@e2   button    "百度一下"
+@e3   link      "新闻"
+$ webmuxd click -t demo @e1
+$ webmuxd type  -t demo @e1 webmuxd
+```
+
+**`@e1` 是号,不是坐标也不是选择器。** 它指着那一个具体的 DOM 节点 ——
+页面改版了、名字翻译了,号仍然对;而"第 3 个 `div.item`"不一定。
+
+### 号只增不重用
+
+第二次 `snapshot` 从 `@e13` 接着发,**不从 `@e1` 重来**:
 
 ```
-snapshot  →  拿到带 ref 的可访问性树(@e1 @e2 …)
-click @e1 →  照 ref 操作,不用再查 DOM
+snapshot  →  @e1 … @e12
+click @e5 →  页面变了
+snapshot  →  @e13 … @e20      ← 不是又一批 @e1
 ```
 
-**我们曾经有过这个,砍了**([i §3](../works/i-agent-surface.md#3-读的那一面一张图和正文))。
-理由是:那是一套**关于 agent 该怎么用浏览器的意见** ——
-150 个上限、"可交互优先"那张 role 表、编号的稳定性保证 ——
-每一条都是会被将来的模型推翻的赌注。
+agent-browser 那边是重来的(它文档里明写着 `@e1` 第二次指着另一个元素)。
+**我们不跟这一条** —— 重用把"拿着过期的号去点"从一个**报错**
+变成了一次**点错东西**,而[点错浏览器比敲错终端贵](../../../webmuxd/locate.py)。
 
-**但 agent-browser 证明了另一种活法**,而且它把赌注下得更小:
+代价是号会一直涨。这个代价是对的:号是从输出里抄的,没人要去猜下一个是几。
 
-| | 我们砍掉的那个 | agent-browser |
+### 三种失败分开说
+
+| 说的话 | 意思 | 该干嘛 |
 | --- | --- | --- |
-| 编号 | `[12]`,**只在一次观测里成立** | `@e1`,**daemon 里存着**,跨命令有效 |
-| 过期 | 靠 `observation` id 挡 | 页面变了 ref 失效,直接报错 |
-| 筛选 | 上限 150,规则写死在库里 | `-i` 只要可交互、`-c` 压缩、`-d` 限深、`-s` 限范围 —— **调用方说了算** |
+| `@e9 不认识 —— 这个 session 还没 snapshot 过` | 一次都没发过号 | 先 `snapshot` |
+| `@e9 不认识 —— 现在发到 @e20,重新 snapshot 一次` | 号抄错了,或是上上次的 | 重新 `snapshot` |
+| `@e5(那时是 button「登录」)已经不在页面上了` | 号对,**节点没了** | 页面变了,重新 `snapshot` |
+| `@e5 是 t_2 上的号,不是这个 tab 的` | 换 tab 了 | 在那个 tab 上用,或重新 snapshot |
 
-**差别在"意见留在哪"**:我们把筛选规则做成了库的决定;
-它把参数交出去了。**后者不违反那条判据。**
+**第三种最要紧** —— 它把"页面变了"和"你抄错了"分开,而这两件事要做的不一样。
 
-🔲 **待讨论,三个问题:**
+### 为什么它回来了
 
-1. **要不要 ref?** 我们现在是"按人看得见的字定位",没有 ref 也能干活
-   ([act.md](act.md))。ref 买到的是**确定性**(同一个 ref 一定是同一个元素),
-   代价是 daemon 里要存一份表,而那份表会过期
-2. **如果要,存在哪?** session 里(`Server` 现在就持有全部 session,有地方放)
-3. **`--annotate` 呢?** agent-browser 的 `screenshot --annotate` 在图上画编号。
-   我们也砍过([issue](../issues/标注层会被人看见.md))—— 但砍的理由是
-   **它画在活页面上**,不是"不该有这个功能"。**在图上画**是另一回事,
-   代价是服务端要能画图(今天只有 websockets + aiohttp 两个依赖)
+我们把这个口子砍过一次(那时叫 `observe`),理由是
+"那是一套关于 agent 该怎么用浏览器的意见,该留在调用方那边"。
+
+**那个理由站不住。** 那套意见此刻仍然在跑 —— 每次 `click "登录"` 都要先
+`Accessibility.getFullAXTree`、按 `INTERACTIVE_ROLES` 筛一道、量 bbox
+([`locate.snapshot`](../../../webmuxd/locate.py))。
+**藏起来没有让这套意见变小,只是让它没法被人调。**
+
+agent-browser 给了更好的答案:把旋钮交出去(`-i` `-s` `--viewport` `--max`),
+库不替调用方定死筛到什么程度。这一版就是这么做的。
+
+> **`-c`(压掉空结构)和 `-d`(限深)我们没有** —— 它们是树形输出的旋钮,
+> 而我们出的是**一张平表**。要缩范围用 `-s`:
+> **划范围不丢信息,截断丢。**
 
 ## 2. `get` 那一族
 

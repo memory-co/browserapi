@@ -14,7 +14,7 @@ GET  /api/sessions            server 自己那一层
 > 一个字没动,仍以 v1 那份为准:
 >
 > 1. **路径多一段 `/s/<id>/`**,并新增 server 那一层(§1)
-> 2. **读只有两个口子**,`GET /api/observe` 没有了(§3)
+> 2. **读是三个口子**,`GET /api/observe` 那个「一包全给」的形状没了(§3)
 > 3. **画面走 WS**,三条通道(§4)
 
 ## 1. server 那一层
@@ -58,26 +58,45 @@ POST   /s/work/api/tabs/{id}/goto {url}    …
 (`_s(request)`),所以"哪个 session"只在那一处回答
 ([k §4](../works/k-one-server.md#4-路由sid-前缀))。
 
-## 3. 读:一张图,和正文
+## 3. 读:一张图、正文、一张元素表
 
 ```
 GET /s/work/api/screenshot?full_page=false   → image/webp
 GET /s/work/api/text                         → text/plain
+GET /s/work/api/snapshot                     → application/json
+        ?interactive=1     只要能点能填的
+        &selector=%23main  只看这棵子树
+        &viewport=1        只要视口内的
+        &max=150           最多几个
 ```
 
-**就这两个,都直接回字节,不是 JSON。**
+前两个直接回字节;`snapshot` 回一张元素表,**每样带一个 `@e1`**:
 
-`GET /api/observe` 没有了 —— 那是一包"关于 agent 该怎么用浏览器的意见",
-该留在调用方那边([i §3](../works/i-agent-surface.md#3-读的那一面一张图和正文))。
-元素表跟着定位走(`POST /api/act` 的 `{"text": "登录"}`),不单独开口子。
+```jsonc
+{"elements": [{"ref": "e13", "role": "textbox", "name": "", "value": "",
+               "bbox": [242, 195, 771, 28], "in_viewport": true,
+               "enabled": true, "affords": ["type", "clear"]}],
+ "notes": [], "filter_version": 2, "viewport": {"w": 1024, "h": 768}}
+```
+
+号存在 session 里,跨命令有效,**只增不重用** ——
+第二次 `snapshot` 从 `@e14` 接着发,拿过期的号来点会报错,
+不会指向另一个元素([i §3.2](../works/i-agent-surface.md#32-编号这次是怎么解决的))。
+
+`GET /api/observe` 那个「一次调用回一整包」的形状没有回来 ——
+截图、正文、元素表是三件事,要哪样取哪样。
+那几个筛选旋钮也不再写死在库里:**意见留在调用方那边**,
+是当初砍它时说对了的那一半。
 
 `screenshot` 对非激活 tab 会**先切前台**(Chromium 不渲染后台 tab),
 而且它**一声不吭地切,也不和 `act` 排队** ——
 已知的口子,见 [issue](../issues/读一眼会改状态却不排队.md)。
 
-**定位没有"按编号"那种写法**:`{"element": 12, "observation": "..."}`
-两个键都去掉了。编号只在一次快照里成立,而快照不对外;
-定位失败回的候选带着 `role` + `name`,**那才是跨快照仍然成立的说法**。
+**定位多了一种,`{"ref": "e13"}`** —— 它是 `snapshot` 发的号,最准。
+老那种 `{"element": 12, "observation": "..."}` 没有回来:
+那是靠一个观测 id 去挡陈旧编号,而现在**号本身全局唯一**,不需要那条元数据。
+定位失败回的候选带着 `role` + `name`(有号的话也带上 `ref`),
+**那才是跨快照仍然成立的说法**。
 
 ## 4. 画面:三条通道
 

@@ -9,7 +9,7 @@ webmuxd forward -t demo
 webmuxd reload  -t demo
 webmuxd stop    -t demo
 webmuxd url     -t demo
-webmuxd wait    -t demo [--text T] [--css SEL] [--url-contains S] [--timeout MS]
+webmuxd wait    -t demo [--text T] [--css SEL] [--url-contains S] [--timeout 秒]
 ```
 
 ## 1. `goto` 只导航,不起浏览器
