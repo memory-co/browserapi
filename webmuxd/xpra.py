@@ -289,6 +289,12 @@ def stop(sess: XpraSession, timeout: float = 8) -> None:
     if sess.proc.poll() is None:
         with contextlib.suppress(Exception):
             sess.proc.kill()
+    # **那个 socket 目录也是我们建的,也要收。**
+    # 一个显示号一个目录,进程没了它就没用了。留着不占什么(4K),
+    # 但 `/tmp` 下攒一堆 `webmuxd-xpra*` 空目录会让人以为还有东西在跑 ——
+    # **看起来像泄漏的东西,和泄漏一样费排查时间。**
+    with contextlib.suppress(Exception):
+        os.rmdir(sess.socket_dir)          # 非空就不动,那说明还有别的在用
 
 
 def tail(path: str, lines: int = 6) -> str:

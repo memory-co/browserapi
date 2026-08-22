@@ -468,11 +468,14 @@ class Session:
         tab_id = self.resolve_tab(tab)
         if self._sessions.get(tab_id) is None:
             await self.executor_for(tab_id)
+        sid = self._sessions[tab_id]
         snap = await locate.snapshot(
-            self.cdp, self._sessions[tab_id], max_elements=max_elements,
+            self.cdp, sid, max_elements=max_elements,
             viewport_only=viewport_only, interactive_only=interactive_only,
             selector=selector)
-        self.refs.assign(snap.elements, tab_id)
+        # **号要绑住当时那份文档**,不然页面一换旧号可能指到别的东西上
+        # ([models.RefTable](models.py))。
+        self.refs.assign(snap.elements, tab_id, await locate.document_id(self.cdp, sid))
         return snap
 
     async def _reading_session(self, tab: str | None) -> str:
@@ -684,12 +687,17 @@ class ProcessRuntime:
             procs["browser"] = subprocess.Popen(
                 args, stdout=subprocess.DEVNULL, stderr=log,
                 start_new_session=True)
-        if not processes.wait_port(cdp_port, 30):
+        if not processes.wait_port(cdp_port, 30, proc=procs["browser"]):
             why = processes._tail(log_path)
+            # **先说清是哪一种。** 进程还在但没监听,和进程已经退了,
+            # 是两件完全不同的事:前者查端口/参数,后者看它临死说了什么。
+            # 说错方向的那一句会把人带得很远。
+            died = procs["browser"].poll() is not None
+            head = ("浏览器起不来,已经退了" if died
+                    else "浏览器还在跑,但 CDP 没监听")
             processes._kill_all(procs)
             raise unavailable(
-                self.name,
-                "浏览器起来了但 CDP 没监听" + (f":{why}" if why else ""),
+                self.name, head + (f":{why}" if why else ""),
                 f"完整日志在 {log_path};手工跑一遍:{' '.join(args[:3])} …")
 
         return SessionInfo(self.name, id, {
@@ -729,7 +737,7 @@ class ProcessRuntime:
         sess = xpra_mod.start(display=display, ws_port=ws_port, cdp_port=cdp_port,
                               chrome_argv=chrome_argv, width=w, height=h, work=work)
         # Xvfb + xpra + 有头 chrome,比 headless 那条慢不少 —— 给足时间
-        if not processes.wait_port(cdp_port, 60):
+        if not processes.wait_port(cdp_port, 60, proc=sess.proc):
             why = xpra_mod.tail(sess.log_path)
             # **先看 xpra 自己还在不在。**
             #
@@ -743,7 +751,7 @@ class ProcessRuntime:
             xpra_mod.stop(sess)
             raise unavailable(self.name, head + (f":{why}" if why else ""),
                               f"完整日志在 {sess.log_path}")
-        if not processes.wait_port(ws_port, 30):
+        if not processes.wait_port(ws_port, 30, proc=sess.proc):
             xpra_mod.stop(sess)
             raise unavailable(self.name, "xpra 的 ws 口没起来",
                               f"日志在 {sess.log_path};{xpra_mod.tail(sess.log_path)}")

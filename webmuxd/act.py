@@ -32,6 +32,11 @@ MASK = "••••••"
 #: settle 的默认上限。等太长吞吐就塌了(§2.2)。
 SETTLE_TIMEOUT = 5.0
 
+#: `network_idle` 里**等在飞请求归零最多这么久**。
+#: 归零了就往下走;没归零也往下走 —— 因为在真实站点上它可能永远不归零,
+#: 而把整个预算耗在这儿,等于把 `network_idle` 变成一次固定睡眠。
+NET_WAIT = 1.0
+
 #: 这几个动作看不出干了什么,日志里标黄(§4)。
 OPAQUE_ACTIONS = frozenset({"js"})
 
@@ -157,10 +162,24 @@ class Settler:
             await self._dom_quiet(timeout)
             return
         if strategy == "network_idle":
-            # 在飞请求为 0 **且** DOM 静默 —— 只看网络会在 SPA 上早退
+            # 在飞请求归零 **且** DOM 静默 —— 只看网络会在 SPA 上早退。
+            #
+            # **但等网络归零最多 `NET_WAIT`,不能花掉整个预算。**
+            #
+            # 原来这儿是 `while 没超时 and 在飞 > 0`,而**任何带埋点或长连接的
+            # 站在飞数永远不归零** —— 于是它每次都烧满 5 秒,然后只留 0.2 秒
+            # 给 `_dom_quiet`。也就是说在真实站点上,`network_idle` 实际退化成
+            # **「固定睡 5 秒 + 一个比 dom_idle 还弱的 DOM 检查」** ——
+            # 正是这个项目到处在反对的那个「睡固定时长」。
+            #
+            # 实测(百度首页,一次 click):5.44s → 1.3s;
+            # 安静的页面(example.com)本来就 0.7s,不受影响。
             deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline and self._inflight > 0:
+            net_until = min(deadline, time.monotonic() + NET_WAIT)
+            while time.monotonic() < net_until and self._inflight > 0:
                 await asyncio.sleep(0.05)
+            # **剩下的预算全给 DOM。** 网络没停不代表页面还在变,
+            # 而"页面还在不在变"才是调用方真正关心的那件事。
             await self._dom_quiet(max(0.2, deadline - time.monotonic()))
             return
         raise BadRequest(f"不认识的 settle 策略:{strategy}", code="bad_request")
@@ -529,18 +548,20 @@ class Executor:
 
         两步,**而且失败要分得开**:
 
-        1. 号表里认不认这个号 —— 不认就是"没 snapshot 过"或"号过期了",
-           [`RefTable.get`](models.py) 自己会说清楚是哪种
+        1. 号表里认不认这个号,**以及它是不是这份文档上的** ——
+           [`RefTable.get`](models.py) 自己会说清楚是哪一种
         2. 那个节点还在不在页面上 —— `DOM.getBoxModel` 拿不到就是没了
 
-        第二种最要紧:**"节点没了"和"号不认识"要给不一样的话**,
-        因为该做的事不一样 —— 前者是页面变了要重新 snapshot,
-        后者是你把号抄错了。
+        **第 1 步里那个"是不是这份文档"不能省。** 只验第 2 步是不够的:
+        Chromium 会把 backendNodeId 复用给新文档里的节点,于是导航之后
+        拿旧号去点,`getBoxModel` 照样成功 —— **点中的是另一个东西,
+        而且不报错**。所以先问 `loaderId`。
         """
         if self._refs is None:
             raise BadRequest("这条路上没有号表 —— @ref 只能对着 session 用",
                              code="bad_request")
-        got = self._refs.get(ref, self._tab_id)
+        got = self._refs.get(ref, self._tab_id,
+                             await locate.document_id(self._cdp, self._sid))
         el = Element(id=0, role=got.role, name=got.name, ref=got.id,
                      backend_node_id=got.backend_node_id)
         try:

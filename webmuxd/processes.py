@@ -148,7 +148,18 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def wait_http(url: str, timeout: float = 30.0) -> bool:
+#: **等一个进程监听的时候,要盯着那个进程本身。**
+#:
+#: 不盯的下场:浏览器因为 root 没关沙箱、缺共享库、profile 写不了而**立刻退出**,
+#: 我们照样干等满 30 秒(有头那条是 60 秒),然后告诉人
+#: 「浏览器起来了但 CDP 没监听」—— **它没起来,它已经死了。**
+#: 一句话把人往错的方向指,后面日志再全也白搭。
+def _died(proc: subprocess.Popen | None) -> bool:
+    return proc is not None and proc.poll() is not None
+
+
+def wait_http(url: str, timeout: float = 30.0,
+              proc: subprocess.Popen | None = None) -> bool:
     import urllib.error
     import urllib.request
     deadline = time.monotonic() + timeout
@@ -159,17 +170,22 @@ def wait_http(url: str, timeout: float = 30.0) -> bool:
         except urllib.error.HTTPError:
             return True                  # 有响应就算起来了(401 也算)
         except Exception:
+            if _died(proc):
+                return False             # 人都没了,别等了
             time.sleep(0.25)
     return False
 
 
-def wait_port(port: int, timeout: float = 30.0, host: str = "127.0.0.1") -> bool:
+def wait_port(port: int, timeout: float = 30.0, host: str = "127.0.0.1",
+              proc: subprocess.Popen | None = None) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             with socket.create_connection((host, port), 0.5):
                 return True
         except OSError:
+            if _died(proc):
+                return False
             time.sleep(0.2)
     return False
 

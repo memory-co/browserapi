@@ -19,6 +19,7 @@ SDK 要能连**别的机器上**的服务端,一旦接进程内的实现,那条�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -537,6 +538,10 @@ class Mirror:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
+        #: 泵线程的事件循环和当前那条连接 —— **`stop()` 要从外面关它**,
+        #: 光设一个标志位是叫不醒阻塞在 `recv` 上的协程的。
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._ws: Any = None
 
     # ------------------------------------------------------------------ 读
 
@@ -599,18 +604,33 @@ class Mirror:
         self._ready.wait(timeout)
 
     def stop(self) -> None:
+        """收摊。**把那条连接关掉,别只是竖个旗子。**
+
+        原来这儿是"设 `_stop` 然后 `join(timeout=2)`" —— 而泵线程正阻塞在
+        `async for raw in ws` 上,**根本没机会去看那面旗子**。于是每次都等满
+        两秒:`sess.detach()` 卡两秒,一轮测试里 14 次就是 28 秒。
+        **旗子只在循环回到顶上时才被读到,而它回不到顶上。**
+
+        所以现在从这边把 socket 关掉:`async for` 立刻结束,泵看见旗子就退。
+        """
         self._stop.set()
+        loop, ws = self._loop, self._ws
+        if loop is not None and ws is not None and not loop.is_closed():
+            with contextlib.suppress(Exception):
+                asyncio.run_coroutine_threadsafe(ws.close(), loop)
         if self._thread:
             self._thread.join(timeout=2)
 
     def _run(self) -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        self._loop = loop
         try:
             loop.run_until_complete(self._pump())
         except Exception:                      # pragma: no cover - 后台线程
             log.debug("事件线程退出", exc_info=True)
         finally:
+            self._loop = None
             loop.close()
 
     async def _pump(self) -> None:
@@ -620,6 +640,7 @@ class Mirror:
                 headers = [("Authorization", f"Bearer {self._token}")] if self._token else []
                 async with websockets.connect(url, additional_headers=headers,
                                               ping_interval=20) as ws:
+                    self._ws = ws
                     self._full_reload()
                     self._ready.set()
                     async for raw in ws:
@@ -631,6 +652,8 @@ class Mirror:
                     return
                 log.debug("事件流断了,重连中:%s", e)
                 await asyncio.sleep(0.5)
+            finally:
+                self._ws = None
 
     def _full_reload(self) -> None:
         if self._refetch:
