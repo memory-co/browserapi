@@ -1,5 +1,51 @@
 # 更新日志
 
+## 0.12.0
+
+**人的窗口多大,里面那个浏览器就多大。**
+
+ttyd 把终端调成你窗口那么大,tmux 里的 80 列就真是 80 列。这一条我们原来
+只在 JPG 上做到了 —— VNC 那条腿上,人把窗口拉大只是把同一张 1024×768 的图
+放大,越拉越糊,**而且一句话都没有**。
+
+现在两条腿都对齐:**人窗口里给画面留的那块地、画面元素占的地、帧本身的像素,
+三个数相等。**
+
+### 虚拟显示从 Xvfb 换成 Xorg + dummy
+
+根因在最底下:**Xvfb 的显示尺寸是死的。** 整个显示只有一个 RANDR 模式,
+`xrandr --newmode` 静默无效、`--fb` 直接 `BadValue`。于是
+`--resize-display` 在它上面永远空转。dummy 驱动可以:任意模式加得上、
+切得动,屏幕真跟着变。
+
+所以依赖变了,**装的东西不一样了**:
+
+```console
+apt install xpra xserver-xorg-core xserver-xorg-video-dummy python3-pil
+yum install xpra xorg-x11-server-Xorg xorg-x11-drv-dummy python3-pillow
+```
+
+`webmuxd install` 会装。探不到就报出来,指名道姓说缺哪个包 ——
+**不偷偷退回一个对不齐的画面**。
+
+### 那条链上还断了四处
+
+修一处不够,那条链每一环都断着,而且断得都没有声音:
+
+| 断在哪 | 表现 |
+| --- | --- |
+| 发的是 `desktop_size` | `start-desktop` 的服务端把这个包**明确当空操作**;要发 `configure-display` |
+| 握手里没有 `desktop_mode_size` | 连上第一眼就是 xpra 自己的默认 1920×1080 |
+| 客户端把 `window-resized` 的包位读错 | 服务端发了,客户端整包丢掉,画面尺寸停在连上那一刻 |
+| chrome 不跟显示走 | `screen.width` 它读得准,**但窗口纹丝不动** |
+
+最后那一下要三条 CDP 命令,顺序是死的:
+`normal → bounds → fullscreen`。直接给全屏窗口设尺寸会被**静默丢掉**;
+停在 `normal` 则是 kiosk 的地址栏标签栏回来占掉 87 像素。
+
+验在 [tests/v2_browser_pixel_align](tests/v2_browser_pixel_align/),
+JPG 和 VNC 各一遍。
+
 ## 0.11.0
 
 **起/停/重启收成二级,别的照旧。**

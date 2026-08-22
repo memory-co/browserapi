@@ -168,6 +168,12 @@ export function startSessionView(auth: string, base: string): void {
     // 得留着(那时还没走过 `applyMode`)。
     img.hidden = true; cvs.hidden = false; dom3.hidden = true;
     screenEl = cvs;
+    // **连之前先把尺寸定下来** —— 握手里那个 `desktop_mode_size` 就是它,
+    // 而握手只发一次。不给的话服务端会按它自己的默认(1920×1080)开桌面,
+    // 人连上第一眼就是错的,然后再跳一次。
+    const st0 = $("stage");
+    const w0 = Math.max(320, st0.clientWidth - 20);
+    const h0 = Math.max(240, st0.clientHeight - 20);
     xpra = new XpraClient(api.ws("/channel/xpra"), cvs, {
       status(st) {
         // **好起来了要说,不只是坏了要说。** 原来 `dead` 那个类加上去就再没
@@ -182,9 +188,16 @@ export function startSessionView(auth: string, base: string): void {
         frameW = w; frameH = h;
         $("s-size").textContent = `${w}×${h}`;
         setSize(w, h);
+        // **桌面真变成这么大了,现在才轮到那个浏览器窗口。**
+        // 顺序不能倒:那边摁窗口用的是"桌面尺寸 +1",桌面还是旧的时候摁,
+        // 摁的就是旧尺寸。这是"等那件事发生",不是睡一个秒数 ——
+        // 服务端说到了才算到。
+        cdp.now(resize(w, h));
       },
       log: (m) => toast(m, 12000),
-    }).connect();
+    });
+    xpra.want = { w: w0, h: h0 };
+    xpra.connect();
     $("s-q").textContent = "xpra";
     addEventListener("beforeunload", () => xpra?.close());
   }
@@ -202,7 +215,7 @@ export function startSessionView(auth: string, base: string): void {
           .then((d) => { modes.available = d.available || []; modes.render(); })
           .catch(() => { /* 拿不到就不显示那排按钮 */ });
         if (m.w) setSize(m.w, m.h!);
-        if (!xpra) sendSize();     // xpra 的尺寸是 X 显示定的,问也没用
+        sendSize();               // 两条腿都要报尺寸 —— 见 `sendSize()`
         return;
       }
       case "cast":
@@ -240,8 +253,18 @@ export function startSessionView(auth: string, base: string): void {
 
   function sendSize(): void {
     const st = $("stage");
-    cdp.now(resize(Math.max(320, st.clientWidth - 20),
-                   Math.max(240, st.clientHeight - 20)));
+    const w = Math.max(320, st.clientWidth - 20);
+    const h = Math.max(240, st.clientHeight - 20);
+    // **两条腿两条路,而且 VNC 那条是有先后的。**
+    //
+    // JPG / DOM:`/channel/cdp` 一条命令改视口,直接发。
+    //
+    // VNC:要改的是两样东西 —— 那个 X 桌面,和桌面里那个浏览器窗口。
+    // 桌面只有 xpra 能改(`/channel/xpra`);窗口只有 CDP 能摁。而且
+    // **必须先桌面后窗口**,所以这儿只发前一半,后一半在 `size()` 回调里
+    // 等服务端把新桌面尺寸报回来再发。
+    if (xpra) xpra.size(w, h);
+    else cdp.now(resize(w, h));
   }
 
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;

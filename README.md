@@ -196,8 +196,8 @@ webmuxd info                                             # 这台机器上能不
 要三个系统包(`webmuxd install` 会装,或者自己来):
 
 ```bash
-apt install xpra xvfb python3-pil                     # Debian / Ubuntu
-yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里云
+apt install xpra xserver-xorg-core xserver-xorg-video-dummy python3-pil   # Debian / Ubuntu
+yum install xpra xorg-x11-server-Xorg xorg-x11-drv-dummy python3-pillow  # RHEL / CentOS / 阿里云
 ```
 
 **装不上就报错,不会静默退回。** 静默退回等于让你以为自己在看 xpra 的画质;
@@ -208,7 +208,7 @@ yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里�
 
 什么时候该显式选 screencast:
 
-- 机器上装不了 xpra(没 root、或者 macOS 没有 Xvfb)
+- 机器上装不了 xpra(没 root、或者 macOS 没有 X)
 - `--runtime remote` —— 那儿我们只有一个 CDP 端点,碰不到对面的 X 显示,
   **screencast 是唯一可能的画面来源**,也是那条路上的默认
 - 要 `--dsf`(高 DPI 匹配)—— 它靠的是 screencast 那套参数
@@ -221,7 +221,7 @@ yum install xpra xorg-x11-server-Xvfb python3-pillow  # RHEL / CentOS / 阿里�
 | --- | --- | --- |
 | **Python** | ≥ 3.10 | |
 | **系统** | Linux / macOS | Chrome for Testing 没有 linux-arm64 构建,那种机器上用系统的浏览器 |
-| **画面默认要的** | `xpra` · `Xvfb` · `PIL` | `webmuxd install` 会装。macOS 上没有 Xvfb,得显式 `--transport screencast` |
+| **画面默认要的** | `xpra` · `Xorg` + dummy 驱动 · `PIL` | `webmuxd install` 会装。**dummy 驱动不能换成 Xvfb** —— Xvfb 的显示尺寸改不了,画面就和人的窗口对不齐。macOS 上没有 X,得显式 `--transport jpg` |
 
 裸服务器上还要 chrome 的那些共享库和**中文字体**(没有字体的话中文全是豆腐块,
 和代码无关)。这些连同 xpra 那三个,`webmuxd install` **有 root 就直接装**

@@ -39,7 +39,7 @@ HERE = Path(__file__).parent
 #: 记录器的版本。**钉死,不用 `@latest`。**
 #: `@latest` 意味着两台机器、两个时间点拿到的可能不是同一份 ——
 #: 而记录器和观看端的重放器必须是同一版,对不上的表现是"画面局部不更新"
-#: 且不报错。这正是 [d §8.1](../docs/v2/works/d-install.md#81-虚拟显示钉死-xvfb)
+#: 且不报错。这正是 [c §8.1](../docs/v2/works/c-view.md#81-虚拟显示钉死-xorg--dummy)
 #: 那条"同一条命令在两台机器上结果不同"要防的事。
 RRWEB_VERSION = "2.1.1"
 _BASE = f"https://cdn.jsdelivr.net/npm/rrweb@{RRWEB_VERSION}/dist"

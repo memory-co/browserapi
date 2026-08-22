@@ -72,7 +72,7 @@ xpra 的定位是「X11 的 tmux」:使远端 X 程序的生命周期长于连�
 质量自适应和「静止后补一张无损的」也是现成的。
 
 它有一个前提:**其观测对象是一个真实的 X 显示**,因此浏览器必须是有头的;
-而服务器上没有物理显示器 —— 相关的一整套(Xvfb 是什么、为何不用 Xorg)见 §8。
+而服务器上没有物理显示器 —— 相关的一整套(虚拟显示是什么、为什么是 Xorg+dummy 而不是 Xvfb)见 §8。
 **这个前提也决定了它能不能被切到**(§9.3)。
 
 而其上行可以不使用:协议要求的上行仅有六个握手与回执包,**输入是可选的**(§10.1)。
@@ -312,7 +312,7 @@ cursor  png 24×24  热点(8,5)  serial=4  722 B    ← 手型
   └───────┬──────────────┘
           │ X 协议
   ┌───────▼──────────────┐  **虚拟显示**:一个没有显示器的 X server,
-  │  Xvfb :80            │  把像素画进内存。没有键鼠,没有 GPU
+  │  Xorg + dummy :80    │  把像素画进内存。没有键鼠,没有 GPU
   └───────┬──────────────┘
           │ X 的 Damage / Composite 扩展(哪块变了?)
   ┌───────▼──────────────┐  **xpra**:盯着那个 X 显示,把变化的区域
@@ -329,43 +329,79 @@ cursor  png 24×24  热点(8,5)  serial=4  722 B    ← 手型
 | | 是什么 | 不是什么 |
 | --- | --- | --- |
 | **X / Xorg** | 一套显示协议,以及它的参考实现 | 不是"图形界面"本身 |
-| **Xvfb** | **一个 X server**,把像素画进内存而不是显卡 | 不是 xpra 的一部分 |
+| **虚拟显示** | **一个 X server**,把像素画进内存而不是显卡 | 不是 xpra 的一部分 |
 | **xpra** | 盯着一个 X 显示做 damage 追踪 + 编码 + 传输 | **它不自己造显示** —— 得有人给它一个 |
 
 **X 这一层的必要性**:xpra 采集的是**一个真实窗口**,而真实窗口需要 X server;
 服务器上没有物理显示器,该 X server 只能是虚拟的。
 另外两条都不需要 X —— 一条截的是渲染结果,一条根本不在远端渲染。
 
-### 8.1 虚拟显示钉死 Xvfb
+### 8.1 虚拟显示钉死 Xorg + dummy
 
 xpra 的配置(`xvfb =` 那行)列了四种,**选哪个是发行版打包方定的**:
 
-| | 要什么 | |
+| | 要什么 | 尺寸能不能改 |
 | --- | --- | --- |
-| **`Xvfb`** ← 用这个 | `xvfb` 包,几 MB | 没有 GLX/DRI,分辨率靠 RandR 改 |
-| `Xorg` + dummy 驱动 | **整个 Xorg** + 一份 xorg.conf | 云主机上通常没装 |
+| `Xorg` + dummy 驱动 ← 用这个 | Xorg + 一份 xorg.conf | **能** —— 任意模式加得上、切得动 |
+| `Xvfb` | `xvfb` 包,几 MB | **不能**(见下) |
 | `Xephyr` | 一个**已经在跑**的 X 显示 | 服务器上用不了 |
 | `weston` + `Xwayland` | weston | 依赖更重 |
 
-**显式传入 `--xvfb=Xvfb …`,不读取该配置。** Debian 系默认 `Xvfb`,
-RHEL 系默认 Xorg+dummy,而云主机通常不安装 Xorg —— 同一条命令在两台机器上结果不同。
+**显式传入 `--xvfb=…`,不读取该配置。** Debian 系默认 `Xvfb`,
+RHEL 系默认 Xorg+dummy —— 同一条命令在两台机器上跑的是两个不同的 X server。
 
-更关键的是它**绕过了探测**:`which("Xvfb")` 探测成功,而 xpra 实际使用 Xdummy。
+更关键的是它**绕过了探测**:探到的和真跑的不是同一个。
 
 > **探测对象必须与实际使用的对象一致。** 中间隔着第三方配置时,探测不构成保证。
 
-分辨率:Xvfb 以较大尺寸(`8192x4096`)启动,再由 xpra 通过 RandR 调整到目标尺寸,
-变更尺寸无需重启 X。
+#### 为什么不是 Xvfb
 
-### 8.2 有头 + Xvfb 和 headless 差在哪
+原来钉的是 Xvfb,把屏幕开大(`8192x4096`)"给 RandR 留余地",以为 xpra
+能把它调到目标尺寸。**这一条是错的,而且错得没有声音** —— 起得来、画得出,
+只是人把窗口拉多大画面都不动。
 
-| | headless | 有头 + Xvfb |
+Xvfb 的显示尺寸是**死的**。整个显示只有一个 RANDR 模式:
+
+```
+$ xrandr
+Screen 0: minimum 1 x 1, current 2560 x 1600, maximum 2560 x 1600
+screen connected 2560x1600+0+0
+   2560x1600      0.00*          ← 只有这一个
+
+$ xrandr --fb 1260x806
+xrandr: specified screen 1260x806 not large enough for output screen (2560x1600+0+0)
+X Error of failed request:  BadValue
+
+$ xrandr --newmode "1260x806_60" …   ← 不报错,**也不生效**
+$ xrandr --addmode screen "1260x806_60"
+xrandr: cannot find mode "1260x806_60"
+```
+
+于是 `--resize-display=yes` 在它上面永远是空转。dummy 驱动则是:
+任意模式加得上、切得动,屏幕真跟着变。
+
+代价是多一个依赖(`Xorg` 和 `dummy_drv.so`)。这个代价是**明的** ——
+`available()` 探不到就报出来,两个发行版家族的包名都写出来,
+不偷偷退回一个对不齐的画面。
+
+那份 `xorg.conf` 是我们自己的(`webmuxd/xorg.conf`),不看发行版那份。
+里面两个坑:`DacSpeed` 和 `VideoRam` 是**关键字不是 `Option`**,写成 Option
+的下场是 Xorg 起到一半 "no screens found",而日志里不会说是因为它;
+`Modes` 只能在 `Screen > Display` 里,写进 `Monitor` 段是语法错。
+
+还有一个:`-configdir` 的**绝对路径是 root 专用的**(`man Xorg`),
+我们不是 root,给了就是 `Unable to locate/open config directory` 然后整个起不来。
+`-config` 指名道姓就够了。
+
+### 8.2 有头 + 虚拟显示和 headless 差在哪
+
+| | headless | 有头 + 虚拟显示 |
 | --- | --- | --- |
 | **WebGL** | 有(自动退到 SwiftShader) | **默认没有** —— 要显式 `--use-gl=angle --use-angle=swiftshader`;`--disable-gpu` **救不回来**,有头下它关得更彻底 |
 | GPU | 没有 | 没有 —— 两条都是软件渲染 |
 | 原生对话框 | 不渲染 | **渲染,但点不动**(§12) |
 | 浏览器自己的 bar | 没有 | 有 —— 所以要 `--kiosk`(§11) |
-| 进程数 | 一个 | 三个:Xvfb + xpra + chrome |
+| 进程数 | 一个 | 三个:X server + xpra + chrome |
 | **能用哪几条来源** | JPG、DOM | **三条都能**(§9.3) |
 
 ### 8.3 要探哪些东西
@@ -373,13 +409,63 @@ RHEL 系默认 Xorg+dummy,而云主机通常不安装 Xorg —— 同一条命�
 | 探什么 | 少了会怎样 | |
 | --- | --- | --- |
 | `xpra` 可执行文件 | 什么都起不来 | ✓ |
-| `Xvfb` 可执行文件 | vfb 起不来,xpra 自己退出 | ✓ |
+| `Xorg` 和 `dummy_drv.so` | vfb 起不来,xpra 自己退出;缺 dummy 是**起到一半再死**,错误埋在 Xorg.log 里 | ✓ |
 | **跑 xpra 的那个 python 里有没有 PIL** | `start-desktop` 起不到一半就死。注意是**它的解释器**(读 shebang),不是我们的 —— webmuxd 常在 venv 里 | ✓ |
 | 空闲的 X 显示号 | 撞号,起不来 | ✓ |
 | **服务端有哪些图像编码器** | 我们只报 jpeg/png/webp/rgb/scroll。这个 xpra 编译时要是没带 webp 和 jpeg,就只剩 rgb —— **画面能出但带宽爆炸,而且不报错** | ✗ 还没探 |
 | **xpra 的协议版本** | 我们写死 rencodeplus,更老的版本握手就失败,报错不指向版本 | ✗ 还没探 |
 
 第五条属于「可运行但表现很差」一类,**比启动失败更难定位** —— 启动失败至少有报错。
+
+### 8.4 像素对齐:人的窗口多大,里面就多大
+
+ttyd 把终端调成你窗口那么大,tmux 里的 80 列就真是 80 列。**这一条我们也得做到** ——
+不然人拉大窗口只是把同一张图放大,越拉越糊。
+
+判据是三个数**同时**相等:
+
+    人窗口里给画面留的那块地  ==  画面元素占的地  ==  帧本身的像素
+
+两条腿的机理完全不同。
+
+**JPG:一条命令。** 观看端把尺寸发到 `/channel/cdp`,我们
+`Emulation.setDeviceMetricsOverride`,截图跟着出。三个数严丝合缝。
+
+**VNC:一条链,四个环。**
+
+```
+  观看端  ──configure-display──▶  xpra   把 X 显示调成这么大
+                                   │
+  观看端  ◀──window-resized─────────┘      服务端报回新尺寸
+     │
+     └────resize (/channel/cdp)────▶  我们  摁那个 chrome 窗口
+```
+
+**每一环都真断过一次**,而且断得都没有声音:
+
+| 断在哪 | 表现 |
+| --- | --- |
+| Xvfb 改不了尺寸 | `--resize-display=yes` 空转,画面尺寸是死的(§8.1) |
+| 发的是 `desktop_size` | `start-desktop` 的服务端把这个包**明确当空操作**;要发 `configure-display` |
+| 握手里没有 `desktop_mode_size` | 连上第一眼就是 xpra 自己的默认 1920x1080 |
+| 客户端把 `window-resized` 的包位读错 | 服务端发了,客户端整包丢掉,画面尺寸停在连上那一刻 |
+| chrome 不跟显示走 | `screen.width` 它读得准,**但窗口纹丝不动** —— 得我们用 CDP 去摁 |
+
+最后那一下有三条命令,顺序是死的:
+
+    windowState=normal → bounds=(w+1, h+1) → windowState=fullscreen
+
+- 直接给 fullscreen 的窗口设 bounds,**尺寸会被静默丢掉** —— chrome 只把它踢出全屏。
+- 停在 `normal` 不行:kiosk 一离开全屏,它自己的标签栏和地址栏就回来了,占掉 87 像素。
+- **`+1` 不是余量。** chrome **不接受一个正好等于屏幕大小的窗口**:给它 `WxH`
+  到手永远是 `W-1 x H-1`,而给 `W±1` 都精确到位。退一像素就是画面右下各露一条
+  1 像素的桌面底色 —— **有缝**;多一像素则是窗口盖满桌面,多出来的落在桌面外,看不见。
+
+还有一条**不能做**的:VNC 下不要 `setDeviceMetricsOverride`。
+那边页面是被真的画到窗口里再抓下来的,再套一层模拟视口,
+**实测画面直接变成一整块纯色**,一帧内容都没有。
+
+验在 [tests/v2_browser_pixel_align](../../../tests/v2_browser_pixel_align/)。
 
 ## 9. 切换:像切画质一样
 
@@ -426,7 +512,7 @@ xpra 观测的是一个真实的 X 显示,所以浏览器必须是有头的 —�
 
 | 起的时候 | 之后能切的 |
 | --- | --- |
-| **有头 + Xvfb** | **JPG / VNC / DOM 三条都能** —— JPG 在有头浏览器上照样工作 |
+| **有头 + 虚拟显示** | **JPG / VNC / DOM 三条都能** —— JPG 在有头浏览器上照样工作 |
 | 无头 | JPG、DOM |
 | `remote`(只有一个 CDP 端点) | JPG、DOM |
 
@@ -549,7 +635,7 @@ webmuxd new --id work --transport jpg # 零系统依赖那条
 ```
 
 **默认选择效果更好的一条,而非更易安装的一条。** 安装成本由 `webmuxd install` 承担 ——
-它本就是运行前必须执行的步骤(需要下载浏览器),一并处理 xpra / Xvfb / PIL。
+它本就是运行前必须执行的步骤(需要下载浏览器),一并处理 xpra / 虚拟显示 / PIL。
 
 **启动失败即报错,不静默回退。** 静默回退会使使用者误以为当前画质来自 xpra。
 退路是显式指定另一条。

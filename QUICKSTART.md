@@ -39,7 +39,7 @@ WEBMUXD_BROWSER_MIRROR=https://cdn.npmmirror.com/binaries/chrome-for-testing web
 ```
 
 **依赖是它自己装的** —— chrome 的共享库、中文字体、以及画面默认要的
-xpra / Xvfb / PIL。有 root 就直接装(apt / dnf / yum 都认),没 root 就打出
+xpra / 虚拟显示 / PIL。有 root 就直接装(apt / dnf / yum 都认),没 root 就打出
 完整的那行命令让你自己跑,**不会探到缺了却不管**。
 
 (`--with-deps` 还认,但现在是默认行为了,不用再加。)

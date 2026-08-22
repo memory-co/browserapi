@@ -1,7 +1,7 @@
 """换一条像素来源 —— 对着 docs/v2/works/11 · 12 校。
 
 **大部分用例不需要真的跑 xpra。** 白名单、编解码、语法、参数拼装都是纯逻辑,
-真起一个 Xvfb + xpra 才能测的那几条单独标出来,装了就跑,没装就说没装。
+真起一个虚拟显示 + xpra 才能测的那几条单独标出来,装了就跑,没装就说没装。
 """
 
 import json
@@ -114,7 +114,8 @@ def test_超大的上行包拒掉_代理不当内存放大器():
 def test_白名单每一条都写了不发会怎样():
     """这张表是安全边界,**得能读**。"""
     assert set(relay.ALLOWED) == {
-        "hello", "map-window", "focus", "damage-sequence", "ping_echo", "disconnect"}
+        "hello", "map-window", "focus", "damage-sequence", "ping_echo",
+        "disconnect", "configure-display"}
     for k, why in relay.ALLOWED.items():
         assert len(why) > 4, k
 
@@ -139,6 +140,11 @@ class _FakeCDP:
 
     async def send(self, method, params=None, session_id=None):
         self.sent.append(method)
+        # **回一个能用的窗口号。** 回空字典的话 `_fill_screen()` 会在
+        # 第一步就抛 KeyError,后面那几条 `setWindowBounds` 一条都发不出去 ——
+        # 而测试想验的正是那几条。
+        if method == "Browser.getWindowForTarget":
+            return {"windowId": 1, "bounds": {"width": 0, "height": 0}}
         return {}
 
 
@@ -204,12 +210,18 @@ async def test_screencast_模式一切照旧():
     assert "Target.activateTarget" in c.session.cdp.sent
 
 
-async def test_xpra_下不改视口_尺寸是那个_X_显示说了算():
-    """再发 setDeviceMetricsOverride,页面会被渲染成另一个尺寸而窗口不变。"""
+async def test_vnc_moves_the_window_and_never_the_emulated_viewport():
+    """**VNC 下改的是那个 chrome 窗口,不是模拟视口。**
+
+    那边页面是被真的画到窗口里再抓下来的,再套一层
+    `setDeviceMetricsOverride`,**实测画面直接变成一整块纯色**
+    ([c §8.4](../../docs/v2/works/c-view.md#84-像素对齐人的窗口多大里面就多大))。
+    """
     c = _caster("xpra")
     await c.resize(800, 600)
-    assert (c.width, c.height) == (1024, 768)
+    assert (c.width, c.height) == (800, 600)
     assert not any("Emulation" in m for m in c.session.cdp.sent)
+    assert any("Browser.setWindowBounds" in m for m in c.session.cdp.sent)
 
 
 def test_状态里报的出来现在走的是哪条():
@@ -283,9 +295,11 @@ def test_显示号看_socket_文件不看进程(tmp_path, monkeypatch):
 
 def test_探不到就说缺什么_不猜(monkeypatch):
     monkeypatch.setattr(xpra_mod.shutil, "which", lambda n: None)
+    monkeypatch.setattr(xpra_mod.os.path, "exists", lambda p: False)
+    monkeypatch.setattr(xpra_mod, "dummy_driver", lambda: None)
     ok, why = xpra_mod.available()
     assert not ok
-    assert "xpra" in why and "Xvfb" in why
+    assert "xpra" in why and "Xorg" in why and "dummy" in why
 
 
 # ------------------------------------------------------------------ 客户端的 js
@@ -530,15 +544,16 @@ def test_窗口比显示多要两格_否则右下会有一条黑边():
 
 # ------------------------------------------------- 虚拟显示由我们指定,不看发行版
 
-def test_虚拟显示钉死_Xvfb_不看发行版的配置(tmp_path, monkeypatch):
+def test_the_vfb_is_ours_to_pin_not_the_distro_s(tmp_path, monkeypatch):
     """**同一份 xpra,vfb 是打包方定的。**
 
-    Debian 那边默认 `Xvfb`,RHEL 那边默认 `xpra_Xdummy`(Xorg + dummy 驱动),
-    而 Xdummy 要装 Xorg —— 云主机上基本没有,真机上报的是
-    `failed to locate Xorg binary to run` + `vfb failed to start`。
+    Debian 那边默认 `Xvfb`,RHEL 那边默认 `xpra_Xdummy`(Xorg + dummy 驱动) ——
+    同一条命令在两台机器上跑的是两个不同的 X server,而这**绕过探测**:
+    探到的和真跑的不是同一个。所以自己指定。
 
-    更坏的是这**绕过探测**:`which("Xvfb")` 明明探到了,xpra 转头去用 Xdummy。
-    **探的东西和用的东西必须是同一个**,所以自己指定。
+    钉的是 **Xorg + dummy**,不是 Xvfb:Xvfb 整个显示只有一个 RANDR 模式,
+    尺寸改不了,于是 `--resize-display` 永远空转,人拉窗口画面不跟
+    ([c §8.1](../../docs/v2/works/c-view.md#81-虚拟显示钉死-xorg--dummy))。
     """
     seen = {}
 
@@ -557,19 +572,22 @@ def test_虚拟显示钉死_Xvfb_不看发行版的配置(tmp_path, monkeypatch)
 
     xvfb = [a for a in seen["argv"] if a.startswith("--xvfb=")]
     assert xvfb, "没有指定 vfb —— 那就是把选择权交回给发行版了"
-    assert xvfb[0].startswith("--xvfb=Xvfb "), xvfb[0]
-    assert "Xdummy" not in xvfb[0] and "Xorg" not in xvfb[0]
-    # 真实尺寸由 resize-display 定,屏幕开大是给 RandR 留余地
-    assert f"--resize-display=1024x768" in seen["argv"]
+    assert "Xorg" in xvfb[0] and "Xvfb" not in xvfb[0], xvfb[0]
+    # **我们自己那份 xorg.conf,不是发行版的。**
+    assert xpra_mod.XORG_CONF in xvfb[0], xvfb[0]
+    # `-configdir` 的绝对路径是 root 专用的,给了就整个起不来
+    assert "-configdir" not in xvfb[0], xvfb[0]
+    # **`yes` 而不是 `WxH`。** 写死一个尺寸就是把画面尺寸钉死了,
+    # 而这条腿要的是"观看端多大画面就多大"。
+    assert "--resize-display=yes" in seen["argv"]
 
 
-def test_缺_Xvfb_时两个发行版家族的包名都要说(monkeypatch):
+def test_a_missing_vfb_names_the_package_on_both_distro_families(monkeypatch):
     """只说一个的话,另一边的人得自己去猜。"""
-    monkeypatch.setattr(xpra_mod.shutil, "which",
-                        lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
+    monkeypatch.setattr(xpra_mod, "dummy_driver", lambda: None)
     ok, why = xpra_mod.available()
     assert not ok
-    assert "xvfb" in why and "xorg-x11-server-Xvfb" in why
+    assert "xserver-xorg-video-dummy" in why and "xorg-x11-drv-dummy" in why
 
 
 def test_起不来时先说清是哪一层没起来():
@@ -619,8 +637,7 @@ def test_xpra_起不来时报错_不静默退回_screencast(monkeypatch):
     """
     from webmuxd.exceptions import RuntimeUnavailable
     from webmuxd.sessions import resolve_transport
-    monkeypatch.setattr(xpra_mod.shutil, "which",
-                        lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
+    monkeypatch.setattr(xpra_mod, "dummy_driver", lambda: None)
     with pytest.raises(RuntimeUnavailable) as ei:
         resolve_transport(None)
     assert "默认走 VNC" in ei.value.message
@@ -656,11 +673,13 @@ def test_dsf_报错要说清_xpra_是你选的还是默认来的(monkeypatch):
 # --------------------------------------------------------------- install 装依赖
 
 def test_两个发行版家族的包名是真的不一样():
-    """**这不是换个前缀就完了。** 撞了才知道:RHEL 那边 Xvfb 的包名是
-    `xorg-x11-server-Xvfb`,Pillow 是 `python3-pillow`。"""
+    """**这不是换个前缀就完了。** 撞了才知道:两边 X server 和 dummy 驱动的
+    包名完全不一样,Pillow 也是(`python3-pil` vs `python3-pillow`)。"""
     from webmuxd import install as deps
-    assert deps.APT.xpra == ("xpra", "xvfb", "python3-pil")
-    assert deps.YUM.xpra == ("xpra", "xorg-x11-server-Xvfb", "python3-pillow")
+    assert deps.APT.xpra == ("xpra", "xserver-xorg-core",
+                             "xserver-xorg-video-dummy", "python3-pil")
+    assert deps.YUM.xpra == ("xpra", "xorg-x11-server-Xorg",
+                             "xorg-x11-drv-dummy", "python3-pillow")
     assert deps.DNF.xpra == deps.YUM.xpra
     # chrome 的共享库两边一个都对不上
     assert not set(deps.APT.chrome) & set(deps.YUM.chrome)
@@ -694,11 +713,12 @@ def test_没有_root_时只打印_而且给完整的那一行(monkeypatch):
     monkeypatch.setattr(deps, "can_root", lambda: False)
     monkeypatch.setattr(deps, "detect", lambda: deps.YUM)
     monkeypatch.setattr(deps, "apply", lambda *a, **k: pytest.fail("没 root 还去装了"))
-    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:Xvfb"))
+    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:dummy 驱动"))
     out = io.StringIO()
     ins.install(out=out)
     text = out.getvalue()
-    assert "sudo yum install -y -q xpra xorg-x11-server-Xvfb python3-pillow" in text
+    assert ("sudo yum install -y -q xpra xorg-x11-server-Xorg "
+            "xorg-x11-drv-dummy python3-pillow") in text
     assert "--transport jpg" in text, "得说清不想装可以走哪条"
 
 
@@ -711,7 +731,7 @@ def test_装完要重新探一遍_不看安装器的退出码(monkeypatch):
     monkeypatch.setattr(deps, "can_root", lambda: True)
     monkeypatch.setattr(deps, "detect", lambda: deps.APT)
     monkeypatch.setattr(deps, "apply", lambda *a, **k: (True, ""))   # 装"成功"了
-    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:Xvfb"))  # 但还是没有
+    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:dummy 驱动"))  # 但还是没有
     out = io.StringIO()
     ins.install(out=out)
     assert "装好了" not in out.getvalue(), "安装器说成功就信了"
@@ -810,16 +830,19 @@ def test_能切到哪几种是起的时候定的_不是运行时算的():
 
 
 async def test_切过去之后只有画面那一行变了():
-    """**切的只有一样东西。** own_frames / own_viewport 要跟着走,
-    因为 DOM 不用我们截图、但视口必须由我们钉住,而 VNC 两样都不归我们。"""
+    """**切的只有一样东西。** `own_frames` 要跟着走 —— 只有 JPG 的帧是我们截的。
+
+    视口不在这张表上:**三种模式都由我们钉尺寸**,只是手法不同
+    (JPG/DOM 一条 CDP 命令改视口,VNC 摁那个 chrome 窗口)。
+    """
     c = _switchable("jpg")
     await c.switch("vnc")
-    assert c.mode == "vnc" and not c.own_frames and not c.own_viewport
+    assert c.mode == "vnc" and not c.own_frames
     await c.switch("dom")
     # DOM:不截图,**但视口归我们** —— 重放出来的布局就是按它排的
-    assert c.mode == "dom" and not c.own_frames and c.own_viewport
+    assert c.mode == "dom" and not c.own_frames
     await c.switch("jpg")
-    assert c.mode == "jpg" and c.own_frames and c.own_viewport
+    assert c.mode == "jpg" and c.own_frames
 
 
 async def test_切到这台机器上没有的那种_要报错_不能悄悄留在原来那种():

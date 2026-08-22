@@ -111,11 +111,50 @@ export class XpraClient {
     this.ws.send(frame(rencode(packet)));
   }
 
+  /** 观看端现在有多大。**握手和后来的每次改尺寸都用它。** */
+  want: { w: number; h: number } | null = null;
+
+  /**
+   * 告诉服务端"我要这么大"。
+   *
+   * **发的是 `configure-display`,不是 `desktop_size`。** 这两个包名在
+   * xpra 里都存在,但 `start-desktop` 的服务端把 `desktop_size` 明确地
+   * 当空操作(`x11/desktop/base.py`:"Usually, desktop servers don't need
+   * to do anything when the client's geometry changes")—— 发过去日志里
+   * 会打一行 "new desktop size",然后**什么都不发生**。真正会走到
+   * `set_screen_size()` 去改 RandR 的是 `configure-display`。
+   *
+   * 这是 VNC 那条腿唯一能改画面尺寸的路:服务端 `--resize-display=yes`
+   * 把 X 显示调成这个尺寸。**桌面里那个 chrome 不会自己跟** ——
+   * 它 `screen.width` 读得准而窗口纹丝不动,得等服务端把新尺寸报回来
+   * (`window-resized`),再由观看端发一条 `resize` 到 `/channel/cdp`
+   * 让服务端用 CDP 去摁。
+   */
+  size(w: number, h: number): void {
+    w = Math.max(200, Math.round(w));
+    h = Math.max(200, Math.round(h));
+    if (this.want && this.want.w === w && this.want.h === h) return;
+    this.want = { w, h };
+    this._send(["configure-display", {
+      "desktop-size": [w, h],
+      "desktop-size-unscaled": [w, h],
+      "monitors": {},
+    }]);
+  }
+
+  _screen(w: number, h: number): unknown[] {
+    const mm = (px: number) => Math.round(px * 25.4 / 96);
+    return ["webmuxd", w, h, mm(w), mm(h),
+            [["webmuxd", 0, 0, w, h, mm(w), mm(h)]], 0, 0, w, h];
+  }
+
   _hello(): void {
-    const w = this.canvas.width || 1024, h = this.canvas.height || 768;
-    const screen = ["webmuxd", w, h, Math.round(w * 25.4 / 96), Math.round(h * 25.4 / 96),
-                    [["webmuxd", 0, 0, w, h, Math.round(w * 25.4 / 96), Math.round(h * 25.4 / 96)]],
-                    0, 0, w, h];
+    // **握手就要报对尺寸。** 这儿原来写的是 `this.canvas.width || 1024` ——
+    // 而握手那一刻 canvas 还没被定过尺寸,于是永远回落到 1024×768,
+    // 服务端也就永远把桌面开成 1024×768。**画面尺寸是死的,根因在这一行。**
+    const w = this.want?.w || this.canvas.width || 1024;
+    const h = this.want?.h || this.canvas.height || 768;
+    const screen = this._screen(w, h);
     this._send(["hello", {
       "version": "6.6", "client_type": "webmuxd",
       // **每个客户端一个 uuid。** 服务端会把 uuid 相同的旧连接踢掉
@@ -141,7 +180,13 @@ export class XpraClient {
       "file": { "enabled": false },
       "wants": ["packet-types"], "setting-change": true,
       "desktop_size": [w, h], "screen_sizes": [screen],
-      "display": { "desktop_size": [w, h], "screen_sizes": [screen] },
+      // **`desktop_mode_size` 是握手时唯一被 desktop 服务端认的尺寸。**
+      // 不给它,`configure_best_screen_size()` 就打一句 "client did not
+      // request a specific desktop mode size" 然后用它自己的默认
+      // 1920x1080(`x11/desktop/display.py`),连上来第一眼就是错的。
+      "desktop_mode_size": [w, h],
+      "display": { "desktop_size": [w, h], "screen_sizes": [screen],
+                   "desktop_mode_size": [w, h] },
       "encodings": {
         "": ENCODINGS, "core": ENCODINGS,
         "rgb_formats": ["RGBX", "RGBA"],
@@ -193,10 +238,28 @@ export class XpraClient {
         this._send(["focus", wid, []]);
         return;
       }
+      // **这两组的包位不一样,不能合在一起读。**
+      // `window-move-resize` / `configure-override-redirect` 是
+      // `[wid, x, y, w, h]`,尺寸在 4、5;
+      // `window-resized` 是 `[wid, w, h, resize_counter]`,尺寸在 2、3。
+      // 合着读的下场:桌面改了尺寸,服务端**发了** `window-resized`
+      // (`x11/desktop/window.py: send_updated_screen_size`),而我们
+      // 拿 p[4]=resize_counter、p[5]=undefined,条件不成立,**整包丢掉** ——
+      // 画面尺寸于是永远停在连上那一刻,而且一句话都没有。
       case "window-move-resize":
-      case "window-resized":
       case "configure-override-redirect":
         if (p[1] === this.wid && p[4] && p[5]) this._resize(p[4], p[5]);
+        return;
+      case "window-resized":
+        if (p[1] === this.wid && p[2] && p[3]) this._resize(p[2], p[3]);
+        return;
+      // 桌面改尺寸之后**还有这么一条路**报回来 ——
+      // `["desktop_size", w, h, maxw, maxh]`
+      // (`server/source/display.py: updated_desktop_size`)。
+      // 这台机器上实测走的是上面那条 `window-resized`,但这条也认:
+      // 两条报的是同一件事,漏一条就是"桌面变了而画布不知道"。
+      case "desktop_size":
+        if (p[1] && p[2]) this._resize(p[1], p[2]);
         return;
       case "draw":
         this._draw(p);
@@ -222,7 +285,7 @@ export class XpraClient {
       // 理由见 docs/v2/works/c-view.md §5.1。
       case "encodings": case "cursor": case "window-metadata":
       case "window-icon": case "lost-window": case "setting-change":
-      case "desktop_size": case "bell": case "eos": case "raise-window":
+      case "bell": case "eos": case "raise-window":
       case "initiate-moveresize": case "pointer-position":
         return;
       default:

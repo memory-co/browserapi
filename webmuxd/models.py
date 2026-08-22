@@ -638,7 +638,9 @@ class XpraFact:
     python: str = ""
     version: str = ""
     #: 传给 `--xvfb=` 的那个。**显式钉死,不读发行版配置。**
-    vfb: str = "Xvfb"
+    #: 是 `Xorg+dummy` 而不是 `Xvfb` —— Xvfb 的显示尺寸改不了,
+    #: 画面就永远和人的窗口对不齐(`xpra.xvfb()`)。
+    vfb: str = "Xorg+dummy"
 
     def to_json(self) -> dict[str, Any]:
         return _drop_empty({"bin": self.bin, "python": self.python,
@@ -649,7 +651,7 @@ class XpraFact:
         if not isinstance(d, dict) or not d.get("bin"):
             return None
         return cls(str(d["bin"]), str(d.get("python") or ""),
-                   str(d.get("version") or ""), str(d.get("vfb") or "Xvfb"))
+                   str(d.get("version") or ""), str(d.get("vfb") or "Xorg+dummy"))
 
 
 @dataclass(frozen=True)
@@ -684,8 +686,8 @@ class MachineFacts:
     browser: BrowserFact | None = None
     xpra: XpraFact | None = None
     rrweb: RrwebFact | None = None
-    #: 传给 `--xvfb=` 的那个可执行文件(和 `xpra.vfb` 是两回事:
-    #: 这个是绝对路径,那个是名字)。
+    #: 传给 `--xvfb=` 的那个 X server 可执行文件(和 `xpra.vfb` 是两回事:
+    #: 这个是绝对路径,那个是名字)。**今天是 Xorg,配 dummy 驱动。**
     xvfb: str = ""
     #: 下下来的中文字体在哪。**今天不写这个键** —— install 不下字体。
     fonts_dir: str = ""

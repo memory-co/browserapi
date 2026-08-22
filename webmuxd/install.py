@@ -151,9 +151,11 @@ def install(*, version: str = config.PINNED, mirror: str | None = None,
         # 装了新的 xpra、改了 PATH、在 venv 里跑,任一情形都会变,
         # 而报错不会指出"这次用的和上次不是同一个"。
         # **显式钉死 `vfb`,不读发行版配置。**
-        facts.xpra = dataclasses.replace(xpra_mod.probe(), vfb="Xvfb")
-        # Xvfb 单独记一条:起进程的人直接把它传给 `--xvfb=`
-        facts.xvfb = shutil.which("Xvfb") or ""
+        facts.xpra = dataclasses.replace(xpra_mod.probe(), vfb="Xorg+dummy")
+        # X server 单独记一条:起进程的人直接把它传给 `--xvfb=`。
+        # **是 Xorg + dummy 驱动,不是 Xvfb** —— Xvfb 的显示尺寸改不了,
+        # 人把窗口拉大画面也不跟,理由写在 `xpra.xvfb()`。
+        facts.xvfb = xpra_mod.XORG if xpra_mod.dummy_driver() else ""
         say(f"  {'':10} xpra {facts.xpra.version or '?'} · "
             f"解释器 {facts.xpra.python or '(读不出 shebang)'}")
 
@@ -270,7 +272,7 @@ APT = PackageFamily(
             "libcups2", "libdrm2", "libxkbcommon0", "libxcomposite1",
             "libxdamage1", "libxfixes3", "libxrandr2", "libgbm1",
             "libpango-1.0-0", "libcairo2", "libasound2"),
-    xpra=("xpra", "xvfb", "python3-pil"),
+    xpra=("xpra", "xserver-xorg-core", "xserver-xorg-video-dummy", "python3-pil"),
     font=("fonts-noto-cjk",),
 )
 
@@ -279,9 +281,9 @@ _RPM = dict(
     chrome=("nss", "nspr", "atk", "at-spi2-atk", "cups-libs", "libdrm",
             "libxkbcommon", "libXcomposite", "libXdamage", "libXfixes",
             "libXrandr", "mesa-libgbm", "pango", "cairo", "alsa-lib"),
-    # **`xorg-x11-server-Xvfb`,不是 `xvfb`。** 而且 `xpra` 在 RHEL 系
+    # **两边的包名完全不一样,都得写出来。** 而且 `xpra` 在 RHEL 系
     # **不在基础源里**,得先加 xpra.org 的源 —— 装不上时我们会说这句。
-    xpra=("xpra", "xorg-x11-server-Xvfb", "python3-pillow"),
+    xpra=("xpra", "xorg-x11-server-Xorg", "xorg-x11-drv-dummy", "python3-pillow"),
     font=("google-noto-sans-cjk-fonts",),
 )
 DNF = PackageFamily(name="dnf", install=("dnf", "install", "-y", "-q"), **_RPM)

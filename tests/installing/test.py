@@ -52,7 +52,7 @@ def fake_download(tmp_path, monkeypatch):
     # **测试绝不许动这台机器的系统包。**
     #
     # 0.7.0 起 `install` 探到缺了就装,而这台机器上 `sudo -n` 很可能是通的 ——
-    # 那样跑一次测试就会真的 `apt-get install xpra xvfb …`。
+    # 那样跑一次测试就会真的 `apt-get install xpra xserver-xorg-core …`。
     # 这儿把包管理器那条路整个封死:探测一律说"齐",真去装就直接把用例判失败。
     monkeypatch.setattr("webmuxd.xpra.available", lambda: (True, ""))
     monkeypatch.setattr("webmuxd.install.xpra_mod.available", lambda: (True, ""))
@@ -319,15 +319,15 @@ def test_记录的形状在_models_里(record_file):
         browser=BrowserFact("/x/chrome", "1.2", "chrome-for-testing"),
         xpra=XpraFact(bin="/usr/bin/xpra", python="/usr/bin/python3",
                       version="6.6"),
-        rrweb=RrwebFact("2.1.1", "/c/rrweb.js"), xvfb="/usr/bin/Xvfb")
+        rrweb=RrwebFact("2.1.1", "/c/rrweb.js"), xvfb="/usr/bin/Xorg")
     config.save(facts)
 
     got = config.load()
     assert got.browser.version == "1.2"
     assert got.xpra.python == "/usr/bin/python3"
-    assert got.xpra.vfb == "Xvfb", "传给 --xvfb 的那个名字要钉死"
+    assert got.xpra.vfb == "Xorg+dummy", "传给 --xvfb 的那个名字要钉死"
     assert got.rrweb.js == "/c/rrweb.js"
-    assert got.xvfb == "/usr/bin/Xvfb"
+    assert got.xvfb == "/usr/bin/Xorg"
 
 
 def test_没探到的键一个都不写(record_file):

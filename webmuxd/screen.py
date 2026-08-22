@@ -30,6 +30,11 @@ from webmuxd.jpg import JpgSource
 if TYPE_CHECKING:                                    # pragma: no cover
     from webmuxd.sessions import Session
 
+#: 摁完窗口之后最多等多久到位。**一次 50 毫秒,最多 40 次 = 2 秒。**
+#: 实测两三次就到,2 秒是给慢机器的余量 —— 到不了就说出来,不静静地歪着。
+_SETTLE_STEP = 0.05
+_SETTLE_TRIES = 40
+
 log = logging.getLogger("webmuxd.screen")
 
 #: 默认视口。和 v1 保持一致(CHANGELOG 0.3.0)。
@@ -59,11 +64,6 @@ class Screencaster:
         self.mode = models.canon(transport) or models.JPG
         #: 画面归不归我们截。JPG 归;VNC 的来自 xpra,DOM 的来自页面里的记录器。
         self.own_frames = self.mode == models.JPG
-        #: 视口归不归我们定。**这和上面那条不是一回事** ——
-        #: DOM 不用我们截图,但**视口必须由我们钉住**:重放出来的布局就是按它排的。
-        #: 只有 VNC 不能设 —— 那边画面尺寸是 X 显示的尺寸,再 override 一次
-        #: 会让页面被渲染成另一个尺寸而窗口不变,画面里一圈空白。
-        self.own_viewport = self.mode != models.VNC
         #: **这台 session 上能切到哪几种。**
         #: 不是"现在用哪种",是"以后能选哪几种" —— VNC 要真实的 X 显示,
         #: 无头浏览器没有,而有没有是起 session 时定的,运行时改不了。
@@ -77,7 +77,6 @@ class Screencaster:
         if self.mode == models.DOM:
             from webmuxd.rrweb import DomSource
             self.dom = DomSource()
-        self._warned_resize = False
         self.width, self.height = width, height
         #: **JPG 那条腿在 `jpg.py`。** 这儿只编排 —— 跟哪个 tab、谁在看、
         #: 慢了降多少;真正开关 `Page.startScreencast` 的是它。
@@ -178,10 +177,11 @@ class Screencaster:
 
     async def _apply_viewport(self) -> None:
         """视口是 per-tab 的,一条 CDP 命令([c1](../docs/v2/works/c1-quality.md))。"""
-        if not self.own_viewport:
-            # **VNC 下画面尺寸是那个 X 显示的尺寸,不是 CDP 说了算的。**
-            # 这时候再 setDeviceMetricsOverride,页面会被渲染成另一个尺寸,
-            # 而窗口不变 —— 结果是画面里一圈空白。所以不发。
+        if self.mode == models.VNC:
+            # **VNC 下不发。** 那边画面是一个真实的 X 桌面,页面是被真的
+            # 画到窗口里再抓下来的;再来一次 setDeviceMetricsOverride,
+            # 渲染就走进了模拟视口 —— **实测画面直接变成一整块纯色**,
+            # 一帧内容都没有。视口在 VNC 下由窗口大小决定,见 `_fill_screen()`。
             return
         if self._sid is None:
             return
@@ -191,26 +191,92 @@ class Screencaster:
                 "deviceScaleFactor": 0, "mobile": False}, session_id=self._sid)
 
     async def resize(self, width: int, height: int) -> None:
-        if not self.own_viewport:
-            # 尺寸由 `xpra --resize-display=WxH` 定死,浏览器窗口拉大拉小
-            # 不改变它 —— **说一次,别每次都吵**。
-            if not self._warned_resize:
-                self._warned_resize = True
-                log.info("xpra 模式下画面尺寸是固定的(%dx%d),忽略客户端的 resize",
-                         self.width, self.height)
-            return
         width = max(200, min(4096, int(width)))
         height = max(200, min(4096, int(height)))
         if (width, height) == (self.width, self.height):
             return
         self.width, self.height = width, height
         async with self._lock:
+            if self.mode == models.VNC:
+                # **VNC 多一步:桌面里那个浏览器窗口得跟着桌面走。**
+                #
+                # 整条链是:观看端把自己多大报给 xpra(`configure-display`)→
+                # xpra 把 X 显示调成那么大(`--resize-display=yes`)→ 服务端
+                # 把新尺寸回给观看端 → 观看端**这时候**才发 `resize` 到这儿。
+                # 所以走到这一行的时候,桌面已经是 `width x height` 了。
+                await self._fill_screen(width, height)
             await self._apply_viewport()
             if self.jpg.on:
                 await self._start_cast(locked=True)    # 重发一次,带上新尺寸
         await self._send_all(models.Cast(
             tab=self._tab, w=width, h=height, format=self.jpg.format,
             quality=self.jpg.adaptor.quality))
+
+    async def _fill_screen(self, width: int, height: int) -> None:
+        """把那个 kiosk 的 chrome 窗口摁满整个桌面。
+
+        **三条命令,顺序是死的**:
+
+            windowState=normal → bounds=(w+1, h+1) → windowState=fullscreen
+
+        每一条都不能少,理由各不相同:
+
+        - 直接给 fullscreen 的窗口设 bounds,**尺寸会被静默丢掉** ——
+          chrome 只把它踢出全屏,宽高当没看见(实测)。所以先 `normal`。
+        - 停在 `normal` 不行:kiosk 一离开全屏,它自己的标签栏和地址栏
+          就回来了,占掉 87 像素 —— 画面里多出一条我们不要的东西。
+          所以最后一条 `fullscreen` 把它按回去。
+        - **`+1` 不是余量,是绕开一条硬规则**:chrome **不接受一个正好等于
+          屏幕大小的窗口**,给它 `WxH` 到手永远是 `W-1 x H-1`;而给 `W±1`
+          都精确到位(在同一个桌面上扫了一遍,只有等于屏幕的那个值退一像素)。
+          退一像素的下场是画面右下各露一条 1 像素的桌面底色 —— **有缝**。
+          多一像素则是窗口盖满桌面,多出来的那一像素落在桌面外,看不见。
+          代价是页面自己排版的宽度也跟着多一像素 —— **这一像素今天认了**:
+          想钉回去只能上 `setDeviceMetricsOverride`,而 VNC 下那个会把画面
+          整块变成纯色(见 `_apply_viewport()`)。
+
+        chrome 自己**不会**跟着显示走:`screen.width` 它读得到、跟得准,
+        但窗口就是不动 —— 所以这一步得我们来。
+        """
+        try:
+            # **要带上是哪个 tab。** 不带参数发过去,浏览器那一层回的是
+            # `No web contents in the target` —— 一句 WARNING,然后画面
+            # 和窗口一直错位。带 `session_id` 就是问"这个 tab 在哪个窗口里"。
+            wid = (await self.session.cdp.send(
+                "Browser.getWindowForTarget", session_id=self._sid))["windowId"]
+            for bounds in ({"windowState": "normal"},
+                           {"left": 0, "top": 0,
+                            "width": width + 1, "height": height + 1},
+                           {"windowState": "fullscreen"}):
+                await self.session.cdp.send(
+                    "Browser.setWindowBounds", {"windowId": wid, "bounds": bounds})
+            got = await self._settled(width + 1, height + 1)
+            if got != (width + 1, height + 1):
+                log.warning("窗口摁不到位:要 %dx%d,到手 %dx%d",
+                            width + 1, height + 1, *got)
+        except Exception as e:                          # noqa: BLE001
+            # **说出来。** 摁不上去的下场是画面和窗口错位,而那看起来像
+            # "画面糊了" —— 人会去查编码质量,查不到这儿来。
+            log.warning("摁不动浏览器窗口(%dx%d):%s", width, height, e)
+
+    async def _settled(self, width: int, height: int) -> tuple[int, int]:
+        """**等窗口真的到了那个尺寸**,返回它最后的样子。
+
+        摁下去之后立刻读回来读到的是**半路上的数** —— 实测同一个
+        980 连读三次是 979、980、980,而窗口最终稳在 980。照那个半路的数
+        去补差值,只会一次比一次歪。所以这儿是等,不是补。
+
+        等**那件事发生**,不睡一个固定秒数:到位就立刻回,不到位才再看一眼。
+        """
+        got = (0, 0)
+        for _ in range(_SETTLE_TRIES):
+            b = (await self.session.cdp.send("Browser.getWindowForTarget",
+                                             session_id=self._sid))["bounds"]
+            got = (b["width"], b["height"])
+            if got == (width, height):
+                return got
+            await asyncio.sleep(_SETTLE_STEP)
+        return got
 
     # ------------------------------------------------------------------ 收帧
 
@@ -342,7 +408,6 @@ class Screencaster:
         await self._stop_cast()
         self.mode = want
         self.own_frames = want == models.JPG
-        self.own_viewport = want != models.VNC
         if want == models.DOM and self.dom is None:
             from webmuxd.rrweb import DomSource
             self.dom = DomSource()
@@ -350,8 +415,9 @@ class Screencaster:
             # 注入只对之后的文档生效 —— 这一条还没解,见
             # docs/v2/issues/dom-注入登记了但不执行.md
             log.warning("中途切到 DOM:当前页没有记录器,要等下一次导航")
-        if self.own_frames or self.own_viewport:
-            await self._apply_viewport()
+        if want == models.VNC:
+            await self._fill_screen(self.width, self.height)
+        await self._apply_viewport()
         await self._start_cast()
 
         info = self.mode_info(why=why, was=old)
