@@ -213,6 +213,8 @@ class Ref:
     tab: str
     #: CDP 的句柄。**不上线**,和 `Element.backend_node_id` 同一个东西。
     backend_node_id: int
+    #: **哪一份文档**(`loaderId`)。页面一换就全作废 —— 见 `RefTable` 的说明。
+    doc: str = ""
     role: str = ""
     name: str = ""
 
@@ -238,18 +240,18 @@ class RefTable:
     by_id: dict[str, Ref] = field(default_factory=dict)
     next_n: int = 1
 
-    def assign(self, elements: list[Element], tab: str) -> None:
-        """给一批元素发号,顺手写回 `el.ref`。"""
+    def assign(self, elements: list[Element], tab: str, doc: str = "") -> None:
+        """给一批元素发号,顺手写回 `el.ref`。`doc` 是当时那份文档的 `loaderId`。"""
         for el in elements:
             if el.backend_node_id is None:
                 continue
             rid = f"e{self.next_n}"
             self.next_n += 1
             el.ref = rid
-            self.by_id[rid] = Ref(rid, tab, el.backend_node_id, el.role, el.name)
+            self.by_id[rid] = Ref(rid, tab, el.backend_node_id, doc, el.role, el.name)
 
-    def get(self, ref: str, tab: str) -> Ref:
-        """认号。**三种失败分开说**,因为要做的事不一样。"""
+    def get(self, ref: str, tab: str, doc: str | None = None) -> Ref:
+        """认号。**四种失败分开说**,因为要做的事不一样。"""
         rid = ref[1:] if ref.startswith("@") else ref
         got = self.by_id.get(rid)
         if got is None:
@@ -265,6 +267,20 @@ class RefTable:
             raise NotFound(
                 f"@{rid} 是 {got.tab} 上的号,不是这个 tab 的",
                 code="not_found", details={"ref": rid, "tab": got.tab})
+        if doc is not None and got.doc != doc:
+            # **这一条是最要紧的,而且它差点没有。**
+            #
+            # 原来只验"那个节点还在不在"(`DOM.getBoxModel` 拿不拿得到)。
+            # 不够 —— **Chromium 会把 backendNodeId 复用给新文档里的节点**,
+            # 于是导航之后拿旧号去点,`getBoxModel` 照样成功,**点中的是
+            # 另一个东西,而且不报错**。实测撞到过:百度首页上的 `@e13`
+            # 在搜索结果页上点成功了,点中的是结果页那个搜索框。
+            #
+            # 页面一换,这个 session 上所有旧号一律作废。
+            raise NotFound(
+                f"@{rid}(那时是 {got.role} 「{got.name}」)是上一个页面上的号"
+                f" —— 页面换过了,重新 snapshot 一次",
+                code="not_found", details={"ref": rid, "stale_doc": True})
         return got
 
     def forget(self, tab: str) -> None:

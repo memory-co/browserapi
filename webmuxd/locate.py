@@ -155,6 +155,22 @@ def _affords(role: str) -> list[str]:
     return ["click", "hover"]
 
 
+async def document_id(cdp: CDP, session_id: str) -> str:
+    """**这个 tab 现在装的是哪一份文档。**
+
+    `loaderId` 每加载一个文档换一个,是 CDP 里文档的正身。
+    `@e1` 要绑住它 —— 理由见 [`models.RefTable`](models.py)。
+
+    拿不到就回空串:**空串谁也不等于**,于是号一律作废。宁可多让人
+    重新 snapshot 一次,也不能让一个过期的号点到别的东西上。
+    """
+    try:
+        r = await cdp.send("Page.getFrameTree", session_id=session_id)
+        return str(r["frameTree"]["frame"].get("loaderId") or "")
+    except Exception:
+        return ""
+
+
 async def _subtree(cdp: CDP, session_id: str, selector: str) -> set[int]:
     """`selector` 选中的那些节点,连同它们的整棵子树的 backendNodeId。
 

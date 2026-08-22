@@ -46,17 +46,53 @@ def test_second_snapshot_does_not_restart_at_e1():
 
 
 def test_unknown_ref_says_which_kind_of_unknown():
-    """**三种失败要给三句不一样的话** —— 该做的事不一样。"""
+    """**四种失败要给四句不一样的话** —— 该做的事不一样。"""
     t = RefTable()
     with pytest.raises(NotFound, match="还没 snapshot 过"):
         t.get("e1", "t_1")
 
-    t.assign(els("登录"), "t_1")
+    t.assign(els("登录"), "t_1", "DOC1")
     with pytest.raises(NotFound, match="现在发到 @e1"):
         t.get("e9", "t_1")               # 号抄错了 —— 告诉他发到哪儿了
 
     with pytest.raises(NotFound, match="是 t_1 上的号"):
         t.get("e1", "t_2")               # 换 tab 了
+
+    with pytest.raises(NotFound, match="上一个页面上的号"):
+        t.get("e1", "t_1", "DOC2")       # 页面换了
+
+
+def test_a_ref_does_not_survive_a_navigation():
+    """**这一条是拿真 bug 换来的。**
+
+    原来只验"那个节点还在不在"。不够 —— Chromium 会把 backendNodeId
+    复用给新文档里的节点,于是导航之后拿旧号去点,`DOM.getBoxModel`
+    照样成功,**点中的是另一个东西,而且不报错**。
+    实测撞到过:百度首页上的 `@e13` 在搜索结果页上点成功了。
+
+    所以号要绑住那份文档(`loaderId`)。
+    """
+    t = RefTable()
+    a = els("登录")
+    t.assign(a, "t_1", "loader-A")
+
+    # 同一份文档:认
+    assert t.get("e1", "t_1", "loader-A").name == "登录"
+    # 换了文档:**哪怕号还在表里、节点句柄还能用,也不认**
+    with pytest.raises(NotFound, match="上一个页面上的号"):
+        t.get("e1", "t_1", "loader-B")
+
+    # 不问文档(`doc=None`)时不拦 —— 内部那些不涉及导航的调用还能用
+    assert t.get("e1", "t_1").name == "登录"
+
+
+def test_no_loader_id_means_no_ref_is_trusted():
+    """拿不到 `loaderId` 时回的是空串。**空串谁也不等于** ——
+    宁可让人重新 snapshot,也不能放一个不确定的号过去。"""
+    t = RefTable()
+    t.assign(els("登录"), "t_1", "")      # 当时就没拿到
+    with pytest.raises(NotFound, match="上一个页面上的号"):
+        t.get("e1", "t_1", "loader-A")
 
 
 def test_closing_a_tab_frees_refs_but_never_rewinds():
