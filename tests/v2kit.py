@@ -13,13 +13,17 @@
 2. **观察也从 CLI 进。** `snapshot` 给的 `@e1` 就是页面结构,
    不往页面里塞 JS。
 
-3. **"人看到了什么"从一个真的浏览器来。**
+3. **"人看到了什么"一律从一个真的浏览器来。**
 
-   - 协议那一层(帧、光标、控制消息)接一条 `/s/<id>/channel/cdp` 看
-     —— 那是**人看的地方**,不是我们的内部状态。
-   - 整页那一层用 [`human()`](#human) 起一个**真的浏览器**打开观看页。
-     它能看到我们看不到的:**观看页自己报的错**、画面到底画没画出来、
-     窗口一改会怎样。那些正是最终用户会撞上的问题。
+   [`human()`](#human) 起一个真浏览器打开观看页。画面画没画出来、
+   光标变没变、窗口一改会怎样、**观看页自己有没有报错** ——
+   这些只有它看得见。
+
+   **不在 `v2_cli_*` 里接 WebSocket 看协议消息。** 试过,不好:
+   「我们往那条线上发了什么」和「人看到了什么」是两件事,
+   而一条 cli 场景混进画面断言之后,**既说不清自己在验什么,
+   坏了也不知道该往哪边查**。协议那一层由
+   [`pixels_on_a_wire/`](pixels_on_a_wire/) 贴着字节验。
 
 ## 一条命令有两份输出,是两种契约
 
@@ -31,7 +35,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import os
@@ -143,11 +146,6 @@ class Cli:
                 return tabs
             time.sleep(0.3)
 
-    def viewer(self, sid: str, channel: str = "cdp"):
-        import websockets
-        return websockets.connect(f"ws://127.0.0.1:{self.port}/s/{sid}/channel/{channel}")
-
-
 @contextlib.contextmanager
 def server(tmp_path):
     """`webmuxd start`,用完 `kill-server`。**收干净是这个上下文的责任。**"""
@@ -161,59 +159,6 @@ def server(tmp_path):
         yield cli
     finally:
         cli.sh("kill-server")                   # 失败了也要收
-
-
-# ---------------------------------------------------------------------------
-# 人看到了什么
-# ---------------------------------------------------------------------------
-
-def center(el: dict) -> tuple[float, float]:
-    x, y, w, h = el["bbox"]
-    return x + w / 3, y + h / 2
-
-
-#: 页面上一块**确定没有东西**的地方。光标是"变了才报",
-#: 所以每次问之前得先把它挪回一个已知的起点。
-BLANK = (20, 700)
-
-
-class Viewer:
-    """一条观看连接 —— **人看到的东西从这儿来**。"""
-
-    def __init__(self, ws) -> None:
-        self.ws = ws
-        self.frames = 0
-        self.msgs: list[dict] = []
-
-    async def drain(self, seconds: float = 2.0) -> None:
-        """把这段时间里推过来的都收下。"""
-        try:
-            while True:
-                m = await asyncio.wait_for(self.ws.recv(), timeout=seconds)
-                if isinstance(m, str):
-                    self.msgs.append(json.loads(m))
-                else:
-                    self.frames += 1
-        except asyncio.TimeoutError:
-            pass
-
-    def first(self, type_: str) -> dict:
-        return next(m for m in self.msgs if m["type"] == type_)
-
-    async def move_to(self, x: float, y: float) -> list[str]:
-        """把鼠标移过去,返回这一下带出来的光标变化。"""
-        self.msgs.clear()
-        await self.ws.send(json.dumps({"type": "mouse", "event": "move",
-                                       "x": x, "y": y, "buttons": 0,
-                                       "modifiers": 0}))
-        await asyncio.sleep(0.6)
-        await self.drain(1.5)
-        return [m["cursor"] for m in self.msgs if m["type"] == "cursor"]
-
-    async def cursor_over(self, el: dict) -> list[str]:
-        """**先回到空白处,再移到它上面** —— 不给起点就没得变。"""
-        await self.move_to(*BLANK)
-        return await self.move_to(*center(el))
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +306,30 @@ class Human:
         return (rect["x"] + (bx + bw / 2) * rect["width"] / cw,
                 rect["y"] + (by + bh / 2) * rect["height"] / ch)
 
+    def cursor(self) -> str:
+        """**人现在看到的那个光标。**
+
+        观看端收到 `cursor` 消息之后写的是 `screenEl.style.cursor`
+        ([session-view.ts](../webmuxjs/client/src/viewer/session-view.ts))——
+        所以读这个才是"人看到了什么",读那条消息只是"我们发了什么"。
+        """
+        return self.page.eval_on_selector(self.screen_sel(),
+                                          "e => e.style.cursor || ''")
+
+    def hover(self, el: dict, settle_ms: int = 900) -> str:
+        """把鼠标移到里面那个元素上,返回**这时人看到的光标**。"""
+        x, y = self.point_for(el)
+        self.page.mouse.move(x, y)
+        self.page.wait_for_timeout(settle_ms)
+        return self.cursor()
+
+    def hover_blank(self, settle_ms: int = 900) -> str:
+        """移到画面左下角那块空地上。**光标是"变了才报",得先有个起点。**"""
+        rect = self.screen().bounding_box()
+        self.page.mouse.move(rect["x"] + 20, rect["y"] + rect["height"] - 30)
+        self.page.wait_for_timeout(settle_ms)
+        return self.cursor()
+
     def click(self, el: dict) -> tuple[float, float]:
         """在画面上点里面那个元素。返回点的是屏幕上哪一点(报错时好看)。"""
         x, y = self.point_for(el)
@@ -403,6 +372,57 @@ class Human:
     def channel_count(self, kind: str) -> int:
         assert self.channels is not None, "要 human(..., intercept=True)"
         return sum(1 for w in self.channels if w.url.rstrip("/").endswith(kind))
+
+    # -- 那条 tab 条 -------------------------------------------------------
+    #
+    # **它和真的那张表是同一份数据**,不是副本([f](../docs/v2/works/f-tabs.md))。
+    # 所以这几下既在验界面,也在验那份数据。
+
+    _TABS_JS = """() => [...document.querySelectorAll('#tabs .tab')].map(e => ({
+        title: e.querySelector('span').textContent,
+        url: e.title,
+        active: e.classList.contains('on'),
+    }))"""
+
+    def tabs(self) -> list[dict]:
+        return self.page.evaluate(self._TABS_JS)
+
+    def wait_tabs(self, n: int, timeout: float = 25, *,
+                  settled: bool = False) -> list[dict]:
+        """等 tab 条上变成 `n` 个。**页面自己开的 tab 是异步冒出来的。**
+
+        `settled=True` 时还要等每个都落到一个地址上 ——
+        **条目先有,URL 后到**,那一刻标题还是「新标签页」、地址栏是空的。
+        (和 CLI 那边 [`Cli.wait_tabs`](#) 撞的是同一件事,
+        两边各踩了一次。)
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            got = self.tabs()
+            if len(got) == n and (not settled or all(t["url"] for t in got)):
+                return got
+            assert time.monotonic() < deadline, f"tab 条上是 {got},等的是 {n} 个"
+            self.page.wait_for_timeout(300)
+
+    def pick_tab(self, n: int) -> None:
+        self.page.locator("#tabs .tab").nth(n).click()
+        self.page.wait_for_timeout(1500)
+
+    def close_tab(self, n: int) -> None:
+        """点那个 `×`。"""
+        self.page.locator("#tabs .tab").nth(n).locator("b").click()
+        self.page.wait_for_timeout(1500)
+
+    def new_tab(self) -> None:
+        """点那个 `＋`。"""
+        self.page.locator("#newtab").click()
+        self.page.wait_for_timeout(2000)
+
+    def go(self, url: str) -> None:
+        """在地址栏里敲一个地址,回车。**这是人最熟的那一下。**"""
+        self.page.locator("#url").fill(url)
+        self.page.locator("#url").press("Enter")
+        self.page.wait_for_timeout(3000)
 
     def resize(self, w: int, h: int) -> None:
         self.page.set_viewport_size({"width": w, "height": h})

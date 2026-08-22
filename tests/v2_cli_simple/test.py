@@ -2,6 +2,11 @@
 
 **这一条是样例**,见 [README](README.md)。规矩在 [v2kit](../v2kit.py) 的开头。
 
+**从头到尾只有 CLI。** 画面、光标那些"人看到了什么"的东西不在这儿 ——
+它们要一个真浏览器才验得了,在 [v2_browser_simple](../v2_browser_simple/)。
+**一条测试只从一个口子进去**,混着来的那条既说不清自己在验什么,
+坏了也不知道该往哪边查。
+
 要网络,而且**要有头**(`--transport vnc`)—— 见下面那条注释:
 百度给无头浏览器弹图形验证码。没网或没 xpra 就跳过,不假装通过。
 """
@@ -9,9 +14,8 @@
 import pytest
 
 from tests import v2kit
-from tests.v2kit import BLANK
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.slow]
+pytestmark = pytest.mark.slow
 
 SITE = "https://www.baidu.com/"
 WORD = "webmuxd"
@@ -25,7 +29,7 @@ def cli(tmp_path):
         yield c
 
 
-async def test_start_open_baidu_search_and_see_results(cli, tmp_path):
+def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     # ---------------------------------------------------------------- 起
     #
     # **退出码是给脚本用的那一半。** `has` 什么都不打印,只回码 ——
@@ -74,26 +78,6 @@ async def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     box = boxes[0]
     assert box["ref"], "snapshot 出来的每一样都该有号"
 
-    # --------------------------------------------- 观看端:光标要变
-    async with cli.viewer("demo") as ws:
-        v = v2kit.Viewer(ws)
-        await v.drain(3)
-
-        assert v.first("hello")["transport"] == "vnc"
-        # **VNC 下这条通道上没有帧** —— 像素走 `/channel/xpra`,
-        # 这条只管输入和那几条控制消息([e §6.1](../../docs/v2/works/e-client.md))。
-        assert v.frames == 0, "VNC 下帧不该从 /channel/cdp 来"
-
-        # 像素那条在不在。**只验它接得上,不在这儿冒充 xpra 客户端** ——
-        # 那个协议要先握手才推东西,而握手是浏览器端那份的活。
-        async with cli.viewer("demo", "xpra") as px:
-            assert px.state.name == "OPEN", "VNC 下像素那条通道该在"
-
-        # 坐标从 snapshot 的 bbox 来,不是自己去页面里量。
-        on_box = await v.cursor_over(box)
-        assert "text" in on_box, f"移到搜索框上,光标该变成 I 型,实际:{on_box}"
-        assert "default" in await v.move_to(*BLANK), "移开该变回箭头"
-
     # ------------------------------------------------------------ 输入
     #
     # **`@e1` 直接就能点** —— 不用坐标,也不用再说一遍它叫什么。
@@ -125,9 +109,23 @@ async def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     assert len(links) >= 3, f"结果页上一条结果都没有:{[e['name'] for e in links]}"
     print(f"  搜到 {len(links)} 条,头一条:{links[0]['name']!r}")
 
-    # 过期的号:**要报错,不能点到别的东西**
+    # ------------------------------------------------- 过期的号点不动
+    #
+    # **先真的换一页。** 原来这儿是搜完之后直接拿旧号点,以为搜索就算换页了 ——
+    # 不是:百度那条搜索是**同文档跳转**,地址变了,而搜索框那个节点一直活着。
+    # 拿旧号点它其实**是对的**,于是这条断言时灵时不灵,还两次把我引到别处。
+    # **前提不成立的断言,比没有断言更费时间。**
+    #
+    # 「同文档跳转之后旧号该不该失效」是个**没定的语义问题**,不是 bug ——
+    # 记在 [issues](../../docs/v2/issues/同文档跳转之后旧号还认.md),先不解决。
+    cli.run("goto", "-t", "demo", "https://example.com/")
+    cli.run("wait", "-t", "demo", "--css", "body", "--timeout", "20")
+
     stale = cli.sh("click", "-t", "demo", ref)
-    assert stale.returncode == 4, f"过期的号该回 4,实际 {stale.returncode}"
+    assert stale.returncode == 4, (
+        f"换了一页,旧号该回 4,实际 {stale.returncode} —— "
+        f"点中了别的东西?{stale.stdout.strip()!r}")
+    assert "上一个页面" in stale.stderr, f"要说清是页面换了:{stale.stderr!r}"
     assert "snapshot" in stale.stderr, f"报错要说清楚下一步:{stale.stderr!r}"
 
     # ------------------------------------------------------ 干过什么

@@ -1,7 +1,11 @@
 # v2_cli_simple —— 一条完整的路,当样例用
 
-三条规矩写在 [v2kit](../v2kit.py) 的开头,`v2_*` 每一条都照那个来:
-**动作从 CLI 进而且真起进程、观察也从 CLI 进、只有"人看到了什么"从观看端来。**
+三条规矩写在 [v2kit](../v2kit.py) 的开头。
+
+**这一条从头到尾只有 CLI。** 画面、光标那些"人看到了什么"的东西不在这儿 ——
+它们要一个真浏览器才验得了,在 [v2_browser_simple](../v2_browser_simple/)。
+**一条测试只从一个口子进去**:混着来的那条既说不清自己在验什么,
+坏了也不知道该往哪边查。
 
 ## 它做什么
 
@@ -11,7 +15,6 @@ webmuxd start --port …          起服务
 webmuxd new --id demo           加一个 session      → has 变 0
 webmuxd goto -t demo baidu      打开百度            → 看到:正文、截图
 webmuxd snapshot -t demo -i     这一页上有什么      → @e13 textbox …
-(观看端)鼠标移到 @e13 的 bbox 上                   → 光标 default → text
 webmuxd click -t demo @e13      点它
 webmuxd type  -t demo @e13 …    输入
 webmuxd snapshot -t demo -i     再看一眼            → 框里有字了,而且号变新了

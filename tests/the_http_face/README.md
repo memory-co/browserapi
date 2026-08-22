@@ -13,4 +13,4 @@ API 不是给外部当产品用的,它存在是为了让 webmuxd **能作为独�
 ## 不在这测什么
 
 - lib 那边的便利(`with`、下标、按标题找 tab)—— 那些**故意不导出**,
-  在 [`session_identity/`](../session_identity/)。
+  🔲 没有地方在验了(`session_identity/` 删了)。

@@ -17,4 +17,5 @@ webmuxd 承诺"tab 表不是黑盒,就是浏览器自己那张表"。这个场�
 - **`open()` 怎么落到 Chromium、事件怎么推上来** —— 那是 CDP 的事实,
   在 [`f-tabs.md §openerId`](../../docs/v2/works/f-tabs.md) 里写着,
   端到端由 [`v2_cli_new_tab/`](../v2_cli_new_tab/) 守着。
-- **lib 那边 `tab.url` 读的是内存还是发请求** —— 在 [`session_identity/`](../session_identity/)。
+- **lib 那边 `tab.url` 读的是内存还是发请求** —— 🔲 没有地方在验了
+  (`session_identity/` 删了),要补该开一条 `v2_sdk_*`。

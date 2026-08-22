@@ -3,20 +3,18 @@
 和 [v2_cli_simple](../v2_cli_simple/) 同一条路,换掉中间那一段:搜索 → 点「新闻」。
 规矩在 [v2kit](../v2kit.py) 的开头。
 
-**这一条走无头(JPG)**,而 v2_cli_simple 走有头(VNC)。不是随便挑的:
+**从头到尾只有 CLI。** 画面和光标那些"人看到了什么"的东西不在这儿 ——
+在 [v2_browser_new_tab](../v2_browser_new_tab/)。
 
-- 这一条没有搜索,不会撞百度的图形验证码,所以能走无头
-- 走无头就顺带验了**另一条腿**:JPG 下画面帧**是从 `/channel/cdp` 来的**,
-  而 VNC 下那条通道上一帧都没有(像素走 `/channel/xpra`)。
-  两条测试各验一条,合起来才算把画面这一面盖住了。
+走无头(JPG)是因为这一条没有搜索,不会撞百度的图形验证码;
+v2_cli_simple 那条必须有头。
 """
 
 import pytest
 
 from tests import v2kit
-from tests.v2kit import BLANK
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.slow]
+pytestmark = pytest.mark.slow
 
 SITE = "https://www.baidu.com/"
 MENU = "新闻"
@@ -29,7 +27,7 @@ def cli(tmp_path):
         yield c
 
 
-async def test_clicking_a_blank_link_becomes_a_tab(cli):
+def test_clicking_a_blank_link_becomes_a_tab(cli):
     # ---------------------------------------------------------------- 起
     cli.run("new", "--id", "nt", "--transport", "jpg")
     cli.run("goto", "-t", "nt", SITE)
@@ -44,19 +42,6 @@ async def test_clicking_a_blank_link_becomes_a_tab(cli):
     # **按人看得见的字找**,不写死百度的 DOM。要求唯一 ——
     # 找到两个就直接失败,不随便挑一个。
     link = cli.one("nt", "-i", role="link", name=MENU)
-
-    # --------------------------------------------- 观看端:光标要变手型
-    async with cli.viewer("nt") as ws:
-        v = v2kit.Viewer(ws)
-        await v.drain(3)
-
-        assert v.first("hello")["transport"] == "jpg"
-        # **JPG 下帧就从这条通道来** —— 和 VNC 那条正相反。
-        assert v.frames > 0, "JPG 下一连上就该有帧"
-
-        on_link = await v.cursor_over(link)
-        assert "pointer" in on_link, f"移到链接上,光标该变成手,实际:{on_link}"
-        assert "default" in await v.move_to(*BLANK), "移开该变回箭头"
 
     # ------------------------------------------------------------ 点它
     cli.run("--user", "agent", "--note", "开个新闻看看",

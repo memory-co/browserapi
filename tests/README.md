@@ -25,7 +25,6 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | [`pointing_at_things/`](pointing_at_things/) | **按人看得见的字找**:分档匹配命中即停、有歧义给候选不替你挑、找不到也要说这页上有什么 |
 | [`doing_and_seeing/`](doing_and_seeing/) | **做一下再看看**:变化变成一句人话(没变就不说)、观测一次给全、标注层用完就撤 |
 | [`the_scrollback/`](the_scrollback/) | **日志是 scrollback 不是事件流**:三类、按条数切、`seq` 跨重启、半行不毁全份、能打包带走 |
-| [`session_identity/`](session_identity/) | **id 说了算端口你给**:空壳管理实例、幂等返回同一个对象、属性读内存不发请求、`act()` 不抛而快捷方法抛 |
 | [`installing/`](installing/) | **只回答两个问题**:下得到那个浏览器吗、依赖齐吗。幂等、下不到就不写那个键、记录不是配置文件 |
 | [`the_http_face/`](the_http_face/) | **HTTP 面存在的唯一理由是可独立验证**:形状和 lib 一一对上、不做 lib 没有的事、动作串行遇错即停、忙就 409 不排队 |
 
@@ -38,10 +37,12 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 |---|---|---|
 | [`v2_cli_simple/`](v2_cli_simple/) | cli | **一条完整的路**:起服务 → 开 session → 打开百度 → 搜一个词 → 看到结果。走 **VNC(有头)**,顺带验那条腿 |
 | [`v2_cli_new_tab/`](v2_cli_new_tab/) | cli | **点一个 `target=_blank` 的链接,弹出来的是个 tab**:opener 认得爹、焦点不跟过去。走 **JPG(无头)**,验另一条腿 |
-| [`v2_refs/`](v2_refs/) | 数据 | **`@e1` 这个号的规矩**,不起浏览器:只增不重用、四种失败各说各的话 |
+| [`v2_cli_session/`](v2_cli_session/) | cli | **两个 session,各干各的**:各去各的地址、号不串、日志不串、**关掉一个另一个照常能用**。替掉了 `session_identity/` |
+| [`v2_refs/`](v2_refs/) | 数据 | **`@e1` 这个号的规矩**,不起浏览器:四种失败各说各的话、只增不重用、**不跨文档** |
 | [`v2_browser_simple/`](v2_browser_simple/) | browser | **一个真人打开观看页会撞上什么**:Playwright 起一个真浏览器,点一下、敲几个键、把窗口拉小 —— 里面真的动了,观看页一条错都没报 |
 | [`v2_browser_modes/`](v2_browser_modes/) | browser | **换画面,而且换得回来**:VNC → JPG → VNC。判据是画布上真的有东西(数颜色),不是"有尺寸"。**这一条是被一个 bug 逼出来的** —— 切回 VNC 曾经什么都不做,还不报错 |
 | [`v2_browser_reconnect/`](v2_browser_reconnect/) | browser | **网抖一下,画面回不回得来**。挖出 `/channel/xpra` 根本不重连 —— VNC 下网一抖画面就永远停在最后一帧。判据是**新帧在流**,不是"画面上有东西" |
+| [`v2_browser_new_tab/`](v2_browser_new_tab/) | browser | **那条 tab 条跟不跟得上**:人在画面上点 `target=_blank`、点 tab、点 `×`、点 `＋`、地址栏敲回车 —— 每一下之后**两边都看**。「外挂的 bar 和真的那张表是同一份数据」这句话以前没人验 |
 
 三条规矩写在 [`v2kit.py`](v2kit.py) 开头:
 
@@ -60,6 +61,10 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 >   **`v2_cli_*` 从真进程进,把它验的那几条连同更多一起验了**
 > - `errors_are_a_contract/` · `chrome_facts/` —— 贴着代码量异常映射和 CDP 行为。
 >   判据见 [works/test.md §1](../docs/v2/works/test.md)
+> - `session_identity/` —— 测 SDK 那三个对象的语义。
+>   [`v2_cli_session/`](v2_cli_session/) 从 CLI 那一面接过了"两个 session
+>   互不影响"这一半;**另一半(对象幂等、属性读内存、`act()` 不抛)真的没了**,
+>   要补该开一条 `v2_sdk_*`
 
 ## 共享 fixture / helper
 

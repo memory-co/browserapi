@@ -64,14 +64,26 @@ def test_a_human_opens_the_page_and_drives_the_browser(cli):
         assert who.page.get_by_role("img", name="浏览器画面").count() >= 1, \
             "画面没有可访问名 —— 用读屏软件的人打开这页什么都听不到"
 
+        # -------------------------------------------- 光标跟着手走
+        #
+        # **读的是 `screenEl.style.cursor`,不是那条协议消息** ——
+        # 「我们发了什么」和「人看到了什么」是两件事,这一面只认后者。
+        #
+        # 先移到空地上:光标是"变了才报",不给个起点就没得变。
+        box = next(e for e in cli.snap("demo", "-i")
+                   if "type" in e["affords"] and e["in_viewport"])
+        who.hover_blank()
+        assert "text" in who.hover(box), \
+            f"移到搜索框上,光标该变成 I 型,实际:{who.cursor()!r}"
+        assert "default" in who.hover_blank(), \
+            f"移开该变回箭头,实际:{who.cursor()!r}"
+
         # ------------------------------------------------ 他点一下
         #
         # **这一下是这条测试的全部理由。** 它从真浏览器的 DOM 事件出发,
         # 经过归一化 → 上行消息 → 服务端翻译成 `Input.*` → 里面那个
         # Chromium。中间任何一环断了,这一下就什么都不会发生 ——
         # **而且不会报错。**
-        box = next(e for e in cli.snap("demo", "-i")
-                   if "type" in e["affords"] and e["in_viewport"])
         at = who.click(box)
 
         hits = [e for e in cli.api("log", "-t", "demo", "--user", "human")["entries"]
