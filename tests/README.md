@@ -40,6 +40,7 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | [`v2_cli_new_tab/`](v2_cli_new_tab/) | cli | **点一个 `target=_blank` 的链接,弹出来的是个 tab**:opener 认得爹、焦点不跟过去。走 **JPG(无头)**,验另一条腿 |
 | [`v2_refs/`](v2_refs/) | 数据 | **`@e1` 这个号的规矩**,不起浏览器:只增不重用、四种失败各说各的话 |
 | [`v2_browser_simple/`](v2_browser_simple/) | browser | **一个真人打开观看页会撞上什么**:Playwright 起一个真浏览器,点一下、敲几个键、把窗口拉小 —— 里面真的动了,观看页一条错都没报 |
+| [`v2_browser_modes/`](v2_browser_modes/) | browser | **换画面,而且换得回来**:VNC → JPG → VNC。判据是画布上真的有东西(数颜色),不是"有尺寸"。**这一条是被一个 bug 逼出来的** —— 切回 VNC 曾经什么都不做,还不报错 |
 
 三条规矩写在 [`v2kit.py`](v2kit.py) 开头:
 

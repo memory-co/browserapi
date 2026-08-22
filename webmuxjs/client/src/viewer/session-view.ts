@@ -138,8 +138,18 @@ export function startSessionView(auth: string, base: string): void {
       // **切了要说出来。** 画面变了而人不知道为什么,比画面差本身更糟。
       toast("画面换成 " + m.label + (m.why ? `(${m.why})` : ""), 4000);
     }
+    // **"显示哪个元素"和"连哪条上游"是两件事,分开写。**
+    //
+    // 缠在一起过一次:换画面那三行原来只写在 `startXpra()` 里,而它被
+    // `if (!xpra)` 挡着。于是 VNC → JPG → VNC 切不回去 —— 第二次点 VNC 时
+    // xpra 还连着,`startXpra()` 跳过,那三行也就跟着跳过了。
+    // 表现是**按钮点了什么都没发生,而且不报错**,连 console 都是干净的。
+    // (`tests/v2_browser_modes/` 现在盯着这条。)
     if (modes.current === "vnc") {
-      if (!xpra) startXpra();
+      img.hidden = true; cvs.hidden = false; dom3.hidden = true;
+      screenEl = cvs;
+      rrweb.close();
+      if (!xpra) startXpra();              // 连过一次就不用再连
     } else if (modes.current === "dom") {
       img.hidden = true; cvs.hidden = true; dom3.hidden = false;
       screenEl = dom3;
@@ -153,6 +163,9 @@ export function startSessionView(auth: string, base: string): void {
   }
 
   async function startXpra(): Promise<void> {
+    // 显示哪个元素由 `applyMode()` 管 —— 这儿只管把那条连接建起来。
+    // 但 `hello` 里 `transport === "vnc"` 那条路会直接调它,所以这三行
+    // 得留着(那时还没走过 `applyMode`)。
     img.hidden = true; cvs.hidden = false; dom3.hidden = true;
     screenEl = cvs;
     xpra = new XpraClient(api.ws("/channel/xpra"), cvs, {

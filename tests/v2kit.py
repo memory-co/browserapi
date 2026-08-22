@@ -38,6 +38,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 import urllib.request
 
 import pytest
@@ -251,24 +252,6 @@ class Human:
 
     # -- 看 ----------------------------------------------------------------
 
-    def wait_connected(self, timeout: float = 20000) -> None:
-        """等到那条 WS 接上。"""
-        self.page.wait_for_selector("#s-conn:has-text('已连接')", timeout=timeout)
-
-    def wait_painted(self, timeout: float = 30000) -> None:
-        """等到**第一帧真的落在画面上**。
-
-        **「已连接」不等于「画出来了」,这是两件事。**
-        WS 接上之后服务端才开始 `Page.startScreencast`,第一帧还要走一个来回 ——
-        中间那段时间状态条上是「帧 –」,而人看到的是一块空白。
-
-        第一版只等了「已连接」就去量画面,一跑就红 ——
-        **那不是 flake,那是把两件事当成了一件。**
-        """
-        self.page.wait_for_function(
-            "() => { const i = document.getElementById('screen');"
-            "        return !!(i && i.naturalWidth > 0); }", timeout=timeout)
-
     @property
     def address_bar(self) -> str:
         return self.page.locator("#url").input_value()
@@ -281,19 +264,84 @@ class Human:
     def status(self) -> str:
         return self.page.locator("#status").inner_text().replace("\n", " ")
 
-    def screen(self):
-        """当值的那个画面元素。**三个里只有一个可见** —— 找不到就是没画出来。"""
+    def screen_sel(self) -> str:
+        """当值的那个画面元素的选择器。**三个里只有一个可见。**
+
+        用 Playwright 的可见性判断,不自己在 JS 里猜 ——
+        第一版在 JS 里用 `offsetParent !== null` 挑,VNC 模式下挑中了那个
+        **隐藏着的 `<img>`**,于是量到的是上一条腿留下的旧图。
+        **两处各判一次"哪个可见",就会有一处判错。**
+        """
         for sel in self.SCREENS:
             el = self.page.locator(sel)
             if el.count() and el.is_visible():
-                return el
-        raise AssertionError(f"一个画面元素都不可见:{self.page.locator('#stage').inner_html()[:200]}")
+                return sel
+        raise AssertionError(
+            f"一个画面元素都不可见:{self.page.locator('#stage').inner_html()[:200]}")
+
+    def screen(self):
+        return self.page.locator(self.screen_sel())
+
+    #: **把当值的那个画面画进一张离屏 canvas,采样数颜色。**
+    #:
+    #: 为什么绕这一道:JPG 那条腿是 `<img>`,有 `naturalWidth` 可问;
+    #: VNC 那条是 `<canvas>`,**没有那个属性** —— 只判 `naturalWidth > 0`
+    #: 的话 VNC 下永远是 0,一条测试要么写不了要么写成两套。
+    #: 画进 canvas 之后两条腿是同一个判据,而且**它比"有没有尺寸"更严**:
+    #: 一整块死白也是有尺寸的。
+    _PAINT_JS = """(sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return {kind: 'none', w: 0, h: 0, colors: 0};
+      if (el.tagName === 'DIV') return {kind: 'dom', w: 0, h: 0, colors: -1};
+      const w = el.naturalWidth || el.width || 0;
+      const h = el.naturalHeight || el.height || 0;
+      if (!w || !h) return {kind: el.tagName.toLowerCase(), w, h, colors: 0};
+      const off = document.createElement('canvas');
+      off.width = w; off.height = h;
+      const g = off.getContext('2d');
+      try { g.drawImage(el, 0, 0); } catch (e) { return {kind: 'tainted', w, h, colors: -1}; }
+      const d = g.getImageData(0, 0, w, h).data;
+      const seen = new Set();
+      for (let i = 0; i < d.length; i += 4 * 997) seen.add(`${d[i]},${d[i+1]},${d[i+2]}`);
+      return {kind: el.tagName.toLowerCase(), w, h, colors: seen.size};
+    }"""
+
+    def paint(self) -> dict:
+        """画面上**到底有没有东西**:`{kind, w, h, colors}`。
+
+        `colors <= 1` 是一整块纯色 —— 那是白屏,不是画面。
+        DOM 模式回 `colors: -1`(那不是一张图,画不进 canvas)。
+        """
+        return self.page.evaluate(self._PAINT_JS, self.screen_sel())
 
     def cast(self) -> tuple[int, int]:
-        """推过来那张图**实际**多大。0 就是一帧都没画上去。"""
-        return tuple(self.page.evaluate(
-            "() => { const i = document.getElementById('screen');"
-            "        return [i.naturalWidth, i.naturalHeight]; }"))
+        """推过来那张图**实际**多大 —— 不是 session 名义上的分辨率。"""
+        p = self.paint()
+        return p.get("w", 0), p.get("h", 0)
+
+    def wait_connected(self, timeout: float = 20000) -> None:
+        """等到那条 WS 接上。"""
+        self.page.wait_for_selector("#s-conn:has-text('已连接')", timeout=timeout)
+
+    def wait_painted(self, timeout: float = 40) -> dict:
+        """等到**画面上真的有东西**(不止一种颜色)。
+
+        **「已连接」不等于「画出来了」,这是两件事。**
+        WS 接上之后服务端才开始推像素,第一帧还要走一个来回 ——
+        中间那段时间状态条上是「帧 –」,而人看到的是一块空白。
+
+        第一版只等了「已连接」就去量画面,一跑就红 ——
+        **那不是 flake,那是把两件事当成了一件。**
+
+        每轮重新问"哪个元素当值",所以**切模式之后也能用**。
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            p = self.paint()
+            if p.get("colors", 0) > 1:
+                return p
+            assert time.monotonic() < deadline, f"{timeout}s 内画面上还是一片空白:{p}"
+            self.page.wait_for_timeout(300)
 
     # -- 动 ----------------------------------------------------------------
 
@@ -301,7 +349,7 @@ class Human:
         """里面那个元素,在**人的屏幕上**是哪一点。"""
         rect = self.screen().bounding_box()
         cw, ch = self.cast()
-        assert cw and ch, "一帧都没画出来,没法换算 —— 画面是空的"
+        assert cw and ch, f"一帧都没画出来,没法换算:{self.paint()}"
         bx, by, bw, bh = el["bbox"]
         return (rect["x"] + (bx + bw / 2) * rect["width"] / cw,
                 rect["y"] + (by + bh / 2) * rect["height"] / ch)
@@ -322,6 +370,13 @@ class Human:
     def resize(self, w: int, h: int) -> None:
         self.page.set_viewport_size({"width": w, "height": h})
         self.page.wait_for_timeout(2000)
+
+    def switch_to(self, label: str) -> dict:
+        """点那几个画面模式按钮之一(**使用者看到的是 JPG / VNC / DOM**),
+        等到新那条腿真的把画面铺上。"""
+        self.page.get_by_role("button", name=label, exact=True).click()
+        self.page.wait_for_timeout(500)
+        return self.wait_painted()
 
 
 @contextlib.contextmanager
