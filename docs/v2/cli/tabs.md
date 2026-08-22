@@ -48,3 +48,15 @@ CDP **没有**"tab 被激活了"这种事件。所以我们记自己的账,
 🔲 **待讨论:`frame <sel>` / `frame main`。** 跨 iframe 今天只能钻进
 `send` 里写 js。而[动词表那一篇](../works/i-agent-surface.md#21-还缺的动词)
 已经把 `switch_frame` 列成缺的了 —— **后端先有,CLI 再谈**。
+
+## 🔲 待讨论:`wait` 等不了 tab
+
+`wait` 等得了页面上的文字、元素、地址,**等不了"又开了一个 tab"**。
+而页面自己开的 tab 是异步冒出来的 —— 点完一个 `target=_blank` 的链接立刻问
+`tabs`,有时快了一步。
+
+今天只能轮询([`tests/v2kit.py`](../../../tests/v2kit.py) 的 `wait_tabs`
+就是这么顶的)。该长成 `webmuxd wait -t demo --tabs 2`,
+或者更贴切的 `--new-tab`。
+
+后端**有**这个事件(`tab.created` 走 `/api/events`),缺的只是把它接到 `wait` 上。

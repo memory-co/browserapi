@@ -141,8 +141,8 @@ sess.share(writable=True)           # 可操作 —— 能碰你所有登录态
 这条线以上的代码**没有任何一处 `if runtime ==`** —— 为什么能做到,见
 [works/h](docs/v2/works/h-runtime.md)。
 
-**版本是钉死的**:每个 release 钉一个 Chrome for Testing 版本,升级前先跑
-`tests/chrome_facts/`(「我们对 CDP 的假设逐条量过」)。
+**版本是钉死的**:每个 release 钉一个 Chrome for Testing 版本
+([`config.py`](webmuxd/config.py) 的 `PINNED`)。
 
 **下载源自动挑最快的** —— `install` 并发探候选源,量的是真实文件的吞吐,
 不是 ping。要自己指定也行,**传进来的赢**:
@@ -225,8 +225,8 @@ pytest -q
 
 测试跑的是**真的 Chromium**,不 mock —— 这个项目的全部价值就在它和浏览器的交界处,
 换成假的等于什么都没测。用例[按场景组织](tests/README.md),不按代码模块:
-`pointing_at_things/` 是"按字找东西",`pixels_on_a_wire/` 是"画面是我们自己产的",
-`chrome_facts/` 是"我们对 CDP 的假设逐条量过"(换 Chromium 大版本先跑它)。
+`pixels_on_a_wire/` 是"画面是我们自己产的",`v2_cli_simple/` 是
+"起服务、打开百度、搜一个词、看到结果" —— **全程走 CLI,真起一个进程**。
 
 ## 文档
 

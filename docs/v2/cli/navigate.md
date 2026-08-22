@@ -34,7 +34,7 @@ webmuxd wait -t demo --css "#results"           # 元素出来了
 ```
 
 **睡固定时长是在赌网速** —— 赌输了就是一条时灵时不灵的脚本,而那比没有更坏。
-[v2_simple](../../../tests/v2_simple/) 里就是这么用的。
+[v2_cli_simple](../../../tests/v2_cli_simple/) 里就是这么用的。
 
 对得上 agent-browser 的 `wait <selector>` / `--text` / `--url`。
 

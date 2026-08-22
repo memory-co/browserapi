@@ -1,15 +1,7 @@
 # v2_simple —— 一条完整的路,当样例用
 
-**从 CLI 进,而且是真跑一个进程。** `[sys.executable, "-m", "webmuxd"]`,
-不是 `from webmuxd.cli import main` 调一下 —— in-process 调函数测不出
-argv 解析、退出码、stdout 那一层,而那一层出过事(入口点写错过一次,
-装完 `webmuxd` 根本起不来,全套单元测试没有一条发现)。
-
-**观察也从 CLI 进。** `snapshot` 给的 `@e1` 就是页面结构 ——
-找搜索框、读框里的值、数结果条数,三件事全靠它,**一行 JS 都没有**。
-
-**只有"人看到了什么"从观看端来。** 人是从 `/s/<id>/channel/cdp` 那条连接上
-看的:画面帧、光标、模式消息都在那儿。要验人看到的东西,就得从人看的地方看。
+三条规矩写在 [v2kit](../v2kit.py) 的开头,`v2_*` 每一条都照那个来:
+**动作从 CLI 进而且真起进程、观察也从 CLI 进、只有"人看到了什么"从观看端来。**
 
 ## 它做什么
 
@@ -33,13 +25,18 @@ webmuxd kill  -t demo           收                  → has 回 3
 
 **每一步都紧跟一句"看到了什么"** —— 不是"函数返回了什么"。
 
-## 三个 helper,两种契约
+## 一条命令有两份输出
 
 ```python
-run(*argv)   # 只看退出码 —— 大多数命令
-out(*argv)   # 人读的那份 stdout —— capture / url
-api(*argv)   # `--json` 那份,它是 API 的原始响应,所以解析它不算解析输出
+cli.run(*argv)   # 只看退出码 —— 大多数命令
+cli.out(*argv)   # 人读的那份 stdout —— capture / url
+cli.api(*argv)   # `--json` 那份,它是 API 的原始响应,所以解析它不算解析输出
 ```
+
+## 姊妹篇
+
+[v2_new_tab](../v2_new_tab/) 走同一条路,把搜索那一段换成点「新闻」开新 tab,
+而且**走无头** —— 两条各验一条画面的腿(VNC / JPG)。
 
 ## 为什么写它
 

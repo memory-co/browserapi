@@ -14,7 +14,7 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 带数字后缀的是**参考篇**:[c1](c1-quality.md) 与 [e1](e1-wire-format.md)
 只回答「具体是什么值、长什么样」,不做论证 —— 论证在它们对应的主篇里。
 
-## 十四篇
+## 十五篇
 
 | | | |
 | --- | --- | --- |
@@ -30,6 +30,7 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 | **[h](h-runtime.md)** | 浏览器从哪来 | runtime 只产出**一个 CDP 端点**;不碰容器(把 webmuxd 放进去,而不是反过来);root 下自动关沙箱但必须说出来 |
 | **[j](j-layout.md)** | 代码摆在哪 | 顶层按语言分两棵树:`webmuxd/`(Python)· `webmuxjs/`(JS,再分 client 和只放协议文档的 server)。Python 那棵照 requests **平铺**:一个文件一件事。`models.py` 装下所有跨边界的数据、`processes.py` 管住所有进程、一条画面腿一个文件;**接缝要看得见** —— `screen.py` 和 `input.py` 必须是两个文件 |
 | **[i](i-agent-surface.md)** | agent 的操作面与行为流 | 三层操作面(`open` 为什么不在动词表里)、封闭动词表与 `js` 逃生舱;人和 agent 进**同一条流**且标明是谁做的 —— **记控件身份,不记控件内容**。§3:读的那一面只剩**一张图和正文** —— 那一包筛过的元素表是「关于 agent 该怎么用浏览器的意见」,该留在调用方那边 |
+| **[test](test.md)** | 测什么,怎么测 | 判据是**代码错了它会红吗**(那条删掉的文档 lint 就是反例);命名 `v2_<面>_<场景>`,面是"从哪个口子进去的";三条规矩:动作从 CLI 进且真起进程、观察也从 CLI 进(**非塞 JS 不可就先问是不是缺了个命令**)、"人看到了什么"从一个真的浏览器来。§5 是 `v2_browser_*` 的设计:一个 session 加一个 **Playwright 起的真浏览器** —— 用自己的栈去测自己的栈是循环的,而且**观看页自己报的错我们的 CLI 根本读不到** |
 | **[k](k-one-server.md)** | 一个 server 一个口 | 端口从 session 收回到 server:`start --port` 起服务、`new --id` 加 session。「一个 session 一个端口」是 **kasm 留下的历史包袱** —— 画面换成我们自己产的之后那条硬约束就没了。`/s/<id>/` 前缀,一个进程持有全部 session |
 
 ## 明确不做
@@ -56,14 +57,14 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 | 帧协议 · 回执 · 自适应 | [`view/cast.py`](../../../webmuxd/screen.py) · [`viewer.py`](../../../webmuxd/screen.py) · [`quality.py`](../../../webmuxd/quality.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
 | 输入翻译(安全收口) | [`view/input.py`](../../../webmuxd/input.py) · [`cursor.py`](../../../webmuxd/cursor.py) | [`pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) |
 | 一个口 · token · 只读 | [`serve/app.py`](../../../webmuxd/serve.py) | [`one_endpoint/`](../../../tests/one_endpoint/) · [`the_http_face/`](../../../tests/the_http_face/) |
-| tab 表 | [`core/tabs.py`](../../../webmuxd/tabs.py) | [`tab_identity/`](../../../tests/tab_identity/) · [`chrome_facts/`](../../../tests/chrome_facts/) |
+| tab 表 | [`core/tabs.py`](../../../webmuxd/tabs.py) | [`tab_identity/`](../../../tests/tab_identity/) · [`v2_cli_new_tab/`](../../../tests/v2_cli_new_tab/) |
 | 浏览器自己的 UI | [`native/`](../../../webmuxd/browser_ui.py) | [`no_desktop/`](../../../tests/no_desktop/) |
 | runtime | [`runtime/`](../../../webmuxd/processes.py) | [`one_endpoint/`](../../../tests/one_endpoint/) |
 | install · 系统包 | [`cli/install.py`](../../../webmuxd/install.py) · [`cli/deps.py`](../../../webmuxd/install.py) | [`installing/`](../../../tests/installing/) |
 | xpra:起 · 代理 · 白名单 | [`xpra.py`](../../../webmuxd/xpra.py) · [`view/relay.py`](../../../webmuxd/xpra.py) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
 | 观看端客户端 | [`webmuxjs/client/`](../../../webmuxjs/client/) —— [`viewer/main.ts`](../../../webmuxjs/client/src/viewer/main.ts) · [`channel/`](../../../webmuxjs/client/src/channel/) · [`protocol/`](../../../webmuxjs/client/src/protocol/) | [`pixels_from_xpra/`](../../../tests/pixels_from_xpra/) |
 | 动作与行为流 | [`act.py`](../../../webmuxd/act.py) · [`locate.py`](../../../webmuxd/locate.py) · [`capture.py`](../../../webmuxd/capture.py) · [`log.py`](../../../webmuxd/log.py) | [`pointing_at_things/`](../../../tests/pointing_at_things/) · [`the_scrollback/`](../../../tests/the_scrollback/) |
-| **文档本身** | — | [`the_docs_are_true/`](../../../tests/the_docs_are_true/) —— 链接、锚点、以及文档里的数字与代码一致 |
+| 一条完整的路(CLI 全程) | — | [`v2_cli_simple/`](../../../tests/v2_cli_simple/)(VNC)· [`v2_cli_new_tab/`](../../../tests/v2_cli_new_tab/)(JPG)· [`v2_refs/`](../../../tests/v2_refs/) |
 
 ## 文档与实现的差距
 

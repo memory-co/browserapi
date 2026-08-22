@@ -1,5 +1,9 @@
 # webmuxd 测试 — 按场景组织
 
+> **正在往 `v2_*` 迁。** 新的一套从 CLI 进、真起进程、用 `snapshot` 观察,
+> 骨架在 [`v2kit.py`](v2kit.py),样例是 [`v2_simple/`](v2_simple/)。
+> 下面那张表里的老场景还在跑,但**新加的场景照 `v2_*` 写**。
+
 每个子目录是**一个场景**,有自己的 `README.md`(在测什么 / **不在这测什么** /
 fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按代码模块切文件」解耦 ——
 定位规则和"点下去之后发生了什么"属于不同场景,而"tab 表就是浏览器那张表"
@@ -25,12 +29,32 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | [`cli_shell/`](cli_shell/) | **CLI 照着 tmux 长**:退出码是接口、`new` 幂等、文件只是线索活没活要现探、定位失败在终端里列候选 |
 | [`installing/`](installing/) | **只回答两个问题**:下得到那个浏览器吗、依赖齐吗。幂等、下不到就不写那个键、记录不是配置文件 |
 | [`errors_are_a_contract/`](errors_are_a_contract/) | **错误分类指向不同的下一步**:每个线上 code 一个类、不认识的按状态兜底而不是 `KeyError`、半个响应体也能变成异常 |
-| [`the_docs_are_true/`](the_docs_are_true/) | **设计稿说的和代码做的是同一件事**:链接和锚点全指得到、文档里的数字就是代码里的值(帧头 28 字节、ack 额度、画质下限、xpra 上行那 6 个包)。**一条腐烂的结论比没有结论更坏** —— 它看着像依据 |
 | [`chrome_facts/`](chrome_facts/) | **我们对 Chromium 的假设,逐条量过**:四种开 tab 的方式全带 `openerId`、`setDiscoverTargets` 会补已存在的 target。**换大版本先跑这个** |
 | [`the_http_face/`](the_http_face/) | **HTTP 面存在的唯一理由是可独立验证**:形状和 lib 一一对上、不做 lib 没有的事、动作串行遇错即停、忙就 409 不排队 |
 
+## v2 那一套
+
+| 目录 | 测什么 |
+|---|---|
+| [`v2_simple/`](v2_simple/) | **一条完整的路**:起服务 → 开 session → 打开百度 → 搜一个词 → 看到结果。走 **VNC(有头)**,顺带验那条腿 |
+| [`v2_new_tab/`](v2_new_tab/) | **点一个 `target=_blank` 的链接,弹出来的是个 tab**:opener 认得爹、焦点不跟过去、新 tab 上照样能用。走 **JPG(无头)**,验另一条腿 |
+| [`v2_refs/`](v2_refs/) | **`@e1` 这个号的规矩**,只有数据不起浏览器:只增不重用、四种失败各说各的话 |
+
+三条规矩写在 [`v2kit.py`](v2kit.py) 开头:
+
+1. **动作从 CLI 进,而且真起一个进程** —— `python -m webmuxd`,不是 import `main()`
+2. **观察也从 CLI 进** —— `snapshot` 给的 `@e1` 就是页面结构,不往页面里塞 JS
+3. **只有"人看到了什么"从观看端来** —— 画面帧和光标从 `/channel/cdp` 看
+
+> 删掉的:`the_docs_are_true/`。它检查文档链接和文档里抄的数字 ——
+> **那是给文档做的 lint,不是给这个项目做的测试**。
+> 一条断言只有在"代码错了它会红"的时候才值钱,而它红的时候多半是有人改了个标题。
+> git 历史里还在。
+
 ## 共享 fixture / helper
 
+- `v2kit.py` —— v2 那一套的骨架:`server()` 起一个真 server、
+  `Cli` 的 `run/out/api/snap/one`、`Viewer`
 - `conftest.py` —— `chromium_endpoint`(一个真的 headless Chromium,session 级)、
   CDP 连接、临时数据目录
 > v2 把容器整条去掉了([works/07 §2](../docs/v2/works/07-runtime.md)),所以那两个

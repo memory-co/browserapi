@@ -2,7 +2,7 @@
 
 **命令行是这个项目的主要使用面。** 不是"顺带给个 CLI" ——
 `webmuxd start / new / goto / click` 就是我们自己测这套东西的方式
-([tests/v2_simple](../../../tests/v2_simple/)),也是 agent 最省事的接法。
+([tests/v2_cli_simple](../../../tests/v2_cli_simple/)),也是 agent 最省事的接法。
 
 ## 三条对齐
 

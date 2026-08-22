@@ -80,7 +80,7 @@ GET /api/snapshot     → 元素表,每样带一个 @e1
 
 **这个理由站不住,而且是被一条测试逼出来的。**
 
-`tests/v2_simple` 要全程走 CLI。写到"找到搜索框"那一步走不下去了 ——
+`tests/v2_cli_simple` 要全程走 CLI。写到"找到搜索框"那一步走不下去了 ——
 只能塞一段 `document.querySelectorAll('input,textarea')` 进去。
 那不是逃生舱用得克制,**那是一个缺的命令被 JS 顶掉了**。
 
