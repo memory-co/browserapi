@@ -15,4 +15,4 @@
 ## 不在这测什么
 
 - 事件流(WS)推什么 —— 那是内存里的东西,在 [`the_http_face/`](../the_http_face/)。
-- CLI 怎么把日志显示出来 —— 在 [`cli_shell/`](../cli_shell/)。
+- CLI 怎么把日志显示出来 —— 在 [`v2_cli_simple/`](../v2_cli_simple/)。

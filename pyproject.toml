@@ -21,7 +21,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+# `playwright` 只有 `tests/v2_browser_*` 用 —— 它起一个**真的**浏览器
+# 当最终用户,能看到我们自己看不到的东西(观看页报的错、画面到底画没画出来)。
+# 没装就跳过那一条,不影响别的([works/test.md §5](docs/v2/works/test.md))。
+# 装完还要 `playwright install chromium` 下浏览器。
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "playwright>=1.40"]
 
 [project.urls]
 Homepage = "https://github.com/memory-co/webmuxd"

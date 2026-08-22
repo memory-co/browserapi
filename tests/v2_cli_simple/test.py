@@ -36,7 +36,7 @@ async def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     # 回车之后跳到 `wappass.baidu.com/.../tuxing_v2.html`(图形验证码),
     # 有头这条直接出结果。这不是我们的 bug,是站点在挡自动化 ——
     # 但它决定了这条测试只能走有头,顺带也就真的验了 VNC 那条腿。
-    # (无头那条腿由 [v2_new_tab](../v2_new_tab/) 验。)
+    # (无头那条腿由 [v2_cli_new_tab](../v2_cli_new_tab/) 验。)
     cli.run("new", "--id", "demo", "--transport", "vnc")
     cli.run("has", "-t", "demo")
 

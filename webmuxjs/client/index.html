@@ -109,7 +109,16 @@
   <span id="modes"></span>
 </div>
 
-<div id="stage"><img id="screen" alt=""><canvas id="screen2" hidden></canvas><div id="screen3" hidden><div id="paintbox"></div></div></div>
+<!-- 画面。三个元素轮流当值(JPG 是 <img>、VNC 是 <canvas>、DOM 是那个容器),
+     **三个都得有名字**:
+     - 读屏的人靠它知道"这块是那台浏览器的画面",不然整页最有信息的地方是哑的。
+       `alt=""` 尤其不行 —— 那是在说"这张图没信息,跳过它"。
+     - 自动化靠它拿到这块的位置。`tests/v2_browser_simple/` 要把"里面那个
+       按钮在第几像素"换算成"人该点屏幕上的哪个点",而换算的原点就是这块的
+       bbox。拿不到就只能往页面里塞 `getBoundingClientRect()`,
+       而那正是 [works/test.md](../../docs/v2/works/test.md) 第二条规矩不许做的。
+     **同一个缺陷,人和机器都被挡在外面** —— 这种时候修一处解决两件事。 -->
+<div id="stage"><img id="screen" alt="浏览器画面"><canvas id="screen2" role="img" aria-label="浏览器画面" hidden></canvas><div id="screen3" role="img" aria-label="浏览器画面" hidden><div id="paintbox"></div></div></div>
 
 <div id="status">
   <span>帧 <b id="s-fps">0</b> fps</span>

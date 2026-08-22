@@ -1,7 +1,7 @@
 # webmuxd 测试 — 按场景组织
 
-> **正在往 `v2_*` 迁。** 新的一套从 CLI 进、真起进程、用 `snapshot` 观察,
-> 骨架在 [`v2kit.py`](v2kit.py),样例是 [`v2_simple/`](v2_simple/)。
+> **正在往 `v2_*` 迁。** 设计在 [works/test.md](../docs/v2/works/test.md),
+> 骨架在 [`v2kit.py`](v2kit.py),样例是 [`v2_cli_simple/`](v2_cli_simple/)。
 > 下面那张表里的老场景还在跑,但**新加的场景照 `v2_*` 写**。
 
 每个子目录是**一个场景**,有自己的 `README.md`(在测什么 / **不在这测什么** /
@@ -10,8 +10,8 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 这一条会同时用到 CDP、tab 表和事件流。
 
 跑的是**真的 Chromium**,不 mock:这个项目的全部价值就在它和浏览器的交界处,
-换成假的等于什么都没测。浏览器用的是 `webmuxd install` 下的那个**钉死版本** ——
-所以"换 Chromium 大版本先跑 `chrome_facts`"是可执行的,不是一句口号。
+换成假的等于什么都没测。浏览器用的是 `webmuxd install` 下的那个**钉死版本**
+([`config.py`](../webmuxd/config.py) 的 `PINNED`)。
 
 ## 场景一览
 
@@ -26,35 +26,44 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | [`doing_and_seeing/`](doing_and_seeing/) | **做一下再看看**:变化变成一句人话(没变就不说)、观测一次给全、标注层用完就撤 |
 | [`the_scrollback/`](the_scrollback/) | **日志是 scrollback 不是事件流**:三类、按条数切、`seq` 跨重启、半行不毁全份、能打包带走 |
 | [`session_identity/`](session_identity/) | **id 说了算端口你给**:空壳管理实例、幂等返回同一个对象、属性读内存不发请求、`act()` 不抛而快捷方法抛 |
-| [`cli_shell/`](cli_shell/) | **CLI 照着 tmux 长**:退出码是接口、`new` 幂等、文件只是线索活没活要现探、定位失败在终端里列候选 |
 | [`installing/`](installing/) | **只回答两个问题**:下得到那个浏览器吗、依赖齐吗。幂等、下不到就不写那个键、记录不是配置文件 |
-| [`errors_are_a_contract/`](errors_are_a_contract/) | **错误分类指向不同的下一步**:每个线上 code 一个类、不认识的按状态兜底而不是 `KeyError`、半个响应体也能变成异常 |
-| [`chrome_facts/`](chrome_facts/) | **我们对 Chromium 的假设,逐条量过**:四种开 tab 的方式全带 `openerId`、`setDiscoverTargets` 会补已存在的 target。**换大版本先跑这个** |
 | [`the_http_face/`](the_http_face/) | **HTTP 面存在的唯一理由是可独立验证**:形状和 lib 一一对上、不做 lib 没有的事、动作串行遇错即停、忙就 409 不排队 |
 
 ## v2 那一套
 
-| 目录 | 测什么 |
-|---|---|
-| [`v2_simple/`](v2_simple/) | **一条完整的路**:起服务 → 开 session → 打开百度 → 搜一个词 → 看到结果。走 **VNC(有头)**,顺带验那条腿 |
-| [`v2_new_tab/`](v2_new_tab/) | **点一个 `target=_blank` 的链接,弹出来的是个 tab**:opener 认得爹、焦点不跟过去、新 tab 上照样能用。走 **JPG(无头)**,验另一条腿 |
-| [`v2_refs/`](v2_refs/) | **`@e1` 这个号的规矩**,只有数据不起浏览器:只增不重用、四种失败各说各的话 |
+**名字是 `v2_<面>_<场景>`** —— "面"是从哪个口子进去的
+([works/test.md §2](../docs/v2/works/test.md))。
+
+| 目录 | 面 | 测什么 |
+|---|---|---|
+| [`v2_cli_simple/`](v2_cli_simple/) | cli | **一条完整的路**:起服务 → 开 session → 打开百度 → 搜一个词 → 看到结果。走 **VNC(有头)**,顺带验那条腿 |
+| [`v2_cli_new_tab/`](v2_cli_new_tab/) | cli | **点一个 `target=_blank` 的链接,弹出来的是个 tab**:opener 认得爹、焦点不跟过去。走 **JPG(无头)**,验另一条腿 |
+| [`v2_refs/`](v2_refs/) | 数据 | **`@e1` 这个号的规矩**,不起浏览器:只增不重用、四种失败各说各的话 |
+| [`v2_browser_simple/`](v2_browser_simple/) | browser | **一个真人打开观看页会撞上什么**:Playwright 起一个真浏览器,点一下、敲几个键、把窗口拉小 —— 里面真的动了,观看页一条错都没报 |
 
 三条规矩写在 [`v2kit.py`](v2kit.py) 开头:
 
 1. **动作从 CLI 进,而且真起一个进程** —— `python -m webmuxd`,不是 import `main()`
-2. **观察也从 CLI 进** —— `snapshot` 给的 `@e1` 就是页面结构,不往页面里塞 JS
-3. **只有"人看到了什么"从观看端来** —— 画面帧和光标从 `/channel/cdp` 看
+2. **观察也从 CLI 进** —— `snapshot` 给的 `@e1` 就是页面结构,不往页面里塞 JS。
+   **非塞 JS 不可的时候,先问是不是缺了个命令**
+3. **"人看到了什么"从一个真的浏览器来** —— 协议那层接 `/channel/cdp` 看,
+   整页那层用 Playwright 起一个真浏览器打开观看页。**它能看到我们看不到的:
+   观看页自己报的错**
 
-> 删掉的:`the_docs_are_true/`。它检查文档链接和文档里抄的数字 ——
-> **那是给文档做的 lint,不是给这个项目做的测试**。
-> 一条断言只有在"代码错了它会红"的时候才值钱,而它红的时候多半是有人改了个标题。
-> git 历史里还在。
+> **删掉的四个**(git 历史里还在):
+>
+> - `the_docs_are_true/` —— 检查文档链接和文档里抄的数字。**那是给文档做的
+>   lint,不是给这个项目做的测试**:它红的时候多半是有人改了个标题
+> - `cli_shell/` —— 测的东西对,但它 in-process 调 `main()`。
+>   **`v2_cli_*` 从真进程进,把它验的那几条连同更多一起验了**
+> - `errors_are_a_contract/` · `chrome_facts/` —— 贴着代码量异常映射和 CDP 行为。
+>   判据见 [works/test.md §1](../docs/v2/works/test.md)
 
 ## 共享 fixture / helper
 
 - `v2kit.py` —— v2 那一套的骨架:`server()` 起一个真 server、
-  `Cli` 的 `run/out/api/snap/one`、`Viewer`
+  `Cli` 的 `run/out/api/snap/one`、`Viewer`(那条 WS)、
+  `human()`(Playwright 起的真浏览器)
 - `conftest.py` —— `chromium_endpoint`(一个真的 headless Chromium,session 级)、
   CDP 连接、临时数据目录
 > v2 把容器整条去掉了([works/07 §2](../docs/v2/works/07-runtime.md)),所以那两个

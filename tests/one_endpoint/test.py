@@ -73,7 +73,7 @@ def test_传进来的赢(monkeypatch, tmp_path):
 
 
 def test_钉死的版本号是包里的一个常量():
-    """`tests/chrome_facts/` 那句"换大版本先跑它"要能执行,前提是版本确定。"""
+    """换大版本时要说得出换的是哪两个版本 —— 前提是版本确定。"""
     assert config.PINNED.count(".") == 3
     assert install_mod.download_url().endswith(".zip")
     assert config.PINNED in install_mod.download_url()

@@ -2,9 +2,8 @@
 
     webmuxd install && pytest -q
 
-浏览器优先用 `webmuxd install` 下的那个**钉死版本**,没有就退到系统里那个。
-这样"换 Chromium 大版本先跑 chrome_facts"才是可执行的
-(docs/v2/works/07 §4.1)。
+浏览器优先用 `webmuxd install` 下的那个**钉死版本**,没有就退到系统里那个 ——
+版本在 `config.PINNED`([h §4.1](../docs/v2/works/h-runtime.md))。
 """
 
 import asyncio

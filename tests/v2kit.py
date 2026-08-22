@@ -1,6 +1,6 @@
 """v2 那几条测试共用的骨架。
 
-**三条规矩,`v2_*` 每一条都照这个来**([v2_simple](v2_simple/) 是样例):
+**三条规矩,`v2_*` 每一条都照这个来**([v2_cli_simple](v2_cli_simple/) 是样例):
 
 1. **动作从 CLI 进,而且真起一个进程。** `[sys.executable, "-m", "webmuxd"]`,
    不是 `from webmuxd.cli import main` 调一下 —— in-process 调函数测不出
@@ -13,9 +13,13 @@
 2. **观察也从 CLI 进。** `snapshot` 给的 `@e1` 就是页面结构,
    不往页面里塞 JS。
 
-3. **只有"人看到了什么"从观看端来** —— 画面帧、光标,人是从
-   `/s/<id>/channel/cdp` 那条连接上看的。要验人看到的东西,
-   就得从人看的地方看。
+3. **"人看到了什么"从一个真的浏览器来。**
+
+   - 协议那一层(帧、光标、控制消息)接一条 `/s/<id>/channel/cdp` 看
+     —— 那是**人看的地方**,不是我们的内部状态。
+   - 整页那一层用 [`human()`](#human) 起一个**真的浏览器**打开观看页。
+     它能看到我们看不到的:**观看页自己报的错**、画面到底画没画出来、
+     窗口一改会怎样。那些正是最终用户会撞上的问题。
 
 ## 一条命令有两份输出,是两种契约
 
@@ -209,3 +213,144 @@ class Viewer:
         """**先回到空白处,再移到它上面** —— 不给起点就没得变。"""
         await self.move_to(*BLANK)
         return await self.move_to(*center(el))
+
+
+# ---------------------------------------------------------------------------
+# 一个真的浏览器,当最终用户用
+# ---------------------------------------------------------------------------
+
+class Human:
+    """坐在观看页前面的那个人。
+
+    **它握着一个真浏览器的 page**,所以能看到我们自己看不到的东西:
+
+    - `errors` —— **观看页自己报的错**。用户说"打开是白屏"的时候,
+      这是第一手信息,而我们的 CLI 今天一条都看不到
+      ([cli/debug.md](../docs/v2/cli/debug.md) 里 `console` 还是 🔲)
+    - 画面**到底画没画出来** —— `<img>` 的 `naturalWidth` 不是 0
+    - 窗口一改会怎样 —— 里面那个 session 跟不跟着变
+
+    坐标换算的正向公式在
+    [`input/mods.ts`](../webmuxjs/client/src/input/mods.ts):
+
+        inner = (client − rect.topLeft) × (cast ÷ rect.size)
+
+    这儿算它的逆。**`cast` 从 `<img>` 的自然尺寸来** ——
+    那就是实际推过来那张图有多大,不是 session 名义上的分辨率。
+    """
+
+    #: 画面那三个元素。**只有一个是可见的**,看模式(JPG / VNC / DOM)。
+    SCREENS = ("#screen", "#screen2", "#screen3")
+
+    def __init__(self, page) -> None:
+        self.page = page
+        self.errors: list[str] = []
+        page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
+        page.on("console", lambda m: m.type == "error"
+                and self.errors.append(f"console.error: {m.text}"))
+
+    # -- 看 ----------------------------------------------------------------
+
+    def wait_connected(self, timeout: float = 20000) -> None:
+        """等到那条 WS 接上。"""
+        self.page.wait_for_selector("#s-conn:has-text('已连接')", timeout=timeout)
+
+    def wait_painted(self, timeout: float = 30000) -> None:
+        """等到**第一帧真的落在画面上**。
+
+        **「已连接」不等于「画出来了」,这是两件事。**
+        WS 接上之后服务端才开始 `Page.startScreencast`,第一帧还要走一个来回 ——
+        中间那段时间状态条上是「帧 –」,而人看到的是一块空白。
+
+        第一版只等了「已连接」就去量画面,一跑就红 ——
+        **那不是 flake,那是把两件事当成了一件。**
+        """
+        self.page.wait_for_function(
+            "() => { const i = document.getElementById('screen');"
+            "        return !!(i && i.naturalWidth > 0); }", timeout=timeout)
+
+    @property
+    def address_bar(self) -> str:
+        return self.page.locator("#url").input_value()
+
+    @property
+    def tab_bar(self) -> str:
+        return self.page.locator("#tabs").inner_text()
+
+    @property
+    def status(self) -> str:
+        return self.page.locator("#status").inner_text().replace("\n", " ")
+
+    def screen(self):
+        """当值的那个画面元素。**三个里只有一个可见** —— 找不到就是没画出来。"""
+        for sel in self.SCREENS:
+            el = self.page.locator(sel)
+            if el.count() and el.is_visible():
+                return el
+        raise AssertionError(f"一个画面元素都不可见:{self.page.locator('#stage').inner_html()[:200]}")
+
+    def cast(self) -> tuple[int, int]:
+        """推过来那张图**实际**多大。0 就是一帧都没画上去。"""
+        return tuple(self.page.evaluate(
+            "() => { const i = document.getElementById('screen');"
+            "        return [i.naturalWidth, i.naturalHeight]; }"))
+
+    # -- 动 ----------------------------------------------------------------
+
+    def point_for(self, el: dict) -> tuple[float, float]:
+        """里面那个元素,在**人的屏幕上**是哪一点。"""
+        rect = self.screen().bounding_box()
+        cw, ch = self.cast()
+        assert cw and ch, "一帧都没画出来,没法换算 —— 画面是空的"
+        bx, by, bw, bh = el["bbox"]
+        return (rect["x"] + (bx + bw / 2) * rect["width"] / cw,
+                rect["y"] + (by + bh / 2) * rect["height"] / ch)
+
+    def click(self, el: dict) -> tuple[float, float]:
+        """在画面上点里面那个元素。返回点的是屏幕上哪一点(报错时好看)。"""
+        x, y = self.point_for(el)
+        self.page.mouse.click(x, y)
+        self.page.wait_for_timeout(1200)
+        return x, y
+
+    def type(self, text: str) -> None:
+        """敲字。**得先点过一下** —— 观看端在 `mousedown` 时才把焦点交给
+        那个隐藏 textarea(IME 要它)。"""
+        self.page.keyboard.type(text)
+        self.page.wait_for_timeout(1500)
+
+    def resize(self, w: int, h: int) -> None:
+        self.page.set_viewport_size({"width": w, "height": h})
+        self.page.wait_for_timeout(2000)
+
+
+@contextlib.contextmanager
+def human(url: str, *, size: tuple[int, int] = (1280, 900)):
+    """起一个**真的**浏览器打开 `url`,当最终用户用。
+
+    **为什么不是又一个 webmuxd session。** 试过,不对:
+
+    1. 用自己的栈去测自己的栈是**循环的** —— 截屏那条腿坏了,
+       "被观看的"和"观看的"会一起坏,而测试照样绿
+    2. 要测的是**最终用户会撞上什么**,那第二个浏览器就得是用户那种浏览器
+    3. 用户那边最要紧的一类信息 —— **观看页自己报的错** ——
+       我们的 CLI 今天根本读不到
+
+    没装就跳过,不假装通过。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        pytest.skip("没装 playwright —— `pip install playwright && playwright install chromium`")
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:                       # 浏览器没下过
+            pytest.skip(f"playwright 的浏览器起不来({e})—— `playwright install chromium`")
+        page = browser.new_page(viewport={"width": size[0], "height": size[1]})
+        h = Human(page)
+        page.goto(url)
+        try:
+            yield h
+        finally:
+            browser.close()

@@ -1,6 +1,6 @@
-# v2_new_tab —— 点一个链接,弹出来的是个 tab
+# v2_cli_new_tab —— 点一个链接,弹出来的是个 tab
 
-和 [v2_simple](../v2_simple/) 同一条路,换掉中间那一段:
+和 [v2_cli_simple](../v2_cli_simple/) 同一条路,换掉中间那一段:
 搜索 → 点百度顶栏的「新闻」。规矩在 [v2kit](../v2kit.py) 的开头。
 
 ## 它做什么
@@ -22,7 +22,7 @@ webmuxd log -t nt --kind tab           一开一关都在流里
 
 **两条测试各验一条腿。**
 
-| | v2_simple | 这一条 |
+| | v2_cli_simple | 这一条 |
 | --- | --- | --- |
 | transport | VNC(有头) | JPG(无头) |
 | `/channel/cdp` 上的帧 | **一帧都没有**,像素走 `/channel/xpra` | **帧就从这儿来** |

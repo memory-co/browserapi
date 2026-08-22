@@ -16,4 +16,5 @@
 ## 不在这测什么
 
 - 点下去之后发生了什么 —— 在 [`doing_and_seeing/`](../doing_and_seeing/)。
-- 定位失败在 HTTP 上长什么样 —— 在 [`errors_are_a_contract/`](../errors_are_a_contract/)。
+- 定位失败在 CLI 上长什么样(退出码 4、列候选)—— 在
+  [`v2_cli_simple/`](../v2_cli_simple/)。
