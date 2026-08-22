@@ -41,6 +41,9 @@ export class XpraClient {
   frames: number;
   bytes: number;
   unknown: Map<string, number>;
+  /** 还想不想连着。`close()` 之后是 false —— **主动关掉的不该自己爬回来**。 */
+  wanted: boolean;
+  timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(url: string, canvas: HTMLCanvasElement, opts: Partial<XpraHandlers> = {}) {
     this.url = url;
@@ -54,6 +57,8 @@ export class XpraClient {
     this.chain = Promise.resolve();   // **按包序上画**,解码是异步的但顺序不能乱
     this.frames = 0; this.bytes = 0;
     this.unknown = new Map();
+    this.wanted = true;
+    this.timer = undefined;
   }
 
   connect(): this {
@@ -62,12 +67,36 @@ export class XpraClient {
     this.ws = ws;
     ws.onopen = () => { this.on.status("connected"); this._hello(); };
     ws.onmessage = (e) => this._feed(new Uint8Array(e.data as ArrayBuffer));
-    ws.onclose = () => { this.on.status("closed"); };
-    ws.onerror = () => { this.on.status("error"); };
+    ws.onclose = () => this._gone("closed");
+    ws.onerror = () => this._gone("error");
     return this;
   }
 
+  /**
+   * 断了 —— **1 秒后重连**,和 `/channel/cdp` 那条一样(`channel/cdp.ts`)。
+   *
+   * 原来这儿只是 `status("closed")` 就完了。两条通道一条会重连一条不会,
+   * 而**代码里没有一句话说这是有意的** —— 是漏了。
+   * 表现:网抖一下,VNC 那条画面就永远停在最后一帧,只能刷新页面。
+   * (`tests/v2_browser_reconnect/` 现在盯着这条。)
+   *
+   * 重连前要把握手攒下的东西清掉:半个包的缓冲、窗口 id、画 scroll 的快照、
+   * 那条按序上画的链。**留着它们比断着更坏** —— 新连接的包会拼到旧缓冲上。
+   */
+  _gone(why: string): void {
+    if (!this.wanted) { this.on.status(why); return; }
+    this.on.status("重连中…");
+    this.framer = new Framer();
+    this.wid = null;
+    this.scratch = null;
+    this.chain = Promise.resolve();
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => { if (this.wanted) this.connect(); }, 1000);
+  }
+
   close(): void {
+    this.wanted = false;
+    clearTimeout(this.timer);
     if (this.ws && this.ws.readyState === 1) {
       this._send(["disconnect", "bye"]);
       this.ws.close();

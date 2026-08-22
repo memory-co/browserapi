@@ -170,10 +170,13 @@ export function startSessionView(auth: string, base: string): void {
     screenEl = cvs;
     xpra = new XpraClient(api.ws("/channel/xpra"), cvs, {
       status(st) {
-        $("s-conn").textContent = st === "ready" ? "已连接(xpra)"
+        // **好起来了要说,不只是坏了要说。** 原来 `dead` 那个类加上去就再没
+        // 摘过 —— xpra 加上重连之后,画面回来了人看到的还是一块灰的。
+        const ok = st === "ready";
+        $("s-conn").textContent = ok ? "已连接(xpra)"
           : st === "connected" ? "xpra 握手中…" : "xpra " + st;
-        $("s-conn").className = (st === "error" || st === "closed") ? "bad" : "";
-        if (st === "error" || st === "closed") screenEl.classList.add("dead");
+        $("s-conn").className = ok ? "" : "bad";
+        cvs.classList.toggle("dead", !ok);
       },
       size(w, h) {
         frameW = w; frameH = h;

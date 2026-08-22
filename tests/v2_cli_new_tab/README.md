@@ -39,3 +39,15 @@ webmuxd log -t nt --kind tab           一开一关都在流里
    切了就等于替调用方决定"接下来看哪个",而它可能正在别的 tab 上干活。
    要切是一条独立的命令(`select-tab`)。
 3. **`@e1` 换了 tab 也接着发**,不从头来一遍。
+
+## 已知偶发
+
+跑全量时见过两次:某条 CLI 命令**等本地 server 超过 30 秒**
+(`api.Transport` 的默认超时),单独重跑就好。
+
+**没定位到。** 可疑的是新 tab 还在加载(news.baidu.com 挺重)的时候
+去问它 —— `wait_tabs` 的轮询、或者 `snapshot -t nt:1` 触发的
+`executor_for` 撞上了那个正在导航的 target。
+
+**记在这儿而不是加个 retry**:重试会把它盖住,而 30 秒的停顿是真停顿,
+不是慢。

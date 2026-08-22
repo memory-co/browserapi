@@ -243,8 +243,11 @@ class Human:
     #: 画面那三个元素。**只有一个是可见的**,看模式(JPG / VNC / DOM)。
     SCREENS = ("#screen", "#screen2", "#screen3")
 
-    def __init__(self, page) -> None:
+    def __init__(self, page, channels: list | None = None) -> None:
         self.page = page
+        #: 拦下来的那几条通道(`human(intercept=True)` 才有)。
+        #: **每重连一次就多一条** —— 所以数它就知道断没断过。
+        self.channels = channels
         self.errors: list[str] = []
         page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: m.type == "error"
@@ -302,8 +305,12 @@ class Human:
       try { g.drawImage(el, 0, 0); } catch (e) { return {kind: 'tainted', w, h, colors: -1}; }
       const d = g.getImageData(0, 0, w, h).data;
       const seen = new Set();
-      for (let i = 0; i < d.length; i += 4 * 997) seen.add(`${d[i]},${d[i+1]},${d[i+2]}`);
-      return {kind: el.tagName.toLowerCase(), w, h, colors: seen.size};
+      let sig = 0;
+      for (let i = 0; i < d.length; i += 4 * 997) {
+        seen.add(`${d[i]},${d[i+1]},${d[i+2]}`);
+        sig = (sig * 31 + d[i] + d[i+1] * 7 + d[i+2] * 13) >>> 0;
+      }
+      return {kind: el.tagName.toLowerCase(), w, h, colors: seen.size, sig};
     }"""
 
     def paint(self) -> dict:
@@ -367,6 +374,36 @@ class Human:
         self.page.keyboard.type(text)
         self.page.wait_for_timeout(1500)
 
+    def wait_fresh(self, was: int, timeout: float = 30) -> dict:
+        """等到画面**变了**(采样指纹和 `was` 不一样)。
+
+        **判"画面回来了"不能只看有没有东西** —— canvas 上留着断线前的最后
+        一帧,颜色数一模一样。要证明的是**新帧还在流**,那就得让里面动一下,
+        再看画面跟不跟。
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            p = self.paint()
+            if p.get("sig") != was and p.get("colors", 0) > 1:
+                return p
+            assert time.monotonic() < deadline, f"{timeout}s 内画面一动没动:{p}"
+            self.page.wait_for_timeout(400)
+
+    def cut(self, kind: str) -> int:
+        """把某条通道掐了(`cdp` / `xpra`)。返回掐掉几条。
+
+        要 `human(..., intercept=True)`。
+        """
+        assert self.channels is not None, "要 human(..., intercept=True) 才掐得动"
+        hit = [w for w in self.channels if w.url.rstrip("/").endswith(kind)]
+        for w in hit:
+            w.close()
+        return len(hit)
+
+    def channel_count(self, kind: str) -> int:
+        assert self.channels is not None, "要 human(..., intercept=True)"
+        return sum(1 for w in self.channels if w.url.rstrip("/").endswith(kind))
+
     def resize(self, w: int, h: int) -> None:
         self.page.set_viewport_size({"width": w, "height": h})
         self.page.wait_for_timeout(2000)
@@ -380,7 +417,8 @@ class Human:
 
 
 @contextlib.contextmanager
-def human(url: str, *, size: tuple[int, int] = (1280, 900)):
+def human(url: str, *, size: tuple[int, int] = (1280, 900),
+          intercept: bool = False):
     """起一个**真的**浏览器打开 `url`,当最终用户用。
 
     **为什么不是又一个 webmuxd session。** 试过,不对:
@@ -403,7 +441,16 @@ def human(url: str, *, size: tuple[int, int] = (1280, 900)):
         except Exception as e:                       # 浏览器没下过
             pytest.skip(f"playwright 的浏览器起不来({e})—— `playwright install chromium`")
         page = browser.new_page(viewport={"width": size[0], "height": size[1]})
-        h = Human(page)
+        channels: list | None = None
+        if intercept:
+            # **把那几条通道从中间接过来**,好在测试里说掐就掐。
+            # Chromium 自己的断网模拟(`Network.emulateNetworkConditions`
+            # 和 `context.set_offline`)对 **loopback 上已经建好的 WebSocket
+            # 一律无效** —— 两个都试过,状态一直是「已连接」。
+            channels = []
+            page.route_web_socket("**/channel/**", lambda ws: (
+                channels.append(ws), ws.connect_to_server()))
+        h = Human(page, channels)
         page.goto(url)
         try:
             yield h
