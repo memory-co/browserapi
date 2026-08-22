@@ -33,6 +33,45 @@ NEWS = "https://news.baidu.com/"
 WORD = "web"
 
 
+def selected(who) -> int:
+    """**外挂那条 bar 上高亮的是第几个。**
+
+    读的是 `.tab.on` —— 人眼看到的那个高亮,不是我们内部记着的什么状态。
+    高亮不是恰好一个就直接失败:两个亮着和一个都不亮,都是"人不知道自己
+    在哪一页",而这两种都出现过。
+    """
+    on = [i for i, t in enumerate(who.tabs()) if t["active"]]
+    assert len(on) == 1, f"bar 上高亮的不是恰好一个:{who.tabs()}"
+    return on[0]
+
+
+def agree(cli, who, target: str, when: str) -> dict:
+    """**四样东西说的得是同一个 tab**,返回那个 tab。
+
+    - 外挂 bar 上高亮的那个(人眼看到的)
+    - 地址栏里那条(人眼看到的)
+    - 后端那张表里的 `active`
+    - 不带下标的命令落在谁身上(session 里那个指针)
+
+    **分开验各自都能绿。** bar 高亮着第一个、画面放着第二个,两边各自
+    "自洽",合起来才是错的 —— 而人看到的正是合起来那一份。这条 bug 真出过:
+    地址栏停在 `www.baidu.com/?tn=news`,画面里却是 news.baidu.com。
+    """
+    i = selected(who)
+    rows = cli.api("tabs", "-t", target)
+    assert len(rows["tabs"]) == len(who.tabs()), \
+        f"{when}:bar 上 {len(who.tabs())} 个,后端 {len(rows['tabs'])} 个"
+    mine = rows["tabs"][i]
+    assert rows["active"] == mine["id"], \
+        f"{when}:bar 上高亮第 {i} 个({mine['id']}),后端说活的是 {rows['active']}"
+    assert who.address_bar == (mine["url"] or ""), \
+        f"{when}:地址栏是 {who.address_bar!r},高亮那个 tab 是 {mine['url']!r}"
+    assert cli.out("url", "-t", target).strip() == (mine["url"] or ""), \
+        f"{when}:不带下标的命令落在 {cli.out('url', '-t', target)!r},"\
+        f"而高亮的是 {mine['url']!r}"
+    return mine
+
+
 @pytest.fixture
 def cli(tmp_path):
     v2kit.need_network(SITE)
@@ -71,6 +110,8 @@ def test_a_human_opens_and_juggles_tabs(cli):
         # 切了就等于替人决定"接下来看哪个"。这一条 [v2_cli_new_tab] 从后端
         # 验过,这儿验的是**人确实也看到自己还停在原来那个上**。
         assert [t["active"] for t in two] == [True, False], two
+        # **四样对齐** —— 新 tab 冒出来了,但高亮、地址栏、指针都还在原来那个
+        assert agree(cli, who, "nt", "页面自己开了个 tab 之后")["url"] == SITE
 
         # 两边说的是同一件事 —— **不是副本,是同一份数据**
         back = cli.api("tabs", "-t", "nt")["tabs"]
@@ -82,7 +123,14 @@ def test_a_human_opens_and_juggles_tabs(cli):
         #
         # **先等那个 tab 自己加载完再切。** 不等的话切过去是一片还没画完的
         # 东西,而"画面跟过去了"这条判据要的是**新帧在流**,不是"切了"。
-        # (news.baidu.com 挺重,满负载时它能拖到 30 秒开外。)
+        #
+        # 分两步,而且**第一步等的是"加载完"这件事本身**,不是给
+        # `wait --css` 一个更大的秒数。原来只有第二步、超时 30 秒 ——
+        # 而 `wait_tabs(settled=True)` 回来那一刻新闻页是
+        # `0 个链接 / readyState=loading`(直连 chrome 量过),这页又重,
+        # **30 秒是在赌网速**,于是偶发红在一个跟本条测试无关的地方。
+        cli.until(lambda: cli.api("tabs", "-t", "nt")["tabs"][born["index"]]["loading"],
+                  False, timeout=90, what="新那个 tab 自己加载完")
         cli.run("wait", "-t", f"nt:{born['index']}", "--css", "a", "--timeout", "30")
 
         was = who.paint()["sig"]
@@ -109,6 +157,7 @@ def test_a_human_opens_and_juggles_tabs(cli):
         # 命令打在百度上,**全程一句错都不会报**。所以这儿从指针那一侧再问一次。
         assert cli.out("url", "-t", "nt").strip().startswith(NEWS), \
             f"不带下标的 url 还停在原来那页:{cli.out('url', '-t', 'nt')!r}"
+        assert agree(cli, who, "nt", "人点了第二个 tab 之后")["url"].startswith(NEWS)
 
         # ------------------ 新那个 tab 里的光标,以及往里敲字
         #
@@ -156,6 +205,9 @@ def test_a_human_opens_and_juggles_tabs(cli):
         three = who.wait_tabs(3)
         assert three[-1]["active"], three
         assert len(cli.api("tabs", "-t", "nt")["tabs"]) == 3
+        # **`＋` 开的这个跟页面开的不一样:焦点跟过去。** 是人自己要的,
+        # 不是页面替人决定的 —— 所以高亮该落在新那个上。
+        assert selected(who) == 2, f"点了 ＋ 该停在新那个上:{who.tabs()}"
 
         # -------------------------------- 人在地址栏敲个地址,回车就走
         #
@@ -168,12 +220,16 @@ def test_a_human_opens_and_juggles_tabs(cli):
         # 里面跳转了而地址栏停在人敲的那一刻,人就分不清"到底走没走"。
         assert who.address_bar.startswith(ELSE), \
             f"走完之后地址栏该是这一条:{who.address_bar!r}"
+        agree(cli, who, "nt", "人在地址栏敲完之后")
 
         # ------------------------------------------- 人点 × 关掉中间那个
         who.close_tab(1)
         left = who.wait_tabs(2)
         assert not any("news" in t["title"] for t in left), left
         assert len(cli.api("tabs", "-t", "nt")["tabs"]) == 2
+        # **关掉一个之后高亮得有个着落。** 关的是没高亮的那个,
+        # 高亮不该跟着跑;下标却整体前移了 —— 这一下最容易错位。
+        agree(cli, who, "nt", "人关掉中间那个之后")
 
         assert who.errors == [], f"摆弄 tab 的时候报了错:{who.errors}"
 
