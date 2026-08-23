@@ -38,7 +38,7 @@ from webmuxd.exceptions import (  # noqa: F401
 #:
 #: 0.5.0 发版时踩过一次:两处各写一份,只改了 pyproject,装出来的包
 #: `webmuxd info` 报的是上一版的号 —— 而且只有在**干净 venv 里装完**才看得出来。
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 __all__ = ["__version__", "Webmuxd", "Session", "Tab", "ActResult"] + [
     "WebmuxdError", "ActionError", "PlatformError", "UsageError",
     "NotFound", "NotClickable", "Timeout", "NavFailed", "TabGone",

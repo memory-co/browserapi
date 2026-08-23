@@ -54,7 +54,20 @@ CACHE = Path.home() / ".cache" / "webmuxd" / f"rrweb-{RRWEB_VERSION}"
 #: 事件缓冲上限。超了从最近一张全量快照往后留 —— **不能从中间截**,
 #: 增量链断在中间等于重放出来的 DOM 从此是错的
 #: ([c §5.5](../docs/v2/works/c-view.md#55-背压不能沿用丢旧保新))。
-MAX_EVENTS = 6000
+#: **每多少条事件让页面重新出一张全量快照。**
+#:
+#: rrweb 内置的机制(`checkoutEveryNth`):到点了它自己发一条 Meta + 一张全量快照,
+#: 而 Meta 那条在我们这儿的语义就是"从这里重来" —— 之前的全部可以扔。
+#: 于是缓冲永远只有"最后一张快照 + 之后的增量",**不需要去历史里找切割点**。
+#:
+#: 2000 是拿"一张快照多贵"换"缓冲多大"。快照是整棵 DOM 序列化,不便宜;
+#: 而一个安静的页面根本不会触发 —— rrweb 只在有事件出来的时候数数。
+CHECKOUT_EVERY = 2000
+
+#: **兜底的硬上限。** 快照要是不来(页面卡住、记录器被页面自己的脚本弄坏),
+#: 缓冲不能无限涨。到了就整个丢掉重来并**吵一声** ——
+#: 重放不一致是难看,server 被一个 tab 拖垮是灾难。
+MAX_EVENTS = CHECKOUT_EVERY * 4
 
 #: 快照里这些属性是资源地址。
 URL_ATTRS = ("src", "poster", "xlink:href", "data")
@@ -99,8 +112,26 @@ RECORD_JS = """
     if (!timer) timer = setInterval(flush, 50);
   }
 
+  // **开关留出来。** 只有"当前那个 tab"该录 —— 后台 tab 录了有两笔损失:
+  //
+  // 1. **白烧**:页面里序列化、我们这边收,而没有任何人在看它;
+  // 2. **是错的**:整个 session 共用一条增量链,后台 tab 的 mutation
+  //    会混进当前 tab 的链里(实测:当前页一动不动,6 秒混进来 6 条),
+  //    客户端拿它们去改当前那棵树,改出来的是一棵没人见过的树。
+  //
+  // 停了再开是安全的:rrweb 一开始录就会先出一张**全新的全量快照**,
+  // 那正好就是"从快照往下"。停录期间的变化会丢 —— 不要紧,
+  // 我们从来不重放历史,DOM 是实时看的那一条腿。
+  var stop = null;
+  window.__wm_dom_rec = function (on) {
+    if (on && !stop) { stop = start(); return 1; }
+    if (!on && stop) { try { stop(); } catch (e) {} stop = null; return 0; }
+    return stop ? 1 : 0;
+  };
+
+  function start() {
   try {
-    rrweb.record({
+    return rrweb.record({
       emit: function (e) { emit(JSON.stringify(e)); },
       recordCanvas: true,
       // **不录鼠标。** 录了的话重放端会照着画一个自己的指针出来
@@ -115,12 +146,24 @@ RECORD_JS = """
       // 而 focus 那几条正是把观看端键盘焦点夺走的那一类。
       sampling: { canvas: 10, mousemove: false, mouseInteraction: false },
       inlineStylesheet: true,
+      // **每 __CHECKOUT__ 条重新出一张全量快照。** 服务端那边靠它把缓冲砍干净 ——
+      // 见 `CHECKOUT_EVERY`。没有它的话缓冲只能靠"在历史里找一张旧快照",
+      // 而一个只在开头有过一次快照的页面(开着不动、之后全是增量)
+      // **永远找不到** —— 实测缓冲一路涨,每条新事件都要把三千多条 JSON
+      // 重新解析一遍,单核打满,整个 server 的事件循环被堵死。
+      checkoutEveryNth: __CHECKOUT__,
     });
   } catch (e) {
     emit(JSON.stringify({type: -1, err: String(e)}));
+    return null;
   }
+  }
+  window.__wm_dom_rec(1);            // 装上就先录着,服务端随后按需关
 })()
 """
+# **那个数只写一处。** 页面那边和服务端那边说的得是同一个 —— 分开写两遍,
+# 改了一处忘了另一处的话,缓冲的行为和注释就对不上了。
+RECORD_JS = RECORD_JS.replace("__CHECKOUT__", str(CHECKOUT_EVERY))
 
 BINDING = "__wm_dom_emit"
 
@@ -226,6 +269,16 @@ class DomSource:
         self.res: dict[str, tuple[str, bytes]] = {}
         self.page_url = ""
         self.armed: set[str] = set()
+        #: 想让哪个 tab 录。**认这个,不认"现在谁在录"** ——
+        #: 后者会被"装上就自己开录"那一下弄乱(见下)。
+        self._want: str | None = None
+        #: 我们认为**正在录**的那些 tab。
+        #:
+        #: 记的是"一组"而不是"当前那一个" —— 因为**装上就自己开录了**
+        #: (`RECORD_JS` 最后那行 `__wm_dom_rec(1)`)。第一版记的是单个
+        #: `_recording`,初值 `None`,于是"它不在录"这个假设从一开始就是错的,
+        #: 该停的全被跳过 —— 混流照旧,而且一点声音都没有。
+        self._rec: set[str] = set()
         self.bytes = {"events": 0, "res": 0}
         self._pending: dict[str, dict] = {}
         self._cdp: Any = None
@@ -280,6 +333,7 @@ class DomSource:
                            ("Network.loadingFinished", self._on_done)):
                 cdp.on(ev, fn)
         self.armed.add(session_id)
+        self._rec.add(session_id)          # 装上就自己开录了,见 RECORD_JS 末尾
         log.info("DOM 记录器装上了(%d 个 tab)", len(self.armed))
 
     async def _inject_now(self, cdp: Any, session_id: str, src: str) -> None:
@@ -348,26 +402,17 @@ class DomSource:
         else:
             self.events.append(payload)
             if len(self.events) > MAX_EVENTS:
-                self._trim()
+                # **走到这儿说明该来的快照没来。**
+                # 正常路径是 `checkoutEveryNth` 让页面重新出一张全量快照,
+                # 上面那条 `kind == 4` 就把缓冲清了 —— 根本到不了这里。
+                log.warning("DOM 事件缓冲超了 %d 条而快照没来 —— 整个丢掉重来,"
+                            "重放会缺一段(页面卡住了?)", MAX_EVENTS)
+                self.events = []
+                self.bytes["events"] = 0
         self.bytes["events"] += len(payload)
         msg = {"type": "dom", "e": payload}
         for fn in list(self.listeners):
             asyncio.create_task(fn(msg))
-
-    def _trim(self) -> None:
-        """砍历史时**必须从一张全量快照砍起**。
-
-        从中间砍等于把增量链断在半路 —— 重放出来的 DOM 从此和真页面不一致,
-        **而且不报错**。找不到可切的点就宁可留着。
-        """
-        for i in range(len(self.events) // 2, len(self.events)):
-            try:
-                if json.loads(self.events[i]).get("type") == 4:
-                    self.events = self.events[i:]
-                    return
-            except ValueError:
-                continue
-        log.debug("事件缓冲超了但没有可切的全量快照,先留着")
 
     # ------------------------------------------------- 资源:一律经过我们
 
@@ -484,9 +529,44 @@ class DomSource:
         """新来的观看者要从最近一张全量快照接上,不能从半路接。"""
         return list(self.events)
 
+    async def only_record(self, cdp: Any, session_id: str | None) -> None:
+        """**只让这一个 tab 录,别的全停;而且让它重新出一张全量快照。**
+
+        为什么只录一个:整个 session 共用一条增量链,同时录两个 tab 是**错的**,
+        不只是费 —— 后台 tab 的 mutation 会混进当前 tab 的链里
+        (实测:当前页一动不动,6 秒混进来 6 条),客户端拿它们去改当前那棵树。
+
+        为什么要重开:换 tab = 换一条链,旧链上的增量对新页面是废的,所以缓冲要清。
+        **而清了就必须补一张新快照** —— 不然这一刻连上来的观看端拿到的是空的,
+        画面永远出不来(第一版就漏了这一步:静态页切回去之后,缓冲空着,
+        而页面再没有新事件,于是那条腿静悄悄地死了)。
+
+        重开是安全的:rrweb 一开始录就先出一张全新的全量快照,那正好是
+        "从快照往下"。停录期间的变化会丢 —— 不要紧,我们从来不重放历史。
+        """
+        if session_id == self._want:
+            return                                # 已经是这个状态了
+        self._want = session_id
+        for sid in list(self._rec):               # 全停,包括目标那个
+            with contextlib.suppress(Exception):
+                await cdp.send("Runtime.evaluate",
+                               {"expression": "window.__wm_dom_rec && window.__wm_dom_rec(0)"},
+                               session_id=sid)
+        self._rec.clear()
+        # **先清缓冲再开录** —— 反过来的话新那张快照会被后清的那一下抹掉。
+        self.events = []
+        self.bytes["events"] = 0
+        if session_id is not None:
+            with contextlib.suppress(Exception):
+                await cdp.send("Runtime.evaluate",
+                               {"expression": "window.__wm_dom_rec && window.__wm_dom_rec(1)"},
+                               session_id=session_id)
+            self._rec.add(session_id)
+
     def stats(self) -> dict:
         return {"events": len(self.events), "bytes": dict(self.bytes),
-                "resources": len(self.res), "listeners": len(self.listeners)}
+                "resources": len(self.res), "listeners": len(self.listeners),
+                "armed": len(self.armed), "recording": len(self._rec)}
 
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "

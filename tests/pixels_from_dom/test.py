@@ -7,7 +7,8 @@
 
 import json
 
-from webmuxd.rrweb import MAX_EVENTS, RECORD_JS, DomSource
+from webmuxd import rrweb as dom_mod
+from webmuxd.rrweb import CHECKOUT_EVERY, MAX_EVENTS, RECORD_JS, DomSource
 
 
 def _src():
@@ -83,26 +84,39 @@ def test_srcset_每一项都改_但描述符留着():
 
 # ------------------------------------------------------------- 事件缓冲
 
-def test_砍历史必须从一张全量快照砍起():
-    """**从中间砍等于把增量链断在半路** —— 重放出来的 DOM 从此和真页面
-    不一致,而且不自恢复、不报错(c §5.5)。"""
-    d = _src()
-    d.events = [json.dumps({"type": 3, "i": i}) for i in range(MAX_EVENTS)]
-    # 后半段塞一张全量快照
-    cut = int(MAX_EVENTS * 0.7)
-    d.events[cut] = json.dumps({"type": 4, "meta": True})
-    d._trim()
-    assert json.loads(d.events[0])["type"] == 4, "第一条必须是全量快照"
-    assert len(d.events) == MAX_EVENTS - cut
+def test_让页面定期重出快照_而不是去历史里找一张():
+    """**切割点是造出来的,不是找出来的。**
+
+    以前是在历史里往回找一张旧的全量快照来砍。而一个**开着不动**的页面
+    (唯一那张 Meta 在下标 0,之后全是增量)**永远找不到** ——
+    于是缓冲一路涨,每来一条新事件都把三千多条 JSON 重新解析一遍:
+    实测 100 条要 510ms(正常是 1.2ms,**慢 408 倍**),单核打满、
+    整个 server 的事件循环被堵死,连 `/healthz` 都答不上。
+
+    现在让页面自己定期重出一张(rrweb 的 `checkoutEveryNth`)——
+    Meta 一到,"从这里重来"那条分支就把缓冲清了。
+    """
+    assert f"checkoutEveryNth: {CHECKOUT_EVERY}" in RECORD_JS, \
+        "页面那边没开 checkout —— 缓冲就永远砍不掉"
+    assert not hasattr(dom_mod.DomSource, "_trim"), \
+        "那个往回扫的 _trim 该没了 —— 留着就还会有人去调它"
 
 
-def test_没有可切的点就宁可留着_不乱砍():
-    """砍不掉总比砍错好 —— 砍错是静默的错,留着只是占内存。"""
+def test_快照不来的时候_兜底丢掉并且吵一声(caplog):
+    """**缓冲不能无限涨。**
+
+    正常路径是 checkout 把它砍干净,走到兜底说明页面卡住了或者记录器坏了。
+    这时候丢掉重来 —— 重放缺一段是难看,server 被一个 tab 拖垮是灾难。
+    **但一定要吵**:静默丢弃的话,人看到的是"重放偶尔缺一块",查不到这儿。
+    """
     d = _src()
-    d.events = [json.dumps({"type": 3, "i": i}) for i in range(MAX_EVENTS)]
-    before = len(d.events)
-    d._trim()
-    assert len(d.events) == before
+    d._on_binding({"name": "__wm_dom_emit", "payload": json.dumps({"type": 4})}, None)
+    with caplog.at_level("WARNING"):
+        for i in range(MAX_EVENTS + 200):
+            d._on_binding({"name": "__wm_dom_emit",
+                           "payload": json.dumps({"type": 3, "i": i})}, None)
+    assert len(d.events) < MAX_EVENTS, f"没兜住,缓冲 {len(d.events)} 条"
+    assert any("快照没来" in r.message for r in caplog.records), "丢了却没说"
 
 
 def test_meta_一到就重新开始攒():

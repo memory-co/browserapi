@@ -134,6 +134,17 @@ class Screencaster:
 
     async def follow(self, tab_id: str | None, *, force: bool = False) -> None:
         """把 screencast 搬到 `tab_id` 上。`active` 变了就该调它。"""
+        # **DOM 那条录不录,跟有没有人在看没关系。**
+        #
+        # 它跟的是"哪个 tab 是当前的":整个 session 共用一条增量链,
+        # 同时录两个 tab 是**错的**,后台那个的 mutation 会混进当前这条链
+        # (实测:当前页一动不动,6 秒混进来 6 条)。所以这一下要放在
+        # 下面那个"没人看就先记着"的早退**前面** —— 不然没人看的时候
+        # 全部 tab 都在录,而且混着。
+        if self.dom is not None and tab_id is not None:
+            with contextlib.suppress(Exception):
+                sid = await self.session.cdp_session_for(tab_id)
+                await self.dom.only_record(self.session.cdp, sid)
         if not self.viewers:
             self._tab = tab_id                # 记下来,等有人看再开
             return

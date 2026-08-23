@@ -166,6 +166,35 @@ def free_port() -> int:
 
 #: **等一个进程监听的时候,要盯着那个进程本身。**
 #:
+def alive(pid: int) -> bool:
+    """这个进程还在不在。**问的是进程,不是它答不答话。**"""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True                         # 在,只是不归我们管
+    return True
+
+
+def stop_pid(pid: int, timeout: float = 8) -> bool:
+    """按 pid 停一个进程组。**先好好说,不听再动手。**
+
+    停的是**整组**:server 底下还挂着 chrome、xpra、虚拟显示,
+    只杀它自己的话那些全成孤儿(这个坑在 `xpra.stop()` 里也踩过一次)。
+    """
+    import contextlib
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        with contextlib.suppress(OSError):
+            os.killpg(os.getpgid(pid), sig)
+        end = time.monotonic() + (timeout if sig == signal.SIGTERM else 2)
+        while time.monotonic() < end:
+            if not alive(pid):
+                return True
+            time.sleep(0.1)
+    return not alive(pid)
+
+
 def forget_last_tabs(profile: str) -> None:
     """**把上次那些 tab 忘掉,但别忘掉登录态。**
 

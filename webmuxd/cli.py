@@ -279,10 +279,30 @@ def cmd_kill(args: argparse.Namespace) -> int:
 
 
 def cmd_kill_server(args: argparse.Namespace) -> int:
-    """**一个都不许留。** 留下的是没人管的 chrome。"""
+    """**一个都不许留。** 留下的是没人管的 chrome。
+
+    **答不上话不等于不在。** `base()` 认的是"两秒内 `/healthz` 答不答",
+    而一个忙到打满 CPU 的 server 就是答不上来 —— 那时候原来这儿会说
+    「没有在跑的 server」,**退出码还是 0**。人明明 `ps` 得到它,
+    却被告知它不存在,而且没有任何一条命令停得掉它。
+
+    (真机上撞到过:`94.3% CPU、累计 71 分钟`,`ps aux` 里清清楚楚,
+    `webmuxd server stop` 回「没有在跑的 server」。)
+
+    所以答不上话的时候**再看一眼进程**:记录里有 pid,它还活着就照停不误。
+    """
     reg = Registry(name=args.socket_name)
     base = args.host or reg.base()
     if not base:
+        row = reg.read() or {}
+        pid = row.get("pid")
+        if not args.host and isinstance(pid, int) and processes.alive(pid):
+            n = processes.stop_pid(pid)
+            reg.forget()
+            _out(args, {"killed": 0, "pid": pid, "how": "signal"},
+                 f"server(pid {pid})没应答,直接停了它 —— "
+                 f"它自己那些 session 也跟着走了")
+            return 0
         reg.forget()
         _out(args, {"killed": 0}, "(没有在跑的 server)")
         return 0

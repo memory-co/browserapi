@@ -221,7 +221,14 @@ class Session:
 
         # **`active` 就是 screencast 挂在哪个 target 上**(works/05 §2)——
         # 所以 active 一变,画面必须跟着搬,否则观看者看到的是黑屏。
-        if type_ in ("tab.activated", "tab.closed") and self.view.viewers:
+        #
+        # **没有"有人看才跟"这个条件。** 原来这儿挂着 `and self.view.viewers`,
+        # 而 `follow()` 里除了搬画面还管一件跟观看者无关的事:
+        # **只让当前那个 tab 录 DOM**(整个 session 共用一条增量链,
+        # 同时录两个是错的)。加了那个条件的下场是:**没人看的时候所有 tab
+        # 都在录、而且混着**,而"没人看"恰恰是最该停录的时候。
+        # 画面那一半自己在 `follow()` 里判有没有观看者,不需要在这儿判第二遍。
+        if type_ in ("tab.activated", "tab.closed"):
             asyncio.create_task(self.view.follow(self.tabs.active))
 
         # tab 的生死落盘 —— 事件只在内存里活 1000 条,重启就没了(api/log.md §3)

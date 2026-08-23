@@ -270,7 +270,7 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
     log_path = os.path.join(work, "xpra.log")
 
     argv = [
-        "xpra", "start-desktop", display, "-d", "screen,randr",
+        "xpra", "start-desktop", display,
         f"--socket-dir={socket_dir}",
         f"--bind-ws=127.0.0.1:{ws_port}",
         "--html=off",                    # 它自带的客户端我们不要,我们自己写

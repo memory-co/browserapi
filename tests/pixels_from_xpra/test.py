@@ -578,6 +578,12 @@ def test_the_vfb_is_ours_to_pin_not_the_distro_s(tmp_path, monkeypatch):
     assert f"--xvfb=Xvfb -screen 0 {xpra_mod.SCREEN}x24" in xvfb[0], xvfb[0]
     assert "--resize-display=no" in seen["argv"]
 
+    # **不许带调试开关。** `-d screen,randr` 是查像素对齐时临时加的,
+    # 而它跟着 0.13.0/0.14.0/0.15.0 一起发出去了 —— 每个 VNC session 的 xpra
+    # 都在写 screen/randr 的调试日志。加这条是因为"我记得删了"靠不住:
+    # 中间确实恢复过一次文件,可后来又在改动版上继续编辑,它就活下来了。
+    assert "-d" not in seen["argv"], f"带着调试开关发出去了:{seen['argv']}"
+
     # **等虚拟显示起来的上限由我们给,不看 xpra 的默认值。**
     # 它的默认值是按空闲机器定的,而几个 session 一起起的时候不够 ——
     # 不够的下场不是重试,是整个 session 起不来。

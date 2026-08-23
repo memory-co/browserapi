@@ -103,6 +103,18 @@ def _tall() -> str:
 """
 
 
+def _ticker(host: str) -> str:
+    """**一直在动的一页。** 用来验"后台 tab 的变化会不会混进来"。"""
+    return _HEAD.format(title="一直在动") + """
+<h1 id="hello">ticker</h1>
+<div class="row">这一页每 200ms 改一次下面那个数。</div>
+<div class="row">用来验:后台 tab 的变化会不会混进当前 tab 的增量链。</div>
+<div class="row"><a id="home" href="/">回首页</a></div>
+<div class="row">计数:<b id="n">0</b></div>
+<script>let i=0;setInterval(()=>{document.getElementById('n').textContent=++i;},200)</script>
+"""
+
+
 def _about() -> str:
     return _HEAD.format(title="关于") + """
 <h1 id="hello">关于</h1><p id="blurb">没什么可说的。</p>
@@ -127,6 +139,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             body = _search(host, q)
         elif u.path == "/news":
             body = _news(host)
+        elif u.path == "/ticker":
+            body = _ticker(host)
         elif u.path == "/tall":
             body = _tall()
         elif u.path == "/about":
