@@ -32,6 +32,7 @@ tab 就是 window、`log.jsonl` 就是 scrollback;ttyd 那一半是自己写的,
 | **[i](i-agent-surface.md)** | agent 的操作面与行为流 | 三层操作面(`open` 为什么不在动词表里)、封闭动词表与 `js` 逃生舱;人和 agent 进**同一条流**且标明是谁做的 —— **记控件身份,不记控件内容**。§3:读的那一面只剩**一张图和正文** —— 那一包筛过的元素表是「关于 agent 该怎么用浏览器的意见」,该留在调用方那边 |
 | **[test](test.md)** | 测什么,怎么测 | 判据是**代码错了它会红吗**(那条删掉的文档 lint 就是反例);命名 `v2_<面>_<场景>`,面是"从哪个口子进去的";三条规矩:动作从 CLI 进且真起进程、观察也从 CLI 进(**非塞 JS 不可就先问是不是缺了个命令**)、"人看到了什么"从一个真的浏览器来。§5 是 `v2_browser_*` 的设计:一个 session 加一个 **Playwright 起的真浏览器** —— 用自己的栈去测自己的栈是循环的,而且**观看页自己报的错我们的 CLI 根本读不到** |
 | **[k](k-one-server.md)** | 一个 server 一个口 | 端口从 session 收回到 server:`start --port` 起服务、`new --id` 加 session。「一个 session 一个端口」是 **kasm 留下的历史包袱** —— 画面换成我们自己产的之后那条硬约束就没了。`/s/<id>/` 前缀,一个进程持有全部 session |
+| **[l](l-extension.md)** | sidecar 变成 Chrome 扩展? | **实测四条全通**:无头和 `--kiosk` 都装得上 MV3 扩展、`chrome.tabs.onActivated` 收得到 CDP 发的切换、`onCreated` 一条就带 `active`(普通左键 `true`、**Ctrl+左键 `false` 且不发 activated**)、rrweb 在**隔离世界**里录得动而**页面主世界完全干净**。但 `chrome.windows.onFocusChanged` **一次都没触发** —— 它管窗口不管 tab,选错了。结论:换不掉 `open-shim`(它必须在主世界),而且 `remote` 装不了扩展 —— **真正的问题不是可不可行,是要不要多一条腿** |
 
 ## 明确不做
 
