@@ -198,12 +198,11 @@ class Screencaster:
         self.width, self.height = width, height
         async with self._lock:
             if self.mode == models.VNC:
-                # **VNC 多一步:桌面里那个浏览器窗口得跟着桌面走。**
+                # **VNC 多一步:桌面里那个浏览器窗口就是画面。**
                 #
-                # 整条链是:观看端把自己多大报给 xpra(`configure-display`)→
-                # xpra 把 X 显示调成那么大(`--resize-display=yes`)→ 服务端
-                # 把新尺寸回给观看端 → 观看端**这时候**才发 `resize` 到这儿。
-                # 所以走到这一行的时候,桌面已经是 `width x height` 了。
+                # 那个 X 桌面一次开到 4K 就不动了(`xpra.SCREEN`),
+                # 画面是窗口那一块,观看端只取左上角 —— 和 JPG 那条腿
+                # 现在是**同一个心智模型**:窗口大小由我们定,画面只是取景。
                 await self._fill_screen(width, height)
             await self._apply_viewport()
             if self.jpg.on:
@@ -213,11 +212,11 @@ class Screencaster:
             quality=self.jpg.adaptor.quality))
 
     async def _fill_screen(self, width: int, height: int) -> None:
-        """把那个 kiosk 的 chrome 窗口摁满整个桌面。
+        """把那个 kiosk 的 chrome 窗口摁成 `width x height`,钉在左上角。
 
         **三条命令,顺序是死的**:
 
-            windowState=normal → bounds=(w+1, h+1) → windowState=fullscreen
+            windowState=normal → bounds=(0, 0, w, h) → windowState=fullscreen
 
         每一条都不能少,理由各不相同:
 
@@ -225,18 +224,16 @@ class Screencaster:
           chrome 只把它踢出全屏,宽高当没看见(实测)。所以先 `normal`。
         - 停在 `normal` 不行:kiosk 一离开全屏,它自己的标签栏和地址栏
           就回来了,占掉 87 像素 —— 画面里多出一条我们不要的东西。
-          所以最后一条 `fullscreen` 把它按回去。
-        - **`+1` 不是余量,是绕开一条硬规则**:chrome **不接受一个正好等于
-          屏幕大小的窗口**,给它 `WxH` 到手永远是 `W-1 x H-1`;而给 `W±1`
-          都精确到位(在同一个桌面上扫了一遍,只有等于屏幕的那个值退一像素)。
-          退一像素的下场是画面右下各露一条 1 像素的桌面底色 —— **有缝**。
-          多一像素则是窗口盖满桌面,多出来的那一像素落在桌面外,看不见。
-          代价是页面自己排版的宽度也跟着多一像素 —— **这一像素今天认了**:
-          想钉回去只能上 `setDeviceMetricsOverride`,而 VNC 下那个会把画面
-          整块变成纯色(见 `_apply_viewport()`)。
+          所以最后一条 `fullscreen` 把它按回去。**窗口比屏幕小的时候
+          它照样管用**:视口 == 窗口,一像素不差(四种尺寸实测)。
+        - `left/top = 0`:观看端只取桌面左上那一块,窗口不在那儿就切没了。
+          而且钉在原点之后,人在画面上点的坐标和页面里的坐标是同一套。
 
-        chrome 自己**不会**跟着显示走:`screen.width` 它读得到、跟得准,
-        但窗口就是不动 —— 所以这一步得我们来。
+        **窗口不能等于屏幕**,那是这套做法成立的前提:chrome 不接受一个
+        正好等于屏幕大小的窗口,给它 `WxH` 到手永远是 `W-1 x H-1`。
+        屏幕一次开到 `xpra.SCREEN`(4K),窗口永远比它小,于是这条规则
+        碰都碰不到 —— **那个恶心的一像素是"跟着改显示"带出来的,
+        不改显示就没有。**
         """
         try:
             # **要带上是哪个 tab。** 不带参数发过去,浏览器那一层回的是
@@ -245,15 +242,14 @@ class Screencaster:
             wid = (await self.session.cdp.send(
                 "Browser.getWindowForTarget", session_id=self._sid))["windowId"]
             for bounds in ({"windowState": "normal"},
-                           {"left": 0, "top": 0,
-                            "width": width + 1, "height": height + 1},
+                           {"left": 0, "top": 0, "width": width, "height": height},
                            {"windowState": "fullscreen"}):
                 await self.session.cdp.send(
                     "Browser.setWindowBounds", {"windowId": wid, "bounds": bounds})
-            got = await self._settled(width + 1, height + 1)
-            if got != (width + 1, height + 1):
+            got = await self._settled(width, height)
+            if got != (width, height):
                 log.warning("窗口摁不到位:要 %dx%d,到手 %dx%d",
-                            width + 1, height + 1, *got)
+                            width, height, *got)
         except Exception as e:                          # noqa: BLE001
             # **说出来。** 摁不上去的下场是画面和窗口错位,而那看起来像
             # "画面糊了" —— 人会去查编码质量,查不到这儿来。

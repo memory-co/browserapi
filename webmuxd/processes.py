@@ -1,6 +1,6 @@
 """**所有进程都归它** —— 起、等、看活、收干净。
 
-浏览器、xpra、虚拟显示、sessiond,不管哪一种,这四件事是同一套。
+浏览器、xpra、Xvfb、sessiond,不管哪一种,这四件事是同一套。
 以前 `runtime/process.py` 和 `xpra.py` 各写了一份,于是超时、清理、
 "起不来时打哪段日志"三处都不一样 —— 合成一份就是这个文件
 ([j §3.2](../docs/v2/works/j-layout.md#32-processespy所有进程都归它))。

@@ -727,7 +727,7 @@ class ProcessRuntime:
         """xpra 那条画面路 —— docs/v2/works/11 · 12。
 
         和上面那条的差别**只有像素从哪来**,所以这儿只多做两件事:
-        起 xpra(它顺带拉起虚拟显示和一个**有头的** chrome),
+        起 xpra(它顺带拉起 Xvfb 和一个**有头的** chrome),
         然后把上游那个 ws 地址交给 sessiond 去代理。
         """
         w = int(view.get("width") or 1024)
@@ -745,7 +745,7 @@ class ProcessRuntime:
 
         sess = xpra_mod.start(display=display, ws_port=ws_port, cdp_port=cdp_port,
                               chrome_argv=chrome_argv, width=w, height=h, work=work)
-        # X server + xpra + 有头 chrome,比 headless 那条慢不少 —— 给足时间
+        # Xvfb + xpra + 有头 chrome,比 headless 那条慢不少 —— 给足时间
         if not processes.wait_port(cdp_port, 60, proc=sess.proc):
             why = xpra_mod.tail(sess.log_path)
             # **先看 xpra 自己还在不在。**
@@ -777,7 +777,7 @@ class ProcessRuntime:
 
     def stop(self, handle: SessionInfo) -> None:
         # **xpra 先停。** 它 `--exit-with-children`,而且 `xpra stop` 会把
-        # 那个 X server 和那个有头 chrome 一起收干净。
+        # Xvfb 和那个有头 chrome 一起收干净。
         sess = handle.detail.get("_xpra")
         if sess is not None:
             xpra_mod.stop(sess)

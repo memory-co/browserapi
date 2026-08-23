@@ -183,6 +183,12 @@ def server(tmp_path):
 # 一个真的浏览器,当最终用户用
 # ---------------------------------------------------------------------------
 
+#: 重放那棵树上多少个节点算"长出来了"。
+#: 一棵空重放是个位数(html/head/body 那几个);百度首页实测 500 上下。
+#: 取 50 是想把"骨架已经在了但内容还没到"也挡在外面。
+_DOM_ALIVE = 50
+
+
 class Human:
     """坐在观看页前面的那个人。
 
@@ -258,7 +264,25 @@ class Human:
     _PAINT_JS = """(sel) => {
       const el = document.querySelector(sel);
       if (!el) return {kind: 'none', w: 0, h: 0, colors: 0};
-      if (el.tagName === 'DIV') return {kind: 'dom', w: 0, h: 0, colors: -1};
+      if (el.tagName === 'DIV') {
+        // **DOM 那条不是一张图,是一棵真的 DOM。** 画不进 canvas,
+        // 所以判据换一套:重放 iframe 里有多少节点、几张样式表、几张图。
+        //
+        // `sheets` 和 `images` 不是凑数的 —— 资源全 404 的时候,
+        // 重放出来的是一棵**没有样式的**真 DOM:节点数、文字、标题**全都对**,
+        // 只有它俩是 0。实测撞过:25 个资源请求 0 成功,而按节点数判的断言全绿。
+        const ifr = el.querySelector('iframe');
+        const d = ifr && ifr.contentDocument;
+        if (!d || !d.documentElement) return {kind: 'dom', w: 0, h: 0, colors: -1, nodes: 0};
+        return {kind: 'dom',
+                w: d.documentElement.clientWidth, h: d.documentElement.clientHeight,
+                colors: -1,
+                nodes: d.querySelectorAll('*').length,
+                sheets: d.styleSheets.length,
+                images: d.querySelectorAll('img').length,
+                title: d.title,
+                sig: d.body ? d.body.innerText.length : 0};
+      }
       const w = el.naturalWidth || el.width || 0;
       const h = el.naturalHeight || el.height || 0;
       if (!w || !h) return {kind: el.tagName.toLowerCase(), w, h, colors: 0};
@@ -277,10 +301,13 @@ class Human:
     }"""
 
     def paint(self) -> dict:
-        """画面上**到底有没有东西**:`{kind, w, h, colors}`。
+        """画面上**到底有没有东西**。
 
-        `colors <= 1` 是一整块纯色 —— 那是白屏,不是画面。
-        DOM 模式回 `colors: -1`(那不是一张图,画不进 canvas)。
+        JPG / VNC:`{kind, w, h, colors}` —— `colors <= 1` 是一整块纯色,
+        那是白屏,不是画面。
+
+        DOM:`colors` 恒为 -1(画不进 canvas),换成
+        `{nodes, sheets, images, title}` —— 见 `_PAINT_JS` 里那段。
         """
         return self.page.evaluate(self._PAINT_JS, self.screen_sel())
 
@@ -304,25 +331,53 @@ class Human:
         **那不是 flake,那是把两件事当成了一件。**
 
         每轮重新问"哪个元素当值",所以**切模式之后也能用**。
+
+        **DOM 那条判据不一样**:它不是一张图,数不出颜色 ——
+        判的是重放那棵树上有没有长出东西来(`nodes`)。
         """
         deadline = time.monotonic() + timeout
         while True:
             p = self.paint()
-            if p.get("colors", 0) > 1:
+            if p.get("colors", 0) > 1 or p.get("nodes", 0) > _DOM_ALIVE:
                 return p
             assert time.monotonic() < deadline, f"{timeout}s 内画面上还是一片空白:{p}"
             self.page.wait_for_timeout(300)
 
     # -- 动 ----------------------------------------------------------------
 
+    #: 画面**在人屏幕上占的那块**,以及**它里面那套坐标有多大**。
+    #:
+    #: 三种模式各有各的答法,但答的是同一件事,所以换算只有一处:
+    #: JPG 是 `<img>` 的 `naturalWidth`,VNC 是 `<canvas>` 的 `width`,
+    #: DOM 是**重放 iframe** 的位置 + 它里面那页的 `clientWidth`
+    #: (重放那棵树被 `transform: scale()` 缩过,而 `getBoundingClientRect`
+    #: 已经把缩放算进去了 —— 所以拿 iframe 的 rect 是对的,
+    #: 拿外面那个 `#screen3` 的 rect 是错的:它比重放出来的那块大)。
+    _BOX_JS = """(sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      if (el.tagName === 'DIV') {
+        const ifr = el.querySelector('iframe');
+        const d = ifr && ifr.contentDocument;
+        if (!d || !d.documentElement) return null;
+        const r = ifr.getBoundingClientRect();
+        return {x: r.x, y: r.y, w: r.width, h: r.height,
+                cw: d.documentElement.clientWidth, ch: d.documentElement.clientHeight};
+      }
+      const r = el.getBoundingClientRect();
+      return {x: r.x, y: r.y, w: r.width, h: r.height,
+              cw: el.naturalWidth || el.width || 0,
+              ch: el.naturalHeight || el.height || 0};
+    }"""
+
     def point_for(self, el: dict) -> tuple[float, float]:
         """里面那个元素,在**人的屏幕上**是哪一点。"""
-        rect = self.screen().bounding_box()
-        cw, ch = self.cast()
-        assert cw and ch, f"一帧都没画出来,没法换算:{self.paint()}"
+        box = self.page.evaluate(self._BOX_JS, self.screen_sel())
+        assert box and box["cw"] and box["ch"], \
+            f"画面还没铺开,没法换算:{self.paint()}"
         bx, by, bw, bh = el["bbox"]
-        return (rect["x"] + (bx + bw / 2) * rect["width"] / cw,
-                rect["y"] + (by + bh / 2) * rect["height"] / ch)
+        return (box["x"] + (bx + bw / 2) * box["w"] / box["cw"],
+                box["y"] + (by + bh / 2) * box["h"] / box["ch"])
 
     def cursor(self) -> str:
         """**人现在看到的那个光标。**

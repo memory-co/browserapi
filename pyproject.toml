@@ -53,11 +53,7 @@ include = ["webmuxd*"]
 # 开发机上跑的是源码目录,一切正常。写成通配,以后加 css/svg 也不会再漏一次。
 #
 # `_client/` 是浏览器端那份的落地处(原 `webmuxd/view/static/`)。
-#
-# `xorg.conf` 是虚拟显示那份配置(0.12.0)。**它必须进 wheel** ——
-# 起 xpra 时按绝对路径传给 `--xvfb=… -config`,漏了就是干净安装上
-# Xorg 起不来,而开发机上一切正常。
-"webmuxd" = ["_client/*", "xorg.conf"]
+"webmuxd" = ["_client/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

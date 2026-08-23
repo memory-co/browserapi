@@ -168,9 +168,8 @@ export function startSessionView(auth: string, base: string): void {
     // 得留着(那时还没走过 `applyMode`)。
     img.hidden = true; cvs.hidden = false; dom3.hidden = true;
     screenEl = cvs;
-    // **连之前先把尺寸定下来** —— 握手里那个 `desktop_mode_size` 就是它,
-    // 而握手只发一次。不给的话服务端会按它自己的默认(1920×1080)开桌面,
-    // 人连上第一眼就是错的,然后再跳一次。
+    // **连之前先把画布尺寸定下来。** 不定的话第一帧来了没地方画 ——
+    // 那个 X 桌面是 4K,而画布要的是观看端这一块。
     const st0 = $("stage");
     const w0 = Math.max(320, st0.clientWidth - 20);
     const h0 = Math.max(240, st0.clientHeight - 20);
@@ -188,15 +187,13 @@ export function startSessionView(auth: string, base: string): void {
         frameW = w; frameH = h;
         $("s-size").textContent = `${w}×${h}`;
         setSize(w, h);
-        // **桌面真变成这么大了,现在才轮到那个浏览器窗口。**
-        // 顺序不能倒:那边摁窗口用的是"桌面尺寸 +1",桌面还是旧的时候摁,
-        // 摁的就是旧尺寸。这是"等那件事发生",不是睡一个秒数 ——
-        // 服务端说到了才算到。
-        cdp.now(resize(w, h));
       },
       log: (m) => toast(m, 12000),
     });
-    xpra.want = { w: w0, h: h0 };
+    // **连之前就把画布建出来**,不是只记一个数:第一帧来了要有地方画。
+    // 只记数的下场是画布停在 HTML 默认的 300×150,而 CSS 尺寸是对的 ——
+    // 于是一张 300×150 的图被拉成整块画面,**糊,但不报错**。
+    xpra.size(w0, h0);
     xpra.connect();
     $("s-q").textContent = "xpra";
     addEventListener("beforeunload", () => xpra?.close());
@@ -255,16 +252,15 @@ export function startSessionView(auth: string, base: string): void {
     const st = $("stage");
     const w = Math.max(320, st.clientWidth - 20);
     const h = Math.max(240, st.clientHeight - 20);
-    // **两条腿两条路,而且 VNC 那条是有先后的。**
+    // **两条都发,没有先后。**
     //
-    // JPG / DOM:`/channel/cdp` 一条命令改视口,直接发。
+    // `/channel/cdp` 那条:JPG/DOM 下改视口,VNC 下**摁桌面里那个浏览器窗口**。
+    // 两条腿在这一点上是同一个心智模型 —— 画面多大由我们定。
     //
-    // VNC:要改的是两样东西 —— 那个 X 桌面,和桌面里那个浏览器窗口。
-    // 桌面只有 xpra 能改(`/channel/xpra`);窗口只有 CDP 能摁。而且
-    // **必须先桌面后窗口**,所以这儿只发前一半,后一半在 `size()` 回调里
-    // 等服务端把新桌面尺寸报回来再发。
-    if (xpra) xpra.size(w, h);
-    else cdp.now(resize(w, h));
+    // `xpra.size()` 只动本地那块画布(见它的注释),不发包:那个 X 桌面
+    // 是固定的 4K,我们只取左上那一块。
+    cdp.now(resize(w, h));
+    xpra?.size(w, h);
   }
 
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;

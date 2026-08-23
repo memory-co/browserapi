@@ -39,7 +39,7 @@ HERE = Path(__file__).parent
 #: 记录器的版本。**钉死,不用 `@latest`。**
 #: `@latest` 意味着两台机器、两个时间点拿到的可能不是同一份 ——
 #: 而记录器和观看端的重放器必须是同一版,对不上的表现是"画面局部不更新"
-#: 且不报错。这正是 [c §8.1](../docs/v2/works/c-view.md#81-虚拟显示钉死-xorg--dummy)
+#: 且不报错。这正是 [c §8.1](../docs/v2/works/c-view.md#81-虚拟显示钉死-xvfb)
 #: 那条"同一条命令在两台机器上结果不同"要防的事。
 RRWEB_VERSION = "2.1.1"
 _BASE = f"https://cdn.jsdelivr.net/npm/rrweb@{RRWEB_VERSION}/dist"
@@ -340,7 +340,18 @@ class DomSource:
     def _rw(self, url: str) -> str:
         if not url or not url.startswith(("http://", "https://")):
             return url                            # data: / blob: / 相对地址不动
-        return f"/api/res?u={quote(url, safe='')}"
+        # **相对地址,前面没有斜杠。**
+        #
+        # 转发那条路由是 `/s/{sid}/api/res`,而这儿原来写的是根路径
+        # `/api/res` —— 于是**每一个**资源都 404。实测一个百度首页 25 个
+        # 资源请求,**0 成功、25 个 404**:CSS、字体、图片全没了。
+        #
+        # 而它看起来只是"页面有点丑":重放出来的是一棵**没有样式的**真 DOM,
+        # 结构对、文字全、节点数也对 —— **按节点数或文字判的断言全是绿的**。
+        #
+        # 不写死 `/s/{sid}` 是因为 `Session` 上根本没有 id(它在注册表里)。
+        # 相对地址靠重放文档自己的 base 解析,而那就是观看页 `…/s/{sid}/`。
+        return f"api/res?u={quote(url, safe='')}"
 
     def _rw_css(self, css: str) -> str:
         return re.sub(r"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)",

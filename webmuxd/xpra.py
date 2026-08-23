@@ -1,6 +1,6 @@
 """**VNC 那条画面** —— 起一套 xpra,再按它那个 8 字节头协议转下来。
 
-    Xorg+dummy :N  +  xpra start-desktop :N  +  chrome --kiosk --display=:N
+    Xvfb :N  +  xpra start-desktop :N  +  chrome --kiosk --display=:N
 
 三个进程,但只有一个归我们管:**xpra 自己会拉起那个 X server 和 chrome**
 (`--start-child`),所以我们 Popen 一个、杀一个。
@@ -38,60 +38,45 @@ from aiohttp import WSMsgType, web
 from webmuxd import models
 from webmuxd.exceptions import unavailable
 
-#: 我们自己那份 X 配置(`webmuxd/xorg.conf`)。**不看发行版那份。**
-XORG_CONF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "xorg.conf")
+#: 虚拟显示开多大。**建好就改不了,所以一次给够。**
+#:
+#: 3840x2160 是 4K 屏上把窗口拉满也够用的尺寸。实测 Xvfb 的 RSS:
+#: 1080p 70.5 MiB、2560x1600 78.4 MiB、4K 94.3 MiB —— 4K 比 1080p 多 24 MiB,
+#: 而同一个 session 里那个有头 chrome 就要 700 MiB 上下,这是个零头。
+#: 花这 24 MiB 买的是"像素对齐对 4K 用户也成立"。
+SCREEN = "3840x2160"
 
-#: Xorg 在哪儿。Debian 放 `/usr/bin/Xorg`(它同时是 `/usr/lib/xorg/Xorg` 的
-#: 一个壳),RHEL 那边也在 PATH 上。**探到哪个就用哪个** ——
-#: 探的东西和用的东西必须是同一个。
-XORG = shutil.which("Xorg") or "/usr/lib/xorg/Xorg"
-
-#: 等虚拟显示起来最多等几秒。见 `start()` 里那段 —— Xorg 比 Xvfb 慢得多,
-#: 而 xpra 的默认值是按 Xvfb 定的。
+#: 等虚拟显示起来最多等几秒。**这个上限由我们给,不看 xpra 的默认值。**
+#: 它默认是按空闲机器定的,而跑测试或者几个 session 一起起的时候不够 ——
+#: 不够的下场不是重试,是整个 session 起不来。
+#:
+#: 这不是"睡一个秒数":xpra 在这段时间里**轮询到就走**,这只是放弃的界限。
 VFB_WAIT = 20
-
-#: dummy 驱动的 `.so` 可能在的地方。Xorg 自己不会因为缺驱动而在启动前报错,
-#: 它是**起来一半再死**,而那时候错误埋在 Xorg.log 里。所以提前探。
-DRIVER_DIRS = ("/usr/lib/xorg/modules/drivers",
-               "/usr/lib64/xorg/modules/drivers",
-               "/usr/lib/x86_64-linux-gnu/xorg/modules/drivers")
-
-
-def dummy_driver() -> str | None:
-    """dummy 驱动的路径,没有返回 `None`。"""
-    for d in DRIVER_DIRS:
-        path = os.path.join(d, "dummy_drv.so")
-        if os.path.exists(path):
-            return path
-    return None
 
 
 def xvfb(work: str) -> str:
     """起虚拟显示那条命令。**由我们指定,不看发行版的配置。**
 
     xpra 用哪个 vfb 写在它自己的 `/etc/xpra/conf.d/55_server_x11.conf` 里,
-    **是打包方定的**:Debian 那边默认 `Xvfb`,RHEL 那边默认 `xpra_Xdummy`。
-    于是同一条命令在两台机器上跑的是两个不同的 X server。更坏的是这
-    **绕过了我们的探测** —— 探到的和真跑的不是同一个。所以自己写死。
+    **是打包方定的**:Debian 那边默认 `Xvfb`,RHEL 那边默认 `xpra_Xdummy`
+    (Xorg + dummy 驱动)。于是同一条命令在两台机器上跑的是两个不同的 X server,
+    而 Xdummy 要装 Xorg —— 云主机上基本没有。更坏的是这**绕过了我们的探测**:
+    `shutil.which("Xvfb")` 明明探到了,xpra 转头去用 Xdummy,然后挂在别处。
+    **探的东西和用的东西必须是同一个。**
 
-    写死的是 **Xorg + dummy 驱动**,不是 Xvfb。理由只有一个:
-    **Xvfb 的显示尺寸改不了。** 它整个显示只有一个 RANDR 模式,
-    `xrandr --newmode` 静默无效、`--fb` 直接 BadValue、`--mode` 找不到模式。
-    于是 `--resize-display=yes` 在它上面永远不生效,观看端把窗口拉多大
-    画面都还是那个死尺寸 —— **像素对不齐**。dummy 驱动可以:任意模式
-    加得上、切得动,屏幕真跟着变(`:92` 上实测,2048x1536 → 1260x806)。
+    所以钉死 Xvfb。
 
-    代价是多一个依赖:`Xorg` 和 `dummy_drv.so`。这个代价是明的 ——
-    `available()` 探不到就报出来,不偷偷退回一个对不齐的画面。
+    > 中间试过 Xorg + dummy(0.12.0),因为 Xvfb 的显示尺寸改不了,
+    > 而当时以为"画面尺寸 = 显示尺寸"。**那个前提是错的** ——
+    > 显示一次开够,浏览器窗口在里面调,画面只取左上那一块,
+    > 尺寸一样对得齐(见 [c §8.4](../docs/v2/works/c-view.md))。
+    > 换回来之后 Xorg 那一整套依赖、以及它起得慢带来的间歇性失败,一起没了。
     """
-    # 没有 `-configdir`:**它的绝对路径是 root 专用的**(`man Xorg`),
-    # 我们不是 root,给了就是 "Unable to locate/open config directory" 然后
-    # 整个 Xorg 起不来。`-config` 指名道姓就够了。
-    return (f"{XORG} -novtswitch -logfile {os.path.join(work, 'Xorg.log')} "
-            f"-config {XORG_CONF} "
-            "+extension GLX +extension RANDR +extension RENDER "
-            "+extension Composite -extension DOUBLE-BUFFER "
+    del work                              # 现在不需要 per-session 的路径了
+    return (f"Xvfb -screen 0 {SCREEN}x24 +extension GLX +extension RANDR "
+            "+extension RENDER +extension Composite -extension DOUBLE-BUFFER "
             "-nolisten tcp -noreset -auth $XAUTHORITY")
+
 
 #: 起 xpra 时固定关掉的一堆。**我们只要像素**([c](../docs/v2/works/c-view.md))——
 #: 剪贴板、音频、通知、文件传输、打印全走我们自己的 API,不走 xpra。
@@ -201,15 +186,11 @@ def available() -> tuple[bool, str]:
     exe = shutil.which("xpra")
     if not exe:
         missing.append("xpra")
-    # **Xorg + dummy 驱动,不是 Xvfb。** 为什么见 `xvfb()`:Xvfb 的显示
-    # 尺寸改不了,画面就永远对不齐。两个发行版家族的包名不一样,**都写出来**
-    # —— 只说一个的话另一边的人得自己去猜。
-    if not os.path.exists(XORG):
-        missing.append("Xorg(Debian/Ubuntu:xserver-xorg-core;"
-                       "RHEL/CentOS/Alibaba:xorg-x11-server-Xorg)")
-    if not dummy_driver():
-        missing.append("dummy 驱动(Debian/Ubuntu:xserver-xorg-video-dummy;"
-                       "RHEL/CentOS/Alibaba:xorg-x11-drv-dummy)")
+    if not shutil.which("Xvfb"):
+        # 两个发行版家族的包名不一样,**都写出来** —— 只说一个的话
+        # 另一边的人得自己去猜。
+        missing.append("Xvfb(Debian/Ubuntu:xvfb;"
+                       "RHEL/CentOS/Alibaba:xorg-x11-server-Xvfb)")
 
     # `start-desktop` 要 PIL,`start` 不要 —— 而我们只用 start-desktop(§6)。
     # 实测过:不装就是 `xpra-server is not installed: No module named 'PIL'`,
@@ -279,10 +260,8 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
     if not ok:
         raise unavailable(
             "xpra", f"起不来 xpra:{why}",
-            "Debian/Ubuntu:apt install xpra xserver-xorg-core "
-            "xserver-xorg-video-dummy python3-pil;"
-            "RHEL/CentOS/Alibaba:yum install xpra xorg-x11-server-Xorg "
-            "xorg-x11-drv-dummy python3-pillow;"
+            "Debian/Ubuntu:apt install xpra xvfb python3-pil;"
+            "RHEL/CentOS/Alibaba:yum install xpra xorg-x11-server-Xvfb python3-pillow;"
             "或者去掉 --transport xpra 用默认的 screencast")
 
     socket_dir = os.path.join("/tmp", f"webmuxd-xpra{display.lstrip(':')}")
@@ -297,31 +276,19 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
         "--html=off",                    # 它自带的客户端我们不要,我们自己写
         "--daemon=no",                   # **要它当我们的子进程活着**
         f"--xvfb={xvfb(work)}",          # **不看发行版配置**,见 xvfb()
-        # **`yes` 而不是 `WxH`。** 写死一个尺寸就是把画面尺寸钉死了,
-        # 而这条腿要的是"观看端多大画面就多大"([c §8.4](
-        # ../docs/v2/works/c-view.md#84-像素对齐人的窗口多大里面就多大))。
+        # **`no` —— 显示尺寸我们不动它。**
         #
-        # 认这个的是 `configure-display` 包,不是 `desktop_size` ——
-        # 后者在 `start-desktop` 的服务端上是个**明确的空操作**。
-        #
-        # 代价:没人看的时候显示是 `xorg.conf` 里第一个模式那么大
-        # (1024x768)。不要紧 —— 那时候没人在看。
-        "--resize-display=yes",
+        # 画面尺寸不是显示尺寸:显示一次开够(`SCREEN`),里面那个 chrome
+        # 窗口才是画面(`screen.py: _fill_screen`),观看端只取左上那一块。
+        # 让 xpra 去改显示的下场是又慢又不稳,而且**窗口正好等于屏幕时
+        # chrome 会退一像素**,那条缝反而是"跟着改显示"带出来的。
+        "--resize-display=no",
         "--sharing=yes",                 # 一个观看者一条上游连接
         "--exit-with-children=yes",      # chrome 没了 xpra 也就没意义了
         *OFF,
         f"--start-child={_quote(chrome_argv)}",
     ]
-    # **等虚拟显示起来的上限,由我们给。**
-    #
-    # xpra 那个默认值(`XPRA_VFB_WAIT`)是按 Xvfb 定的 —— Xvfb 一秒内就起来了。
-    # 换成 Xorg + dummy 之后不够:它要加载模块、探 udev、跟 systemd-logind
-    # 打交道,慢机器上好几秒。等不到的下场**不是重试,是整个 session 起不来**
-    # (`could not connect to X server on display ':80'`),而且 xpra
-    # **把已经拉起来的 Xorg 丢在那儿不管** —— 一个孤儿进程占着一个显示号。
-    #
-    # 这不是"睡一个秒数":xpra 在这段时间里是**轮询到就走**,
-    # 这个数只是放弃的界限。
+    # **等虚拟显示起来的上限,由我们给** —— 见 `VFB_WAIT`。
     env = {**os.environ, "XPRA_VFB_WAIT": str(VFB_WAIT)}
     with open(log_path, "ab", buffering=0) as log:
         proc = subprocess.Popen(argv, stdout=log, stderr=log,
@@ -333,7 +300,7 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
 
 
 def stop(sess: XpraSession, timeout: float = 8) -> None:
-    """停掉。**先用 `xpra stop` 好好说**,它会把 chrome 和那个 X server 一起收干净;
+    """停掉。**先用 `xpra stop` 好好说**,它会把 chrome 和 Xvfb 一起收干净;
     不听再 SIGTERM。
 
     > 这台机器上验过一件事:`pkill xpra` 会让整个 shell 拿到退出码 144。
@@ -356,11 +323,11 @@ def stop(sess: XpraSession, timeout: float = 8) -> None:
     # **最后把那一整组收掉,不管上面成没成。**
     #
     # 杀 xpra 那个进程**收不走它拉起来的 X server**:显示没起来的时候
-    # `xpra stop` 无从下手,而 SIGTERM 只到 xpra 自己 —— Xorg 被过继给 init,
+    # `xpra stop` 无从下手,而 SIGTERM 只到 xpra 自己 —— vfb 被过继给 init,
     # 继续占着那个显示号。实测留下过三个,而且**一句话都没有**。
     #
     # 起的时候给了 `start_new_session=True`,所以它自己就是组长,
-    # 这一组里只有它和它的孩子(Xorg、chrome),按组杀不会波及我们自己。
+    # 这一组里只有它和它的孩子(Xvfb、chrome),按组杀不会波及我们自己。
     with contextlib.suppress(Exception):
         os.killpg(os.getpgid(sess.proc.pid), signal.SIGTERM)
     with contextlib.suppress(Exception):
@@ -402,13 +369,6 @@ MAGIC = ord("P")
 #: **客户端能往 xpra 发的全部东西。** 每一条都写清楚不发会怎样 ——
 #: 这张表是安全边界,不是配置。
 ALLOWED = {
-    # **观看端报自己多大** —— 服务端据此调整那个 X 显示的尺寸,
-    # 于是画面和窗口能像素对齐(`--resize-display=yes` 才认这个包)。
-    # 不放行的话 VNC 那条腿的尺寸就是死的,人把窗口拉大也只是留一圈空白。
-    #
-    # **是 `configure-display` 而不是 `desktop_size`** —— 后者在
-    # `start-desktop` 的服务端上是个空操作,见客户端 `size()` 那段注释。
-    "configure-display": "观看端报自己多大 —— 画面跟着调,才谈得上像素对齐",
     "hello":            "握手。不发连不上",
     "map-window":       "告诉服务端我在看。**不发一帧都不来**",
     "focus":            "键盘焦点。我们不用键盘走这条,但协议要",

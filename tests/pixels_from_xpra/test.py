@@ -1,7 +1,7 @@
 """换一条像素来源 —— 对着 docs/v2/works/11 · 12 校。
 
 **大部分用例不需要真的跑 xpra。** 白名单、编解码、语法、参数拼装都是纯逻辑,
-真起一个虚拟显示 + xpra 才能测的那几条单独标出来,装了就跑,没装就说没装。
+真起一个 Xvfb + xpra 才能测的那几条单独标出来,装了就跑,没装就说没装。
 """
 
 import json
@@ -115,7 +115,7 @@ def test_白名单每一条都写了不发会怎样():
     """这张表是安全边界,**得能读**。"""
     assert set(relay.ALLOWED) == {
         "hello", "map-window", "focus", "damage-sequence", "ping_echo",
-        "disconnect", "configure-display"}
+        "disconnect"}
     for k, why in relay.ALLOWED.items():
         assert len(why) > 4, k
 
@@ -295,11 +295,9 @@ def test_显示号看_socket_文件不看进程(tmp_path, monkeypatch):
 
 def test_探不到就说缺什么_不猜(monkeypatch):
     monkeypatch.setattr(xpra_mod.shutil, "which", lambda n: None)
-    monkeypatch.setattr(xpra_mod.os.path, "exists", lambda p: False)
-    monkeypatch.setattr(xpra_mod, "dummy_driver", lambda: None)
     ok, why = xpra_mod.available()
     assert not ok
-    assert "xpra" in why and "Xorg" in why and "dummy" in why
+    assert "xpra" in why and "Xvfb" in why
 
 
 # ------------------------------------------------------------------ 客户端的 js
@@ -551,9 +549,9 @@ def test_the_vfb_is_ours_to_pin_not_the_distro_s(tmp_path, monkeypatch):
     同一条命令在两台机器上跑的是两个不同的 X server,而这**绕过探测**:
     探到的和真跑的不是同一个。所以自己指定。
 
-    钉的是 **Xorg + dummy**,不是 Xvfb:Xvfb 整个显示只有一个 RANDR 模式,
-    尺寸改不了,于是 `--resize-display` 永远空转,人拉窗口画面不跟
-    ([c §8.1](../../docs/v2/works/c-view.md#81-虚拟显示钉死-xorg--dummy))。
+    钉的是 **Xvfb**。中间试过 Xorg + dummy(0.12.0),因为 Xvfb 的显示尺寸
+    改不了 —— 但那个前提本身是错的:显示一次开够、窗口在里面调,尺寸一样
+    对得齐([c §8.4](../../docs/v2/works/c-view.md))。
     """
     seen = {}
 
@@ -573,29 +571,26 @@ def test_the_vfb_is_ours_to_pin_not_the_distro_s(tmp_path, monkeypatch):
 
     xvfb = [a for a in seen["argv"] if a.startswith("--xvfb=")]
     assert xvfb, "没有指定 vfb —— 那就是把选择权交回给发行版了"
-    assert "Xorg" in xvfb[0] and "Xvfb" not in xvfb[0], xvfb[0]
-    # **我们自己那份 xorg.conf,不是发行版的。**
-    assert xpra_mod.XORG_CONF in xvfb[0], xvfb[0]
-    # `-configdir` 的绝对路径是 root 专用的,给了就整个起不来
-    assert "-configdir" not in xvfb[0], xvfb[0]
-    # **`yes` 而不是 `WxH`。** 写死一个尺寸就是把画面尺寸钉死了,
-    # 而这条腿要的是"观看端多大画面就多大"。
-    assert "--resize-display=yes" in seen["argv"]
+    assert xvfb[0].startswith("--xvfb=Xvfb "), xvfb[0]
+    assert "Xdummy" not in xvfb[0] and "Xorg" not in xvfb[0]
+    # **屏幕一次开够,不再让 xpra 去改它。** 画面是里面那个窗口,
+    # 观看端只取左上那一块 —— 而"跟着改显示"正是一像素那条缝的来源。
+    assert f"--xvfb=Xvfb -screen 0 {xpra_mod.SCREEN}x24" in xvfb[0], xvfb[0]
+    assert "--resize-display=no" in seen["argv"]
 
-    # **等虚拟显示起来的上限由我们给。** xpra 那个默认值是按 Xvfb 定的
-    # (一秒内就起来),Xorg + dummy 实测要 3.8 秒 —— 用默认值的下场是
-    # **间歇性起不来**:`could not connect to X server on display ':80'`,
-    # 而且已经拉起来的 Xorg 被丢成孤儿。这条是那次回归的钉子。
+    # **等虚拟显示起来的上限由我们给,不看 xpra 的默认值。**
+    # 它的默认值是按空闲机器定的,而几个 session 一起起的时候不够 ——
+    # 不够的下场不是重试,是整个 session 起不来。
     assert seen["env"].get("XPRA_VFB_WAIT") == str(xpra_mod.VFB_WAIT)
-    assert xpra_mod.VFB_WAIT >= 10, "给 Xorg 的余量不能按 Xvfb 那个量级定"
 
 
 def test_a_missing_vfb_names_the_package_on_both_distro_families(monkeypatch):
     """只说一个的话,另一边的人得自己去猜。"""
-    monkeypatch.setattr(xpra_mod, "dummy_driver", lambda: None)
+    monkeypatch.setattr(xpra_mod.shutil, "which",
+                        lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
     ok, why = xpra_mod.available()
     assert not ok
-    assert "xserver-xorg-video-dummy" in why and "xorg-x11-drv-dummy" in why
+    assert "xvfb" in why and "xorg-x11-server-Xvfb" in why
 
 
 def test_起不来时先说清是哪一层没起来():
@@ -645,7 +640,8 @@ def test_xpra_起不来时报错_不静默退回_screencast(monkeypatch):
     """
     from webmuxd.exceptions import RuntimeUnavailable
     from webmuxd.sessions import resolve_transport
-    monkeypatch.setattr(xpra_mod, "dummy_driver", lambda: None)
+    monkeypatch.setattr(xpra_mod.shutil, "which",
+                        lambda n: None if n == "Xvfb" else "/usr/bin/" + n)
     with pytest.raises(RuntimeUnavailable) as ei:
         resolve_transport(None)
     assert "默认走 VNC" in ei.value.message
@@ -681,13 +677,11 @@ def test_dsf_报错要说清_xpra_是你选的还是默认来的(monkeypatch):
 # --------------------------------------------------------------- install 装依赖
 
 def test_两个发行版家族的包名是真的不一样():
-    """**这不是换个前缀就完了。** 撞了才知道:两边 X server 和 dummy 驱动的
-    包名完全不一样,Pillow 也是(`python3-pil` vs `python3-pillow`)。"""
+    """**这不是换个前缀就完了。** 撞了才知道:RHEL 那边 Xvfb 的包名是
+    `xorg-x11-server-Xvfb`,Pillow 是 `python3-pillow`。"""
     from webmuxd import install as deps
-    assert deps.APT.xpra == ("xpra", "xserver-xorg-core",
-                             "xserver-xorg-video-dummy", "python3-pil")
-    assert deps.YUM.xpra == ("xpra", "xorg-x11-server-Xorg",
-                             "xorg-x11-drv-dummy", "python3-pillow")
+    assert deps.APT.xpra == ("xpra", "xvfb", "python3-pil")
+    assert deps.YUM.xpra == ("xpra", "xorg-x11-server-Xvfb", "python3-pillow")
     assert deps.DNF.xpra == deps.YUM.xpra
     # chrome 的共享库两边一个都对不上
     assert not set(deps.APT.chrome) & set(deps.YUM.chrome)
@@ -721,12 +715,11 @@ def test_没有_root_时只打印_而且给完整的那一行(monkeypatch):
     monkeypatch.setattr(deps, "can_root", lambda: False)
     monkeypatch.setattr(deps, "detect", lambda: deps.YUM)
     monkeypatch.setattr(deps, "apply", lambda *a, **k: pytest.fail("没 root 还去装了"))
-    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:dummy 驱动"))
+    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:Xvfb"))
     out = io.StringIO()
     ins.install(out=out)
     text = out.getvalue()
-    assert ("sudo yum install -y -q xpra xorg-x11-server-Xorg "
-            "xorg-x11-drv-dummy python3-pillow") in text
+    assert "sudo yum install -y -q xpra xorg-x11-server-Xvfb python3-pillow" in text
     assert "--transport jpg" in text, "得说清不想装可以走哪条"
 
 
@@ -739,7 +732,7 @@ def test_装完要重新探一遍_不看安装器的退出码(monkeypatch):
     monkeypatch.setattr(deps, "can_root", lambda: True)
     monkeypatch.setattr(deps, "detect", lambda: deps.APT)
     monkeypatch.setattr(deps, "apply", lambda *a, **k: (True, ""))   # 装"成功"了
-    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:dummy 驱动"))  # 但还是没有
+    monkeypatch.setattr(xpra_mod, "available", lambda: (False, "缺:Xvfb"))  # 但还是没有
     out = io.StringIO()
     ins.install(out=out)
     assert "装好了" not in out.getvalue(), "安装器说成功就信了"

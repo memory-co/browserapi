@@ -23,7 +23,10 @@ def test_资源地址改写成走我们_观看端不回原站():
     ev = {"type": 2, "data": {"node": {
         "tagName": "img", "attributes": {"src": "https://cdn.example.com/a.png"}}}}
     out = json.loads(d._rewrite(json.dumps(ev)))
-    assert out["data"]["node"]["attributes"]["src"].startswith("/api/res?u=")
+    # **相对地址,前面没有斜杠。** 转发那条路由在 `/s/{sid}/api/res` 下,
+    # 写成根路径 `/api/res` 的话**每一个资源都 404**(实测百度首页 25 个
+    # 请求 0 成功),而重放出来的树节点数、文字、标题全都对 —— 只有样式和图没了。
+    assert out["data"]["node"]["attributes"]["src"].startswith("api/res?u=")
     assert "cdn.example.com" in out["data"]["node"]["attributes"]["src"]
 
 
@@ -38,7 +41,7 @@ def test_只改资源地址_不动别的():
     ev2 = {"type": 2, "data": {"node": {
         "tagName": "link", "attributes": {"href": "https://x.com/a.css"}}}}
     out2 = json.loads(d._rewrite(json.dumps(ev2)))
-    assert out2["data"]["node"]["attributes"]["href"].startswith("/api/res?u=")
+    assert out2["data"]["node"]["attributes"]["href"].startswith("api/res?u=")
 
 
 def test_data_和_blob_不动():
@@ -55,7 +58,7 @@ def test_css_里的_url_也要改():
     ev = {"type": 2, "data": {"node": {"tagName": "div", "attributes": {
         "style": "background:url(https://cdn.x.com/bg.jpg) no-repeat"}}}}
     out = json.loads(d._rewrite(json.dumps(ev)))
-    assert "/api/res?u=" in out["data"]["node"]["attributes"]["style"]
+    assert "api/res?u=" in out["data"]["node"]["attributes"]["style"]
 
 
 def test_按结构走_不拿正则扫整串():
@@ -74,7 +77,7 @@ def test_srcset_每一项都改_但描述符留着():
         "srcset": "https://x.com/a.png 1x, https://x.com/b.png 2x"}}}}
     out = json.loads(d._rewrite(json.dumps(ev)))
     v = out["data"]["node"]["attributes"]["srcset"]
-    assert v.count("/api/res?u=") == 2
+    assert v.count("api/res?u=") == 2
     assert "1x" in v and "2x" in v          # 描述符不能丢,丢了浏览器选错图
 
 

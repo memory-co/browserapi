@@ -13,15 +13,16 @@ ttyd 把终端调成你窗口那么大,tmux 里的 80 列就真是 80 列 ——
 两条腿的机理完全不同,所以各验各的:
 
 - **JPG**:一条 CDP 命令改视口,截图跟着出。三个数严丝合缝。
-- **VNC**:画面是一个真的 X 桌面。链条是 观看端报尺寸 → xpra 调 X 显示 →
-  服务端把新尺寸回给观看端 → 观看端这才让我们去摁那个 chrome 窗口。
-  中间任何一环断了,人拉窗口就是白拉 —— 这条链上**每一环都真断过一次**,
-  记在 `docs/v2/works/test.md`。
+- **VNC**:画面是那个 X 桌面里的**一块** —— 桌面一次开到 4K 不动,
+  里面那个 chrome 窗口才是画面,观看端只取左上那一块。改尺寸就是
+  一条 CDP 命令摁窗口,**和 JPG 是同一个心智模型**。
 
 DOM 那条腿这一轮不验:它重放的是 DOM,尺寸的判据是另一回事。
 
 要网络;VNC 那个还要 xpra,没有就跳过。
 """
+
+import time
 
 import pytest
 
@@ -62,15 +63,28 @@ def measure(who) -> dict:
     return who.page.evaluate(_MEASURE, who.screen_sel())
 
 
-def settle(cli, who) -> dict:
-    """等到帧的尺寸追上那块地,再把三个数一起交出来。
+def settle(cli, who, timeout: float = 30) -> dict:
+    """等到帧的尺寸追上那块地,把**那一次**测量交出来。
 
-    **等那件事发生,不睡一个秒数。** 改尺寸这条链上有三个来回
-    (观看端 → xpra → 观看端 → 我们),睡多久都是赌。
+    **等那件事发生,不睡一个秒数** —— 改尺寸要走一个来回,睡多久都是赌。
+
+    **而且一轮只能量一次。** 第一版写的是
+    `measure()["frame"] == measure()["stage"]`,然后 `return measure()` ——
+    三个**不同时刻**的数。改尺寸中间那一瞬三者本来就不一致,于是它
+    偶发地把一次半路状态判成"到位了",再把另一次半路状态交出去断言。
+    **一条自己制造竞态的测试,红起来指的是被测的东西,查半天在自己身上。**
+
+    `cli` 这个参数留着是为了调用处读起来一致,这儿用不上。
     """
-    cli.until(lambda: measure(who)["frame"] == measure(who)["stage"], True,
-              timeout=30, what="帧的尺寸追上窗口")
-    return measure(who)
+    del cli
+    deadline = time.monotonic() + timeout
+    while True:
+        m = measure(who)
+        if m["frame"] == m["stage"]:
+            return m
+        assert time.monotonic() < deadline, \
+            f"{timeout}s 内帧的尺寸没追上那块地:{m}"
+        who.page.wait_for_timeout(300)
 
 
 @pytest.fixture
@@ -95,9 +109,10 @@ def test_the_jpg_picture_tracks_the_window(cli):
 
         for w, h in SIZES:
             who.resize(w, h)
+            # 「帧 == 那块地」由 `settle()` 押着(等不到就超时,带上三个数);
+            # 这儿判的是**另一件事**:那张图有没有被 CSS 缩放过。
             m = settle(cli, who)
             assert m["el"] == m["stage"], f"画面元素没铺满:{m}"
-            assert m["frame"] == m["stage"], f"帧的像素不是这么多:{m}"
 
             # **页面自己以为的宽度。** JPG 下视口是我们用一条 CDP 命令钉的,
             # 所以这儿要求完全相等 —— 差一个像素就说明那条命令没跟上。
@@ -119,13 +134,13 @@ def test_the_vnc_picture_tracks_the_window(cli):
             who.resize(w, h)
             m = settle(cli, who)
             assert m["el"] == m["stage"], f"画面元素没铺满:{m}"
-            assert m["frame"] == m["stage"], f"桌面不是这么大:{m}"
 
-            # **VNC 下窗口比桌面大一像素,那是故意的。**
-            # chrome 不接受一个正好等于屏幕大小的窗口,给它 WxH 到手永远是
-            # W-1 x H-1 —— 那样画面右下会各露一条 1 像素的桌面底色,**有缝**。
-            # 多要一像素则是窗口盖满桌面,多出来的落在桌面外,看不见。
-            # 理由写在 `webmuxd/screen.py: _fill_screen()`。
+            # **和 JPG 一样,要求完全相等。**
+            #
+            # 一度是"画面 +1":那时画面就是整个 X 桌面,而 chrome 不接受一个
+            # 正好等于屏幕大小的窗口(给它 WxH 到手永远是 W-1 x H-1)——
+            # 于是只能多要一像素去盖住那条缝。
+            # 现在桌面一次开到 4K 不动,画面是里面那个窗口,窗口永远比屏幕小,
+            # **那条硬规则碰都碰不到**。多出来的一像素跟着没了。
             vp = cli.api("snapshot", "-t", "demo")["viewport"]
-            assert [vp["w"], vp["h"]] == [m["stage"][0] + 1, m["stage"][1] + 1], \
-                f"窗口没盖住桌面(或盖过头了):{vp} vs {m}"
+            assert [vp["w"], vp["h"]] == m["stage"], f"页面按别的宽度排的:{vp} vs {m}"

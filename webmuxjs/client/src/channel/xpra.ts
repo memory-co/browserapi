@@ -115,31 +115,24 @@ export class XpraClient {
   want: { w: number; h: number } | null = null;
 
   /**
-   * 告诉服务端"我要这么大"。
+   * 画面要多大 —— **这一条只动本地那块画布,一个包都不发。**
    *
-   * **发的是 `configure-display`,不是 `desktop_size`。** 这两个包名在
-   * xpra 里都存在,但 `start-desktop` 的服务端把 `desktop_size` 明确地
-   * 当空操作(`x11/desktop/base.py`:"Usually, desktop servers don't need
-   * to do anything when the client's geometry changes")—— 发过去日志里
-   * 会打一行 "new desktop size",然后**什么都不发生**。真正会走到
-   * `set_screen_size()` 去改 RandR 的是 `configure-display`。
+   * 那个 X 桌面一次开到 4K 就不动了(服务端 `xpra.SCREEN`,
+   * `--resize-display=no`)。画面是桌面里那个 chrome 窗口,它钉在左上角、
+   * 大小由服务端用 CDP 摁(走 `/channel/cdp` 那条 `resize`)。
+   * 我们这边**只需要把画布建成那么大**:xpra 送来的瓦片是按桌面坐标画的,
+   * 超出画布的部分 canvas 自己就丢掉了 —— 这就是"只取有效部分"。
    *
-   * 这是 VNC 那条腿唯一能改画面尺寸的路:服务端 `--resize-display=yes`
-   * 把 X 显示调成这个尺寸。**桌面里那个 chrome 不会自己跟** ——
-   * 它 `screen.width` 读得准而窗口纹丝不动,得等服务端把新尺寸报回来
-   * (`window-resized`),再由观看端发一条 `resize` 到 `/channel/cdp`
-   * 让服务端用 CDP 去摁。
+   * 早先试过让 xpra 去改那个显示(`configure-display`),换来的是:
+   * 依赖 Xorg + dummy、起得慢而且间歇性失败、还有"窗口正好等于屏幕时
+   * chrome 退一像素"那条缝。**显示不动,这些一起没了。**
    */
   size(w: number, h: number): void {
     w = Math.max(200, Math.round(w));
     h = Math.max(200, Math.round(h));
     if (this.want && this.want.w === w && this.want.h === h) return;
     this.want = { w, h };
-    this._send(["configure-display", {
-      "desktop-size": [w, h],
-      "desktop-size-unscaled": [w, h],
-      "monitors": {},
-    }]);
+    this._resize(w, h);
   }
 
   _screen(w: number, h: number): unknown[] {
@@ -180,13 +173,9 @@ export class XpraClient {
       "file": { "enabled": false },
       "wants": ["packet-types"], "setting-change": true,
       "desktop_size": [w, h], "screen_sizes": [screen],
-      // **`desktop_mode_size` 是握手时唯一被 desktop 服务端认的尺寸。**
-      // 不给它,`configure_best_screen_size()` 就打一句 "client did not
-      // request a specific desktop mode size" 然后用它自己的默认
-      // 1920x1080(`x11/desktop/display.py`),连上来第一眼就是错的。
-      "desktop_mode_size": [w, h],
-      "display": { "desktop_size": [w, h], "screen_sizes": [screen],
-                   "desktop_mode_size": [w, h] },
+      // **不报 `desktop_mode_size`。** 那是让服务端把 X 显示调成这个尺寸的,
+      // 而我们不改显示 —— 显示一次开够,画面是里面那个窗口。
+      "display": { "desktop_size": [w, h], "screen_sizes": [screen] },
       "encodings": {
         "": ENCODINGS, "core": ENCODINGS,
         "rgb_formats": ["RGBX", "RGBA"],
@@ -233,33 +222,19 @@ export class XpraClient {
           this.on.log("xpra 又开了一个窗口 wid=" + wid + " —— desktop 模式下不该发生");
         }
         this.wid = wid;
-        this._resize(w, h);
+        // **按桌面尺寸 map,但画布不跟着变**(见 `size()`)——
+        // 要按整个桌面 map,不然服务端只推那一块的像素。
         this._send(["map-window", wid, x, y, w, h, {}]);
         this._send(["focus", wid, []]);
         return;
       }
-      // **这两组的包位不一样,不能合在一起读。**
-      // `window-move-resize` / `configure-override-redirect` 是
-      // `[wid, x, y, w, h]`,尺寸在 4、5;
-      // `window-resized` 是 `[wid, w, h, resize_counter]`,尺寸在 2、3。
-      // 合着读的下场:桌面改了尺寸,服务端**发了** `window-resized`
-      // (`x11/desktop/window.py: send_updated_screen_size`),而我们
-      // 拿 p[4]=resize_counter、p[5]=undefined,条件不成立,**整包丢掉** ——
-      // 画面尺寸于是永远停在连上那一刻,而且一句话都没有。
+      // **桌面多大不关画布的事。** 那个 X 桌面是固定的 4K,而画布是
+      // 观看端要的那一块(见 `size()`)。照桌面尺寸去建画布的话,
+      // 人看到的就是一张 4K 的图缩在窗口里 —— 越拉越糊,正是要治的病。
       case "window-move-resize":
-      case "configure-override-redirect":
-        if (p[1] === this.wid && p[4] && p[5]) this._resize(p[4], p[5]);
-        return;
       case "window-resized":
-        if (p[1] === this.wid && p[2] && p[3]) this._resize(p[2], p[3]);
-        return;
-      // 桌面改尺寸之后**还有这么一条路**报回来 ——
-      // `["desktop_size", w, h, maxw, maxh]`
-      // (`server/source/display.py: updated_desktop_size`)。
-      // 这台机器上实测走的是上面那条 `window-resized`,但这条也认:
-      // 两条报的是同一件事,漏一条就是"桌面变了而画布不知道"。
+      case "configure-override-redirect":
       case "desktop_size":
-        if (p[1] && p[2]) this._resize(p[1], p[2]);
         return;
       case "draw":
         this._draw(p);
