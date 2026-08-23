@@ -92,12 +92,18 @@ export class Api {
     return this.fetch("/tabs/" + id, { method: "DELETE" });
   }
 
+  // **这几下的发起者是人,如实说。**
+  //
+  // 两个后果,都是对的:一是它们不再被"人正在操作"那道闸门挡住
+  // (拿人正在操作去挡人自己的下一下,是自相矛盾);
+  // 二是行为日志里它们记成 `human` 而不是 `api` —— 那本来就是真的,
+  // 是有人点了⟳、有人在地址栏敲了回车。
   goto(id: string, url: string): Promise<Response> {
-    return this.post(`/tabs/${id}/goto`, { url });
+    return this.post(`/tabs/${id}/goto`, { url, user: "human" });
   }
 
   nav(id: string, verb: "back" | "forward" | "reload"): Promise<Response> {
-    return this.post(`/tabs/${id}/${verb}`);
+    return this.post(`/tabs/${id}/${verb}`, { user: "human" });
   }
 
   answerDialog(tab: string, accept: boolean, text: string): Promise<Response> {

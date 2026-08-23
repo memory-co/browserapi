@@ -411,8 +411,16 @@ class Session:
         #
         # 挡住它的下场:人从观看页敲完字,程序想确认一下"进去了吗",
         # 拿到的是 `busy_human` —— **它没在抢,却被当成在抢。**
-        if self.human_active and not all(a.get("type") in READ_ACTIONS
-                                         for a in actions):
+        # **人自己的动作不受这条挡。**
+        #
+        # `busy_human` 说的是"人正在操作,别去抢方向盘" —— 那是对**别人**说的。
+        # 而观看页上那个地址栏、前进后退、开关 tab,发起者**就是人自己**:
+        # 拿"人正在操作"去挡人自己的下一下,是自相矛盾。
+        #
+        # 撞到过:人在画面里敲完字,顺手在地址栏回车 —— 服务端回 409,
+        # 客户端只弹个 toast,**看起来什么都没发生**。
+        if (self.human_active and user != "human"
+                and not all(a.get("type") in READ_ACTIONS for a in actions)):
             left = int((self._human_yield - (time.monotonic() - self._human_at)) * 1000)
             raise BusyHuman("人正在操作", code="busy_human",
                             details={"retry_after_ms": max(0, left)})

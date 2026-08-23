@@ -42,6 +42,8 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 import pytest
 
@@ -226,8 +228,17 @@ class Human:
     #: 画面那三个元素。**只有一个是可见的**,看模式(JPG / VNC / DOM)。
     SCREENS = ("#screen", "#screen2", "#screen3")
 
-    def __init__(self, page, channels: list | None = None) -> None:
+    def __init__(self, page, channels: list | None = None, *,
+                 watch: str = "") -> None:
         self.page = page
+        #: 观看页那个地址(`…/s/<id>/`)。**有了它就能问服务端**:
+        #: "我刚点的那一下,里面收到没有"。
+        #:
+        #: 走的是 `/api/log` 那条 HTTP —— **和 CLI、和网页上那个日志按钮
+        #: 同一个接口**(都在 `serve.py` 里)。不走 `webmuxd log` 那条命令:
+        #: 每问一次要起一个子进程(100ms 以上),拿它轮询比原来那个固定等待还慢;
+        #: 一次 HTTP 请求是毫秒级,密集问也不心疼。
+        self.watch = watch.rstrip("/")
         #: 拦下来的那几条通道(`human(intercept=True)` 才有)。
         #: **每重连一次就多一条** —— 所以数它就知道断没断过。
         self.channels = channels
@@ -235,6 +246,47 @@ class Human:
         page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: m.type == "error"
                 and self.errors.append(f"console.error: {m.text}"))
+
+    # -- 问服务端 ----------------------------------------------------------
+
+    def log_seq(self) -> int:
+        """现在最新那条日志的编号。**动作之前记一下,之后只看比它新的。**
+
+        不这么做的话,点第二下会被第一下留下的那条记录骗过去 ——
+        看到"有一条 pointerdown"就以为到了,其实是上一次的。
+        """
+        rows = self._log(limit=1)
+        return int(rows[-1]["seq"]) if rows else 0
+
+    def _log(self, **q: object) -> list[dict]:
+        assert self.watch, "这个 Human 没拿到观看页地址,问不了服务端"
+        url = self.watch + "/api/log?" + urllib.parse.urlencode(
+            {k: v for k, v in q.items() if v is not None})
+        with urllib.request.urlopen(url, timeout=10) as r:
+            return json.loads(r.read().decode())["entries"]
+
+    def wait_logged(self, after: int, action: str, *, count: int = 1,
+                    timeout: float = 8) -> list[dict]:
+        """等服务端**真的收到**了那几下。
+
+        这是"等那件事发生"里最结实的一种:**它等的不是效果,是到达**。
+        页面有没有反应是页面的事,而"那一下有没有走完
+        观看端 → WS → 服务端 → `Input.*` → 页面 → 探针 → 日志"
+        这一整条,只有日志答得了。
+
+        等不到就直接说"那一下没到" —— 以前这儿是睡 1200 毫秒然后往下走,
+        机器一忙就不够,红在后面某个莫名其妙的地方。
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            hits = [e for e in self._log(after=after, limit=200)
+                    if e.get("action") == action]
+            if len(hits) >= count:
+                return hits
+            assert time.monotonic() < deadline, (
+                f"{timeout}s 内没等到 {count} 条 {action} —— 那一下没到里面"
+                f"(只看到 {len(hits)} 条)")
+            self.page.wait_for_timeout(50)
 
     # -- 看 ----------------------------------------------------------------
 
@@ -438,10 +490,18 @@ class Human:
         return self.cursor()
 
     def click(self, el: dict) -> tuple[float, float]:
-        """在画面上点里面那个元素。返回点的是屏幕上哪一点(报错时好看)。"""
+        """在画面上点里面那个元素,**等到服务端真的收到那一下**。
+
+        返回点的是屏幕上哪一点(报错时好看)。
+
+        以前这儿是睡 1200 毫秒 —— 那是在赌"一个来回够了"。
+        机器一忙就不够,而不够的表现是红在后面某个莫名其妙的地方。
+        现在等的是日志里那条 `pointerdown`:**它到了才算点了**。
+        """
+        before = self.log_seq()
         x, y = self.point_for(el)
         self.page.mouse.click(x, y)
-        self.page.wait_for_timeout(1200)
+        self.wait_logged(before, "pointerdown")
         return x, y
 
     def wheel(self, dy: int, *, at_center: bool = True) -> None:
@@ -452,13 +512,26 @@ class Human:
         if at_center:
             self.page.mouse.move(r["x"] + r["width"] / 2, r["y"] + r["height"] / 2)
         self.page.mouse.wheel(0, dy)
-        self.page.wait_for_timeout(600)
+        # **滚轮不进日志**(探针只报 `pointerdown` / `keydown`)——
+        # 而它本来也不该进:一次滚动几十个 notch,全记进 scrollback 会把它冲垮,
+        # 那是给人读的东西,不是事件流。
+        #
+        # 所以这儿只留一个很短的下限,**"滚到没滚"由调用方自己判**
+        # (`v2_browser_scroll` 等的是页面里元素的坐标真的动了)。
+        self.page.wait_for_timeout(120)
 
     def type(self, text: str) -> None:
-        """敲字。**得先点过一下** —— 观看端在 `mousedown` 时才把焦点交给
-        那个隐藏 textarea(IME 要它)。"""
+        """敲字,**等到那几下都到了里面**。
+
+        **得先点过一下** —— 观看端在 `mousedown` 时才把焦点交给那个隐藏
+        textarea(IME 要它)。
+
+        等的是"日志里出现了这么多条 `keydown`",一个字一条。
+        以前睡 1500 毫秒:字多一点就不够,而且**永远不知道到底到了几个**。
+        """
+        before = self.log_seq()
         self.page.keyboard.type(text)
-        self.page.wait_for_timeout(1500)
+        self.wait_logged(before, "keydown", count=len(text))
 
     def wait_fresh(self, was: int, timeout: float = 30) -> dict:
         """等到画面**变了**(采样指纹和 `was` 不一样)。
@@ -522,28 +595,123 @@ class Human:
             self.page.wait_for_timeout(300)
 
     def pick_tab(self, n: int) -> None:
+        """点 tab 条上第 n 个,**等到它真的成了高亮那个**。"""
         self.page.locator("#tabs .tab").nth(n).click()
-        self.page.wait_for_timeout(1500)
+        self._until(lambda: [t["active"] for t in self.tabs()].index(True) == n
+                    if any(t["active"] for t in self.tabs()) else False,
+                    f"第 {n} 个 tab 高亮起来")
 
     def close_tab(self, n: int) -> None:
-        """点那个 `×`。"""
+        """点那个 `×`,**等到它真的从条上消失**。"""
+        was = len(self.tabs())
         self.page.locator("#tabs .tab").nth(n).locator("b").click()
-        self.page.wait_for_timeout(1500)
+        self._until(lambda: len(self.tabs()) == was - 1, "那个 tab 从条上消失")
 
     def new_tab(self) -> None:
-        """点那个 `＋`。"""
+        """点那个 `＋`,**等到新那个既在条上、又成了高亮的那个**。
+
+        两件事都要等。只等"多了一个"的话,下一步在地址栏敲的那一下会打在
+        **旧 tab** 上 —— 而它不会报错,只是导航去了别处,红在后面。
+        (以前那 2000 毫秒顺带盖住了这段先后关系,**固定等待最坏的地方就在这儿**:
+        它让人看不出两件事其实是有顺序的。)
+        """
+        was = len(self.tabs())
         self.page.locator("#newtab").click()
-        self.page.wait_for_timeout(2000)
+        self._until(lambda: len(self.tabs()) == was + 1
+                    and self.tabs()[-1]["active"],
+                    "新 tab 出现并成为当前那个")
+        # **再让一下那道闸门。**
+        #
+        # tab 条上看到了不等于服务端那一下做完了 —— 它那儿"一次只做一件事",
+        # 而紧接着的动作(比如在地址栏敲回车)会撞上去被回 409,
+        # 客户端只弹个 toast,**看起来什么都没发生**。
+        #
+        # 这 300 毫秒是这一整轮里**唯一一个还在赌的数** ——
+        # 因为"服务端此刻忙不忙"是观看页今天看不到的东西。
+        # 要根治得让它能看到(比如 `busy` 进那条下行),那是另一件事。
+        self.page.wait_for_timeout(300)
 
     def go(self, url: str) -> None:
-        """在地址栏里敲一个地址,回车。**这是人最熟的那一下。**"""
+        """在地址栏里敲一个地址,回车。**这是人最熟的那一下。**
+
+        等的是 **tab 条上那一条真的变成了这个地址** —— 那是服务端那张表
+        同步过来的,所以它变了就说明里面真的走到了。
+
+        **不能等地址栏**:那几个字是我们自己填进去的,"地址栏等于目标"
+        当场就成立 —— 那个等待是空的,一等就过,然后红在后面。
+
+        **敲了可能不算数,所以要盯着重来。** 客户端每重画一次 tab 条,
+        就把地址栏的值改回"当前 tab 的 url"(`tabs.ts` 里那行
+        `if (t.active) $("url").value = t.url`)。刚开完一个新 tab 那会儿
+        重画很密,填进去的字会被抹掉,回车就发了个空的 ——
+        **看起来什么都没发生,而且不报错**。以前那 2000 毫秒的睡眠
+        让重画先安静下来,顺手盖住了这件事。
+        """
+        want = url.rstrip("/")
+
+        def there() -> bool:
+            return any(t["active"] and (t["url"] or "").rstrip("/") == want
+                       for t in self.tabs())
+
+        # 填了就填了 —— **重画不会再把它抹掉**了(那是客户端的一个真 bug,
+        # 修在 `tabs.ts` 的 `showUrl()`:人在框里就一个字都不动它,
+        # 而且每个 tab 记着自己那份草稿)。
         self.page.locator("#url").fill(url)
         self.page.locator("#url").press("Enter")
-        self.page.wait_for_timeout(3000)
+        self._until(there, f"tab 条上变成 {url}", timeout=20,
+                    show=lambda: [(t["url"], t["active"]) for t in self.tabs()])
+
+    def _settled_tabs(self, quiet_ms: int = 300, timeout: float = 10) -> None:
+        """等 tab 条不再变化。**"没有事情正在发生"也是一件可以等的事。**"""
+        deadline = time.monotonic() + timeout
+        last = None
+        while True:
+            now = self.tabs()
+            if now == last:
+                return
+            last = now
+            assert time.monotonic() < deadline, f"{timeout}s 内 tab 条一直在变"
+            self.page.wait_for_timeout(quiet_ms)
 
     def resize(self, w: int, h: int) -> None:
+        """拉窗口,**等到帧的尺寸追上那块地**。
+
+        改尺寸要走一个来回(观看端 → 服务端 → 浏览器 → 新的一帧),
+        睡两秒是在赌那个来回够快。
+        """
         self.page.set_viewport_size({"width": w, "height": h})
-        self.page.wait_for_timeout(2000)
+        with contextlib.suppress(AssertionError):
+            # 追不上不在这儿失败 —— 判尺寸对不对是 `v2_browser_pixel_align`
+            # 的事,这儿只是"别太早往下走"。
+            self._until(self._sized, "帧的尺寸追上窗口", timeout=15)
+
+    def _sized(self) -> bool:
+        box = self.page.evaluate(self._BOX_JS, self.screen_sel())
+        st = self.page.evaluate(
+            "() => {const s = document.getElementById('stage');"
+            " return [s.clientWidth - 20, s.clientHeight - 20];}")
+        return bool(box) and [box["cw"], box["ch"]] == st
+
+    def _until(self, ok, what: str, *, timeout: float = 10, show=None) -> None:
+        """**等那件事发生,不睡一个秒数。**
+
+        kit 里原来一排 `wait_for_timeout(1200/1500/2000/3000)` ——
+        页面还在外网的时候那还能辩解成"给网络留余量";页面搬到本地之后
+        它们就是纯粹的空等,而且**机器一忙照样不够** ——
+        今天那几次偶发红全是这么来的。
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            with contextlib.suppress(Exception):
+                if ok():
+                    return
+            if time.monotonic() >= deadline:
+                seen = ""
+                if show is not None:
+                    with contextlib.suppress(Exception):
+                        seen = f" —— 现在是 {show()!r}"
+                raise AssertionError(f"{timeout}s 内没等到:{what}{seen}")
+            self.page.wait_for_timeout(50)
 
     def switch_to(self, label: str) -> dict:
         """换画面(**使用者看到的是 JPG / VNC / DOM**),等到新那条腿真的把画面铺上。
@@ -551,9 +719,17 @@ class Human:
         那块在**画面右下角**,收起来的时候只是一小块牌子 ——
         所以要先点开它,再点里面那一项。像视频播放器的画质菜单。
         """
+        want = {"JPG": "img", "VNC": "canvas", "DOM": "dom"}[label]
         self.page.locator("#q-now").click()
         self.page.get_by_role("option", name=label, exact=False).click()
-        self.page.wait_for_timeout(500)
+        # **等的是"新那条腿成了当值的那个",不是"画面上有东西"。**
+        #
+        # 只等后者不行:刚点完那一下,旧那个元素还挂着上一帧,
+        # `wait_painted()` 一看有内容就回来了 —— 于是断言拿到的是**上一条腿**。
+        # (以前那 500 毫秒的睡眠正好盖住这一段。)
+        self._until(lambda: self.paint().get("kind") == want,
+                    f"画面换成 {label}", timeout=30,
+                    show=lambda: self.paint().get("kind"))
         return self.wait_painted()
 
     @property
@@ -596,7 +772,7 @@ def human(url: str, *, size: tuple[int, int] = (1280, 900),
             channels = []
             page.route_web_socket("**/channel/**", lambda ws: (
                 channels.append(ws), ws.connect_to_server()))
-        h = Human(page, channels)
+        h = Human(page, channels, watch=url)
         page.goto(url)
         try:
             yield h
