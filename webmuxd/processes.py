@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import shutil
 import signal
@@ -165,6 +166,47 @@ def free_port() -> int:
 
 #: **等一个进程监听的时候,要盯着那个进程本身。**
 #:
+def forget_last_tabs(profile: str) -> None:
+    """**把上次那些 tab 忘掉,但别忘掉登录态。**
+
+    profile 目录是跟着 session 留在数据目录里的 —— 那是故意的:
+    重启一次就要重新登录一遍的浏览器没人要。但 chrome 在那个目录里
+    **还存了"上次开着哪些标签页"**,而且只要上次不是干净退出的
+    (升级时被 kill、机器断电、`kill -9`),它下次起来就**自己把它们恢复出来**。
+
+    表现是:人 `server stop` 再 `server start`,进去一看**上次的 tab 还在**,
+    像是我们没清数据 —— 其实我们这边一条都没留,是浏览器自己捡回来的。
+    实测:非正常退出之后重启,tab 表里是 `example.com` + 两个 about:blank。
+
+    `--disable-session-crashed-bubble` 挡不住这个 —— 它只是**把那个气泡藏起来**,
+    该恢复照样恢复。要真拦住,得动 profile 里那两样东西:
+
+    - `Default/Sessions/`(和 `Sessions_Encrypted/`):上次开着哪些页,就存在这儿
+    - `Preferences` 里的 `exit_type`:不是 `"Normal"` 的话 chrome 就当上次崩了
+
+    cookie、登录态、历史都在别的文件里(`Cookies` / `Login Data` / `History`),
+    **一个都不动**。
+    """
+    root = os.path.join(profile, "Default")
+    for name in ("Sessions", "Sessions_Encrypted"):
+        with contextlib.suppress(OSError):
+            shutil.rmtree(os.path.join(root, name))
+    prefs = os.path.join(root, "Preferences")
+    try:
+        with open(prefs, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return                              # 头一次起,还没有这个文件
+    prof = data.setdefault("profile", {})
+    if prof.get("exit_type") == "Normal" and prof.get("exited_cleanly") is True:
+        return
+    prof["exit_type"] = "Normal"
+    prof["exited_cleanly"] = True
+    with contextlib.suppress(OSError):
+        with open(prefs, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+
 #: 不盯的下场:浏览器因为 root 没关沙箱、缺共享库、profile 写不了而**立刻退出**,
 #: 我们照样干等满 30 秒(有头那条是 60 秒),然后告诉人
 #: 「浏览器起来了但 CDP 没监听」—— **它没起来,它已经死了。**

@@ -660,6 +660,8 @@ class ProcessRuntime:
         args = [exe, *processes.BASE_ARGS,
                 f"--remote-debugging-port={cdp_port}",
                 f"--user-data-dir={os.path.join(work, 'profile')}"]
+        # **起之前把上次那些 tab 忘掉**(登录态不动)—— 见 `forget_last_tabs`
+        processes.forget_last_tabs(os.path.join(work, "profile"))
         # **root 下沙箱起不来,这不是选择题。**
         #
         # Chromium 硬拒绝:`Running as root without --no-sandbox is not supported`
@@ -735,6 +737,8 @@ class ProcessRuntime:
         display = xpra_mod.free_display()
         ws_port = processes.free_port()
         as_root = hasattr(os, "geteuid") and os.geteuid() == 0
+        # **起之前把上次那些 tab 忘掉**(登录态不动)—— 见 `forget_last_tabs`
+        processes.forget_last_tabs(os.path.join(work, "profile"))
         chrome_argv = xpra_mod.build_chrome_argv(
             exe, cdp_port=cdp_port, profile=os.path.join(work, "profile"),
             url=url, width=w, height=h, proxy=proxy,

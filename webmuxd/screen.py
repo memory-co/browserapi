@@ -68,15 +68,25 @@ class Screencaster:
         #: 不是"现在用哪种",是"以后能选哪几种" —— VNC 要真实的 X 显示,
         #: 无头浏览器没有,而有没有是起 session 时定的,运行时改不了。
         self.available = models.available_in(headed=has_xpra or transport == models.VNC)
-        #: DOM 那条的事件源。别的模式下是 None。
+        #: DOM 那条的事件源。**三种模式下都建,不看当前是哪一种。**
+        #:
+        #: 起 session 的时候就把记录器准备好 —— **人切模式只决定哪条通道
+        #: 真的在传,不决定哪条腿存不存在。** VNC 那条本来就是这样
+        #: (X 显示和有头 chrome 是起 session 时定的,事后加不上),
+        #: DOM 这条原来却是"等你切过去才装",而那时页面早跑完了:
+        #: `addScriptToEvaluateOnNewDocument` 只对之后的文档生效,
+        #: 剩下的全是补救,而补救接连撞坑(UMD 被页面的 AMD 加载器劫走、
+        #: 补注入之后画面照样出不来)。
+        #:
+        #: 代价是每个 session 都要往页面里注一份记录器(565 KB)并一直录着。
+        #: **这个代价是明的**:探针改变了页面环境这件事本来就要如实承认
+        #: ([c §5.6](../docs/v2/works/c-view.md))。而带宽不受影响 ——
+        #: 事件只在有人接 `/channel/rrweb` 的时候才发出去。
+        #:
         #: **在 `__init__` 里就建好,不能等 `start()`** —— tab 的 attach 可能
         #: 更早,那时 `self.dom` 还是 None,记录器就漏装了。
-        #: 漏装的表现是:模式对、日志说装上了,而页面里 `typeof rrweb` 是
-        #: `undefined`、事件一条没有,**全程不报错**。
-        self.dom = None
-        if self.mode == models.DOM:
-            from webmuxd.rrweb import DomSource
-            self.dom = DomSource()
+        from webmuxd.rrweb import DomSource
+        self.dom = DomSource()
         self.width, self.height = width, height
         #: **JPG 那条腿在 `jpg.py`。** 这儿只编排 —— 跟哪个 tab、谁在看、
         #: 慢了降多少;真正开关 `Page.startScreencast` 的是它。
@@ -404,13 +414,8 @@ class Screencaster:
         await self._stop_cast()
         self.mode = want
         self.own_frames = want == models.JPG
-        if want == models.DOM and self.dom is None:
-            from webmuxd.rrweb import DomSource
-            self.dom = DomSource()
-            # **中途切到 DOM,当前这一页是没有记录器的。**
-            # 注入只对之后的文档生效 —— 这一条还没解,见
-            # docs/v2/issues/dom-注入登记了但不执行.md
-            log.warning("中途切到 DOM:当前页没有记录器,要等下一次导航")
+        # **切到 DOM 不用再装什么** —— 记录器起 session 就装上了,
+        # 一直在录。切只是决定那条通道传不传(见 `__init__` 里 `self.dom`)。
         if want == models.VNC:
             await self._fill_screen(self.width, self.height)
         await self._apply_viewport()

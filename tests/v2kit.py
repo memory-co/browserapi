@@ -337,9 +337,17 @@ class Human:
         """
         deadline = time.monotonic() + timeout
         while True:
-            p = self.paint()
-            if p.get("colors", 0) > 1 or p.get("nodes", 0) > _DOM_ALIVE:
-                return p
+            try:
+                p = self.paint()
+            except AssertionError as e:
+                # **"一个可见的都没有"是个合法的中间态,不是结论。**
+                # 刚切完模式的那一下:旧那个元素藏起来了,新那个还没长出东西 ——
+                # DOM 那条尤其明显,那是个空 `<div>`,零尺寸,
+                # Playwright 判它不可见。这儿要等,不是抛。
+                p = {"kind": "none", "why": str(e)[:120]}
+            else:
+                if p.get("colors", 0) > 1 or p.get("nodes", 0) > _DOM_ALIVE:
+                    return p
             assert time.monotonic() < deadline, f"{timeout}s 内画面上还是一片空白:{p}"
             self.page.wait_for_timeout(300)
 

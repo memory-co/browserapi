@@ -46,6 +46,11 @@ def replay(who) -> dict:
 def test_a_human_watches_a_page_replayed_as_dom(cli):
     cli.run("new", "--id", "demo", "--transport", "dom")
     cli.run("goto", "-t", "demo", SITE)
+    # **先等"加载完"这件事,再等那个元素。**
+    # 只写第二句的话就是在赌网速:百度挺重,跑全量的时候 30 秒不够,
+    # 于是偶发红在一个和本条测试无关的地方(v2_browser_new_tab 同样栽过)。
+    cli.until(lambda: cli.api("tabs", "-t", "demo")["tabs"][0]["loading"],
+              False, timeout=90, what="页面自己加载完")
     cli.run("wait", "-t", "demo", "--css", "input", "--timeout", "30")
 
     with v2kit.human(cli.out("attach", "-t", "demo", "--print-only").strip()) as who:

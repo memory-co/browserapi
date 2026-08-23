@@ -160,6 +160,16 @@ export function startSessionView(auth: string, base: string): void {
       screenEl = img;
       rrweb.close();                       // 切走了就别占着那条连接
     }
+    // **尺寸也得跟着换过去 —— 这是第三件事。**
+    //
+    // 上面那段注释说"显示哪个元素"和"连哪条上游"是两件事;漏了这一件:
+    // 尺寸是写在**元素的 style 上**的,而它只在 `hello` / `cast` 到的时候写一次。
+    // 人中途切过去的话,那一次早就写在**切走的那个元素**上了 ——
+    // 新露出来的这个从头到尾没有宽高。
+    //
+    // 表现:切到 DOM 之后 `#screen3` 是 0×0,而重放其实**已经在放**了
+    // (iframe 量到 1380×774)。人看到的是画面塌成一条,或者干脆什么都没有。
+    if (cast.w) setSize(cast.w, cast.h);
   }
 
   async function startXpra(): Promise<void> {

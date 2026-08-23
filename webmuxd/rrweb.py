@@ -174,6 +174,30 @@ def viewer_css() -> bytes:
     return _read("css")
 
 
+def _umd_shield(umd: str) -> str:
+    """把 UMD 那一坨包起来跑,**跑的时候先把 `define` / `module` / `exports` 藏掉**。
+
+    rrweb 那个包是 UMD:它先看页面上有没有模块系统,有就把自己交给模块系统,
+    **不设全局**。而我们下一段代码要的正是全局那个 `rrweb`。
+
+    起 session 就选 DOM 的时候撞不上 —— 那是 document-start,页面一行都还没跑,
+    自然没有 `define`。**中途切过去才会**:那时页面早加载完了。
+    百度首页实测 `typeof define === "function"`(它自带 AMD 加载器),
+    于是 UMD 走了 AMD 分支,`window.rrweb` 从头到尾是 undefined,
+    紧接着记录器报 `ReferenceError: rrweb is not defined`。
+
+    这个错**是喊出来的**(进了服务端日志),但人看到的是:点了 DOM 按钮之后
+    **一片空白** —— JPG 那张图藏起来了,DOM 那个 div 里什么都没有。
+
+    藏完要还回去:那是页面自己的加载器,弄坏了页面就废了。UMD 是同步执行的,
+    所以 `finally` 里还原是准的。
+    """
+    return ("(function(){var __d=window.define,__m=window.module,__e=window.exports;"
+            "window.define=undefined;window.module=undefined;window.exports=undefined;"
+            "try{\n" + umd + "\n}finally{"
+            "window.define=__d;window.module=__m;window.exports=__e;}})();")
+
+
 class DomSource:
     """一个 session 的 DOM 画面。
 
@@ -209,7 +233,7 @@ class DomSource:
             return
         first = not self.armed
         self._cdp, self._sid = cdp, session_id
-        src = recorder_js() + "\n;\n" + RECORD_JS
+        src = _umd_shield(recorder_js()) + "\n;\n" + RECORD_JS
         #   ↑ 那个分号是必须的:UMD 最后一行是 `}))`,后面直接跟 `(() => …)()`
         #     会被解析成"调用上一个表达式的结果",报的是
         #     `(intermediate value)(...) is not a function`,和 rrweb 无关。
