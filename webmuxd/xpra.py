@@ -26,6 +26,7 @@ import contextlib
 import logging
 import os
 import shutil
+import signal
 import struct
 import subprocess
 from dataclasses import dataclass, field
@@ -44,6 +45,10 @@ XORG_CONF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "xorg.conf"
 #: 一个壳),RHEL 那边也在 PATH 上。**探到哪个就用哪个** ——
 #: 探的东西和用的东西必须是同一个。
 XORG = shutil.which("Xorg") or "/usr/lib/xorg/Xorg"
+
+#: 等虚拟显示起来最多等几秒。见 `start()` 里那段 —— Xorg 比 Xvfb 慢得多,
+#: 而 xpra 的默认值是按 Xvfb 定的。
+VFB_WAIT = 20
 
 #: dummy 驱动的 `.so` 可能在的地方。Xorg 自己不会因为缺驱动而在启动前报错,
 #: 它是**起来一半再死**,而那时候错误埋在 Xorg.log 里。所以提前探。
@@ -307,9 +312,20 @@ def start(*, display: str, ws_port: int, cdp_port: int, chrome_argv: list[str],
         *OFF,
         f"--start-child={_quote(chrome_argv)}",
     ]
+    # **等虚拟显示起来的上限,由我们给。**
+    #
+    # xpra 那个默认值(`XPRA_VFB_WAIT`)是按 Xvfb 定的 —— Xvfb 一秒内就起来了。
+    # 换成 Xorg + dummy 之后不够:它要加载模块、探 udev、跟 systemd-logind
+    # 打交道,慢机器上好几秒。等不到的下场**不是重试,是整个 session 起不来**
+    # (`could not connect to X server on display ':80'`),而且 xpra
+    # **把已经拉起来的 Xorg 丢在那儿不管** —— 一个孤儿进程占着一个显示号。
+    #
+    # 这不是"睡一个秒数":xpra 在这段时间里是**轮询到就走**,
+    # 这个数只是放弃的界限。
+    env = {**os.environ, "XPRA_VFB_WAIT": str(VFB_WAIT)}
     with open(log_path, "ab", buffering=0) as log:
         proc = subprocess.Popen(argv, stdout=log, stderr=log,
-                                start_new_session=True)
+                                start_new_session=True, env=env)
     return XpraSession(proc=proc, display=display, ws_port=ws_port,   # noqa: E501
                        cdp_port=cdp_port, socket_dir=socket_dir,
                        log_path=log_path,
@@ -337,6 +353,20 @@ def stop(sess: XpraSession, timeout: float = 8) -> None:
     if sess.proc.poll() is None:
         with contextlib.suppress(Exception):
             sess.proc.kill()
+    # **最后把那一整组收掉,不管上面成没成。**
+    #
+    # 杀 xpra 那个进程**收不走它拉起来的 X server**:显示没起来的时候
+    # `xpra stop` 无从下手,而 SIGTERM 只到 xpra 自己 —— Xorg 被过继给 init,
+    # 继续占着那个显示号。实测留下过三个,而且**一句话都没有**。
+    #
+    # 起的时候给了 `start_new_session=True`,所以它自己就是组长,
+    # 这一组里只有它和它的孩子(Xorg、chrome),按组杀不会波及我们自己。
+    with contextlib.suppress(Exception):
+        os.killpg(os.getpgid(sess.proc.pid), signal.SIGTERM)
+    with contextlib.suppress(Exception):
+        sess.proc.wait(timeout=3)
+    with contextlib.suppress(Exception):
+        os.killpg(os.getpgid(sess.proc.pid), signal.SIGKILL)
     # **那个 socket 目录也是我们建的,也要收。**
     # 一个显示号一个目录,进程没了它就没用了。留着不占什么(4K),
     # 但 `/tmp` 下攒一堆 `webmuxd-xpra*` 空目录会让人以为还有东西在跑 ——

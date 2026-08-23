@@ -560,6 +560,7 @@ def test_the_vfb_is_ours_to_pin_not_the_distro_s(tmp_path, monkeypatch):
     class FakePopen:
         def __init__(self, argv, **kw):
             seen["argv"] = argv
+            seen["env"] = kw.get("env") or {}
             self.pid = 1
 
         def poll(self):
@@ -580,6 +581,13 @@ def test_the_vfb_is_ours_to_pin_not_the_distro_s(tmp_path, monkeypatch):
     # **`yes` 而不是 `WxH`。** 写死一个尺寸就是把画面尺寸钉死了,
     # 而这条腿要的是"观看端多大画面就多大"。
     assert "--resize-display=yes" in seen["argv"]
+
+    # **等虚拟显示起来的上限由我们给。** xpra 那个默认值是按 Xvfb 定的
+    # (一秒内就起来),Xorg + dummy 实测要 3.8 秒 —— 用默认值的下场是
+    # **间歇性起不来**:`could not connect to X server on display ':80'`,
+    # 而且已经拉起来的 Xorg 被丢成孤儿。这条是那次回归的钉子。
+    assert seen["env"].get("XPRA_VFB_WAIT") == str(xpra_mod.VFB_WAIT)
+    assert xpra_mod.VFB_WAIT >= 10, "给 Xorg 的余量不能按 Xvfb 那个量级定"
 
 
 def test_a_missing_vfb_names_the_package_on_both_distro_families(monkeypatch):

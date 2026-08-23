@@ -1,5 +1,27 @@
 # 更新日志
 
+## 0.12.1
+
+**0.12.0 的 VNC 会间歇性起不来。** 换成 Xorg + dummy 之后漏了一件事:
+
+```
+RuntimeError: could not connect to X server on display ':80' after 1 seconds
+```
+
+xpra 等虚拟显示的那个上限(`XPRA_VFB_WAIT`)**是按 Xvfb 定的** —— Xvfb 一秒内
+就起来了,而 Xorg + dummy 要加载模块、探 udev、跟 systemd-logind 打交道,
+这台机器上实测 **3.8 秒**。所以它有时候赶得上、有时候赶不上,
+**测试跑十遍绿八遍**,而失败那两遍是整个 session 起不来。
+
+改成由我们给这个上限(20 秒)。这不是"睡一个秒数":xpra 在这段时间里
+**轮询到就走**,这个数只是放弃的界限。
+
+顺带修掉一个更难看的:等超时之后 **xpra 把已经拉起来的 Xorg 丢在那儿不管**。
+杀 xpra 那个进程收不走它 —— 显示没起来时 `xpra stop` 无从下手,SIGTERM 只到
+xpra 自己,Xorg 被过继给 init,继续占着那个显示号。实测一次失败留下三个,
+**一句话都没有**。现在 `stop()` 最后按进程组收一次(起的时候就
+`start_new_session=True`,那一组里只有它和它的孩子)。
+
 ## 0.12.0
 
 **人的窗口多大,里面那个浏览器就多大。**
