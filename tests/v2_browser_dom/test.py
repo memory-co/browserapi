@@ -24,17 +24,19 @@
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-SITE = "https://www.baidu.com/"
 WORD = "web"
 
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
-    with v2kit.server(tmp_path) as c:
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
@@ -45,10 +47,10 @@ def replay(who) -> dict:
 
 def test_a_human_watches_a_page_replayed_as_dom(cli):
     cli.run("new", "--id", "demo", "--transport", "dom")
-    cli.run("goto", "-t", "demo", SITE)
+    cli.run("goto", "-t", "demo", cli.site)
     # **先等"加载完"这件事,再等那个元素。**
-    # 只写第二句的话就是在赌网速:百度挺重,跑全量的时候 30 秒不够,
-    # 于是偶发红在一个和本条测试无关的地方(v2_browser_new_tab 同样栽过)。
+    # 页面换成本地小站之后这一句其实很快了,但**留着** ——
+    # 它押的是"页面加载完了才往下走",不是"等够久了"。
     cli.until(lambda: cli.api("tabs", "-t", "demo")["tabs"][0]["loading"],
               False, timeout=90, what="页面自己加载完")
     cli.run("wait", "-t", "demo", "--css", "input", "--timeout", "30")
@@ -59,8 +61,19 @@ def test_a_human_watches_a_page_replayed_as_dom(cli):
         got = who.wait_painted()
 
         assert got["kind"] == "dom", f"当值的该是 DOM 那条:{got}"
-        assert got["nodes"] > 200, f"重放出来的树太小,不像一张真页:{got}"
-        assert "百度" in got["title"], f"重放的是别的页?{got}"
+        assert got["nodes"] > 10, f"重放出来的树太小,还是个骨架:{got}"
+
+        # **按内容认那一页,不按节点数。**
+        # 数节点是在跟着某一张页调一个数 —— 换一张页就得改一次,
+        # 而"改到能过为止"的断言等于没有。这儿点名要那几样东西。
+        inside = who.page.evaluate("""() => {
+          const d = document.querySelector('#paintbox iframe').contentDocument;
+          return {搜索框: !!d.querySelector('#q'), 新闻链接: !!d.querySelector('#news'),
+                  标题: (d.querySelector('#hello') || {}).textContent || ''};
+        }""")
+        assert inside["搜索框"] and inside["新闻链接"] and "小站" in inside["标题"], \
+            f"重放里没有那一页该有的东西:{inside}"
+        assert "小站" in got["title"], f"重放的是别的页?{got}"
 
         # ---------------------------------------- 样式和图也得到位
         #

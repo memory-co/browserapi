@@ -15,23 +15,25 @@
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-SITE = "https://www.baidu.com/"
 WORD = "web"
 
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
-    with v2kit.server(tmp_path) as c:
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
 def test_a_human_opens_the_page_and_drives_the_browser(cli):
     cli.run("new", "--id", "demo", "--transport", "jpg")
-    cli.run("goto", "-t", "demo", SITE)
+    cli.run("goto", "-t", "demo", cli.site)
     cli.run("wait", "-t", "demo", "--css", "input", "--timeout", "30")
 
     # **这就是 `webmuxd attach` 打印给人的那个地址。**
@@ -56,8 +58,8 @@ def test_a_human_opens_the_page_and_drives_the_browser(cli):
         assert f"{cw}×{ch}" in who.status, f"状态条和实际对不上:{who.status}"
 
         # 地址栏和 tab 条上是**里面那个页面**的状态 —— 真的同步过来了
-        assert who.address_bar.startswith("https://www.baidu.com"), who.address_bar
-        assert "baidu" in who.tab_bar, who.tab_bar
+        assert who.address_bar.startswith(cli.site), who.address_bar
+        assert "127.0.0.1" in who.tab_bar, who.tab_bar
 
         # **读屏的人也找得到那块画面。** `alt=""` 的意思是"这张图没信息,
         # 跳过它",而它是整页唯一有信息的地方 —— 那是个真 bug,修了。
@@ -90,7 +92,9 @@ def test_a_human_opens_the_page_and_drives_the_browser(cli):
                 if e.get("action") == "pointerdown"]
         assert hits, f"人在 {at} 点了,里面一条都没记下 —— 那一下没到"
         hit = hits[-1]["hit"]
-        assert hit["role"] in ("textarea", "textbox", "combobox", "searchbox"), \
+        # `input` 也算 —— 那是标签名。同一个"搜索框",不同站点做出来的
+        # 标签不一样(真站上常是 `textarea`,我们这张页是 `input`)。
+        assert hit["role"] in ("input", "textarea", "textbox", "combobox", "searchbox"), \
             f"该点在搜索框上,实际点中的是 {hit}"
 
         # ------------------------------------------------ 他敲字

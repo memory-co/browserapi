@@ -42,7 +42,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.request
 
 import pytest
 
@@ -58,14 +57,6 @@ def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
-
-def need_network(url: str) -> None:
-    """**没网就跳过,不假装通过。**"""
-    try:
-        urllib.request.urlopen(url, timeout=8).read(64)
-    except Exception as e:
-        pytest.skip(f"连不上 {url}({e})—— 这一条要真的打开它")
 
 
 def need_vnc() -> None:
@@ -131,6 +122,23 @@ class Cli:
                 f"{timeout}s 内没等到{what or ''}:要 {want!r},一直是 {last!r}"
             time.sleep(0.4)
 
+    def until_value(self, fn, ok, *, timeout: float = 25, what: str = ""):
+        """等到 `fn()` 满足 `ok()`,把那个值交回来。
+
+        和 `until` 差在:那个要的是**等于某个值**,这个要的是**落进某个范围**。
+        滚动就是后者 —— 押"滚了多少"到像素是在押浏览器的平滑策略,
+        要押的是"**滚了,而且方向和量级对**"。
+        """
+        last = None
+        deadline = time.monotonic() + timeout
+        while True:
+            last = fn()
+            if ok(last):
+                return last
+            assert time.monotonic() < deadline, \
+                f"{timeout}s 内没等到{what or ''}:最后是 {last!r}"
+            time.sleep(0.3)
+
     def snap(self, target: str, *flags: str) -> list[dict]:
         return self.api("snapshot", "-t", target, *flags)["elements"]
 
@@ -184,9 +192,15 @@ def server(tmp_path):
 # ---------------------------------------------------------------------------
 
 #: 重放那棵树上多少个节点算"长出来了"。
-#: 一棵空重放是个位数(html/head/body 那几个);百度首页实测 500 上下。
-#: 取 50 是想把"骨架已经在了但内容还没到"也挡在外面。
-_DOM_ALIVE = 50
+#:
+#: **这儿只回答"有东西了吗",不回答"是不是那一页"** —— 后面那个是各条
+#: 测试自己的事(`v2_browser_dom` 要求 200 个以上,因为它开的是百度)。
+#: 一开始这个数是 50,按百度调的;结果一张只有 38 个节点的正常页就卡在这儿,
+#: 而重放明明是好的。**一个写死的数跟着某一张页走,就是把两件事混成了一件。**
+#:
+#: 一棵空重放是个位数(html/head/body/style 那几个),所以 12 足够把
+#: "骨架已经在了但内容还没到"挡在外面。
+_DOM_ALIVE = 12
 
 
 class Human:
@@ -355,24 +369,25 @@ class Human:
 
     #: 画面**在人屏幕上占的那块**,以及**它里面那套坐标有多大**。
     #:
-    #: 三种模式各有各的答法,但答的是同一件事,所以换算只有一处:
+    #: 三条腿答的是同一件事,所以换算只有一处:
     #: JPG 是 `<img>` 的 `naturalWidth`,VNC 是 `<canvas>` 的 `width`,
-    #: DOM 是**重放 iframe** 的位置 + 它里面那页的 `clientWidth`
-    #: (重放那棵树被 `transform: scale()` 缩过,而 `getBoundingClientRect`
-    #: 已经把缩放算进去了 —— 所以拿 iframe 的 rect 是对的,
-    #: 拿外面那个 `#screen3` 的 rect 是错的:它比重放出来的那块大)。
+    #: DOM 是那个容器**被写上的 CSS 尺寸**。
+    #:
+    #: **DOM 那条一开始写错了**:拿的是重放文档的 `clientWidth`。
+    #: 那是"重放出来那一页有多宽",而元素的 bbox 来自**活着的那一页** ——
+    #: 两者可以不一样(实测重放 1024x681、活页 1260x806,因为快照是在观看端
+    #: 连上、把视口调大之前录的)。于是点下去偏了一大截,点中了下面那个链接。
+    #: 客户端自己换算用的是 `cast`(活页视口)+ 那个元素的 rect,
+    #: **kit 得和它算同一笔账**。
     _BOX_JS = """(sel) => {
       const el = document.querySelector(sel);
       if (!el) return null;
-      if (el.tagName === 'DIV') {
-        const ifr = el.querySelector('iframe');
-        const d = ifr && ifr.contentDocument;
-        if (!d || !d.documentElement) return null;
-        const r = ifr.getBoundingClientRect();
-        return {x: r.x, y: r.y, w: r.width, h: r.height,
-                cw: d.documentElement.clientWidth, ch: d.documentElement.clientHeight};
-      }
       const r = el.getBoundingClientRect();
+      if (el.tagName === 'DIV') {
+        return {x: r.x, y: r.y, w: r.width, h: r.height,
+                cw: parseFloat(el.style.width) || r.width,
+                ch: parseFloat(el.style.height) || r.height};
+      }
       return {x: r.x, y: r.y, w: r.width, h: r.height,
               cw: el.naturalWidth || el.width || 0,
               ch: el.naturalHeight || el.height || 0};
@@ -417,6 +432,16 @@ class Human:
         self.page.mouse.click(x, y)
         self.page.wait_for_timeout(1200)
         return x, y
+
+    def wheel(self, dy: int, *, at_center: bool = True) -> None:
+        """在画面上滚一下滚轮。**先把鼠标放到画面上** ——
+        滚轮事件是按位置派发的,鼠标不在画面上滚的是观看页自己。
+        """
+        r = self.screen().bounding_box()
+        if at_center:
+            self.page.mouse.move(r["x"] + r["width"] / 2, r["y"] + r["height"] / 2)
+        self.page.mouse.wheel(0, dy)
+        self.page.wait_for_timeout(600)
 
     def type(self, text: str) -> None:
         """敲字。**得先点过一下** —— 观看端在 `mousedown` 时才把焦点交给

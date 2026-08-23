@@ -14,33 +14,35 @@
 **这条测试就是来钉这一条的**:人点了 DOM 那个按钮,画面就得出来,
 而不是"等你下次导航"。人不知道什么叫记录器,他只知道自己点了一下。
 
-前半段照抄 `v2_browser_simple`:JPG 起、进百度、确认画面真的在,
+前半段照抄 `v2_browser_simple`:JPG 起、进那一页、确认画面真的在,
 **然后才切** —— 因为要复现的正是"页面已经在跑了"这个前提。
 """
 
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-SITE = "https://www.baidu.com/"
 
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
-    with v2kit.server(tmp_path) as c:
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
 def test_a_human_switches_to_dom_on_a_page_already_loaded(cli):
     # ---------------------------------------- 前半段:和 v2_browser_simple 一样
     cli.run("new", "--id", "demo", "--transport", "jpg")
-    cli.run("goto", "-t", "demo", SITE)
+    cli.run("goto", "-t", "demo", cli.site)
     # **先等"加载完"这件事,再等那个元素。**
-    # 只写第二句的话就是在赌网速:百度挺重,跑全量的时候 30 秒不够,
-    # 于是偶发红在一个和本条测试无关的地方(v2_browser_new_tab 同样栽过)。
+    # 页面换成本地小站之后这一句其实很快了,但**留着** ——
+    # 它押的是"页面加载完了才往下走",不是"等够久了"。
     cli.until(lambda: cli.api("tabs", "-t", "demo")["tabs"][0]["loading"],
               False, timeout=90, what="页面自己加载完")
     cli.run("wait", "-t", "demo", "--css", "input", "--timeout", "30")
@@ -51,7 +53,7 @@ def test_a_human_switches_to_dom_on_a_page_already_loaded(cli):
         assert first["kind"] == "img", f"前半段该是 JPG 那条:{first}"
 
         # 这一页**已经加载完了** —— 这就是要复现的前提
-        assert who.address_bar.startswith("https://www.baidu.com"), who.address_bar
+        assert who.address_bar.startswith(cli.site), who.address_bar
 
         # ---------------------------------------- 人点了 DOM 那个按钮
         got = who.switch_to("DOM")
@@ -60,8 +62,19 @@ def test_a_human_switches_to_dom_on_a_page_already_loaded(cli):
         # 树、样式和图、只读、输入。一样都不能少 ——
         # 少了"样式和图"那条,资源全丢的时候上面那条照样绿。
         assert got["kind"] == "dom", f"点了 DOM,当值的还不是它:{got}"
-        assert got["nodes"] > 200, f"重放出来的树太小,不像一张真页:{got}"
-        assert "百度" in got["title"], f"重放的是别的页?{got}"
+        assert got["nodes"] > 10, f"重放出来的树太小,还是个骨架:{got}"
+
+        # **按内容认那一页,不按节点数。**
+        # 数节点是在跟着某一张页调一个数 —— 换一张页就得改一次,
+        # 而"改到能过为止"的断言等于没有。这儿点名要那几样东西。
+        inside = who.page.evaluate("""() => {
+          const d = document.querySelector('#paintbox iframe').contentDocument;
+          return {搜索框: !!d.querySelector('#q'), 新闻链接: !!d.querySelector('#news'),
+                  标题: (d.querySelector('#hello') || {}).textContent || ''};
+        }""")
+        assert inside["搜索框"] and inside["新闻链接"] and "小站" in inside["标题"], \
+            f"重放里没有那一页该有的东西:{inside}"
+        assert "小站" in got["title"], f"重放的是别的页?{got}"
         assert got["sheets"] > 0, f"一张样式表都没有 —— 资源没转过来:{got}"
         assert got["images"] > 0, f"一张图都没有 —— 资源没转过来:{got}"
 

@@ -27,14 +27,13 @@ import time
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-#: **故意用一个不滚动的页面。** 判据里有一条是"页面自己以为的宽度",
-#: 而 `cssVisualViewport` 是**不含滚动条**的 —— 百度那种会滚的页面上,
-#: 它比画面小 15 像素,那不是错,是浏览器本来就这样。
-#: 拿会滚的页面来验这一条,量的就不是对齐,是滚动条宽度。
-SITE = "https://example.com/"
+#: **故意用一个不滚动的页面**(小站的 `/about`)。判据里有一条是
+#: "页面自己以为的宽度",而 `cssVisualViewport` 是**不含滚动条**的 ——
+#: 会滚的页面上它比画面小 15 像素,那不是错,是浏览器本来就这样。
 
 #: 人会拉到的几个尺寸。**故意有奇数**1151 不是随手写的,
 #: 是为了让"少一像素多一像素"这类错露出来 —— 全用偶数的话,
@@ -89,8 +88,10 @@ def settle(cli, who, timeout: float = 30) -> dict:
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
-    with v2kit.server(tmp_path) as c:
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
@@ -101,7 +102,7 @@ def test_the_jpg_picture_tracks_the_window(cli):
     那时候人看到的图没问题,agent 拿到的元素坐标却是另一套。
     """
     cli.run("new", "--id", "demo", "--transport", "jpg")
-    cli.run("goto", "-t", "demo", SITE)
+    cli.run("goto", "-t", "demo", cli.site + "about")
 
     with v2kit.human(cli.out("attach", "-t", "demo", "--print-only").strip()) as who:
         who.wait_connected()
@@ -124,7 +125,7 @@ def test_the_vnc_picture_tracks_the_window(cli):
     """VNC:那个 X 桌面跟着人走,桌面里那个 chrome 窗口再跟着桌面走。"""
     v2kit.need_vnc()
     cli.run("new", "--id", "demo", "--transport", "vnc")
-    cli.run("goto", "-t", "demo", SITE)
+    cli.run("goto", "-t", "demo", cli.site + "about")
 
     with v2kit.human(cli.out("attach", "-t", "demo", "--print-only").strip()) as who:
         who.wait_connected()

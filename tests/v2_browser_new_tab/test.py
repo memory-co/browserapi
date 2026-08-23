@@ -17,14 +17,11 @@
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-SITE = "https://www.baidu.com/"
 MENU = "新闻"
-ELSE = "https://example.com/"
-#: 点了 MENU 之后会落到这儿。
-NEWS = "https://news.baidu.com/"
 #: 往新那页的输入框里敲的字。**ASCII,不是汉字** ——
 #: 客户端是在 `compositionend` 上发文本的(`input/keyboard.ts`),那是真 IME
 #: 走的路;而 Playwright 的 `keyboard.type("天气")` 走 `insertText`,
@@ -74,14 +71,16 @@ def agree(cli, who, target: str, when: str) -> dict:
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
-    with v2kit.server(tmp_path) as c:
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
 def test_a_human_opens_and_juggles_tabs(cli):
     cli.run("new", "--id", "nt", "--transport", "jpg")
-    cli.run("goto", "-t", "nt", SITE)
+    cli.run("goto", "-t", "nt", cli.site)
     cli.run("wait", "-t", "nt", "--css", "input", "--timeout", "30")
 
     with v2kit.human(cli.out("attach", "-t", "nt", "--print-only").strip()) as who:
@@ -91,7 +90,9 @@ def test_a_human_opens_and_juggles_tabs(cli):
         # ---------------------------------------------- 一开始就一个
         one = who.wait_tabs(1)
         assert one[0]["active"], one
-        assert "baidu" in one[0]["title"], f"tab 条上该是里面那页的标题:{one}"
+        # **tab 条上写的是主机名,不是 `<title>`** —— 短、认得出来,
+        # 而 `<title>` 常常长得放不下(f §2)。
+        assert "127.0.0.1" in one[0]["title"], f"tab 条上该认得出是哪一页:{one}"
 
         # ------------------------------- 人在画面上点了个 target=_blank
         link = cli.one("nt", "-i", role="link", name=MENU)
@@ -111,7 +112,7 @@ def test_a_human_opens_and_juggles_tabs(cli):
         # 验过,这儿验的是**人确实也看到自己还停在原来那个上**。
         assert [t["active"] for t in two] == [True, False], two
         # **四样对齐** —— 新 tab 冒出来了,但高亮、地址栏、指针都还在原来那个
-        assert agree(cli, who, "nt", "页面自己开了个 tab 之后")["url"] == SITE
+        assert agree(cli, who, "nt", "页面自己开了个 tab 之后")["url"] == cli.site
 
         # 两边说的是同一件事 —— **不是副本,是同一份数据**
         back = cli.api("tabs", "-t", "nt")["tabs"]
@@ -143,7 +144,7 @@ def test_a_human_opens_and_juggles_tabs(cli):
         # `https://www.baidu.com/?tn=news`,**里面正好就有 news**,
         # 于是这条断言在真出问题的时候照样是绿的。
         # 一条会在坏的时候通过的断言,比没有还糟。
-        assert who.address_bar.startswith(NEWS), \
+        assert who.address_bar.endswith("/news"), \
             f"地址栏该跟着换:{who.address_bar!r}"
         assert cli.api("tabs", "-t", "nt")["active"] == born["id"]
         # **画面真的换过去了** —— 光是"标记成 active"证明不了什么
@@ -155,9 +156,9 @@ def test_a_human_opens_and_juggles_tabs(cli):
         # 而人接下来打的每一条**不带下标**的命令落在哪一页,靠的是 session
         # 里那个指针 —— **两者不是一回事**。指针没跟过去的话,人看着新闻页、
         # 命令打在百度上,**全程一句错都不会报**。所以这儿从指针那一侧再问一次。
-        assert cli.out("url", "-t", "nt").strip().startswith(NEWS), \
+        assert cli.out("url", "-t", "nt").strip().endswith("/news"), \
             f"不带下标的 url 还停在原来那页:{cli.out('url', '-t', 'nt')!r}"
-        assert agree(cli, who, "nt", "人点了第二个 tab 之后")["url"].startswith(NEWS)
+        assert agree(cli, who, "nt", "人点了第二个 tab 之后")["url"].endswith("/news")
 
         # ------------------ 新那个 tab 里的光标,以及往里敲字
         #
@@ -181,10 +182,8 @@ def test_a_human_opens_and_juggles_tabs(cli):
             f"新 tab 里移到链接上,光标该是手,实际:{who.cursor()!r}"
 
         boxes = [e for e in here if e["role"] == "textbox"]
-        # **规则写明,不是随便挑一个** —— 新闻页上不止一个输入框
-        # (底下还有个订阅框),要的是最靠上那个。
-        top = min(boxes, key=lambda e: e["bbox"][1])
-        assert top["bbox"][1] < 150, f"最靠上那个输入框都不在顶上:{top['bbox']}"
+        assert len(boxes) == 1, f"这一页上该只有一个输入框:{boxes}"
+        top = boxes[0]
 
         who.hover_blank()
         assert "text" in who.hover(top), \
@@ -213,19 +212,20 @@ def test_a_human_opens_and_juggles_tabs(cli):
         #
         # **这是人最熟的那一下**,而且它走的是观看页自己的地址栏,
         # 不是我们的 CLI。
-        who.go(ELSE)
+        who.go(cli.site + "about")
         here = next(t["url"] for t in cli.api("tabs", "-t", "nt")["tabs"] if t["active"])
-        assert here.startswith(ELSE), f"地址栏敲的那一下没到里面:{here}"
+        assert here.endswith("/about"), f"地址栏敲的那一下没到里面:{here}"
         # **走完之后地址栏上留的还得是这一条。** 敲进去和显示出来是两件事 ——
         # 里面跳转了而地址栏停在人敲的那一刻,人就分不清"到底走没走"。
-        assert who.address_bar.startswith(ELSE), \
+        assert who.address_bar.endswith("/about"), \
             f"走完之后地址栏该是这一条:{who.address_bar!r}"
         agree(cli, who, "nt", "人在地址栏敲完之后")
 
         # ------------------------------------------- 人点 × 关掉中间那个
         who.close_tab(1)
         left = who.wait_tabs(2)
-        assert not any("news" in t["title"] for t in left), left
+        # 用地址判,不用标题 —— 这一站所有页的主机名是同一个
+        assert not any(t["url"].endswith("/news") for t in left), left
         assert len(cli.api("tabs", "-t", "nt")["tabs"]) == 2
         # **关掉一个之后高亮得有个着落。** 关的是没高亮的那个,
         # 高亮不该跟着跑;下标却整体前移了 —— 这一下最容易错位。

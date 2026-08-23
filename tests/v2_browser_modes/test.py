@@ -15,23 +15,25 @@
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-SITE = "https://www.baidu.com/"
 
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
     v2kit.need_vnc()
-    with v2kit.server(tmp_path) as c:
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
 def test_switching_the_picture_back_and_forth(cli):
     cli.run("new", "--id", "demo", "--transport", "vnc")
-    cli.run("goto", "-t", "demo", SITE)
+    cli.run("goto", "-t", "demo", cli.site)
     cli.run("wait", "-t", "demo", "--css", "input", "--timeout", "30")
 
     with v2kit.human(cli.out("attach", "-t", "demo", "--print-only").strip()) as who:

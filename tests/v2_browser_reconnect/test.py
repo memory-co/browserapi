@@ -16,28 +16,30 @@
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-SITE = "https://example.com/"
 #: 换过去要**看得出来不一样**。
 #: 第一版写的是 example.org —— 和 example.com 渲染出来是同一张页,
 #: VNC 那条于是一动不动:xpra 只发变化的区域,**页面没变就没有帧**。
 #: (JPG 那条却过了 —— 每帧重编码带点噪声,指纹照样会变。
 #: 一个判据在两条腿上一真一假,那是判据没写对,不是腿有问题。)
-ELSE = "https://www.baidu.com/"
+
 
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
-    with v2kit.server(tmp_path) as c:
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
 def _open(cli, sid: str, transport: str):
     cli.run("new", "--id", sid, "--transport", transport)
-    cli.run("goto", "-t", sid, SITE)
+    cli.run("goto", "-t", sid, cli.site + "about")
     cli.run("wait", "-t", sid, "--css", "body", "--timeout", "30")
     return cli.out("attach", "-t", sid, "--print-only").strip()
 
@@ -64,7 +66,7 @@ def _check(cli, sid: str, who, kind: str) -> None:
     # 让里面换一页,画面得跟着变 —— 只看"有没有东西"是看不出来的,
     # 断线前那一帧还留在画布上,颜色数一模一样。
     was = who.paint()["sig"]
-    cli.run("goto", "-t", sid, ELSE)
+    cli.run("goto", "-t", sid, cli.site + "news")
     fresh = who.wait_fresh(was)
     assert fresh["colors"] > 1, fresh
 

@@ -1,4 +1,4 @@
-"""v2 · 起服务 → 开 session → 打开百度 → 搜一个词 → 看到结果。
+"""v2 · 起服务 → 开 session → 打开那一页 → 搜一个词 → 看到结果。
 
 **这一条是样例**,见 [README](README.md)。规矩在 [v2kit](../v2kit.py) 的开头。
 
@@ -14,33 +14,36 @@
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-SITE = "https://www.baidu.com/"
 WORD = "webmuxd"
 
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(SITE)
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
     v2kit.need_vnc()
-    with v2kit.server(tmp_path) as c:
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
-def test_start_open_baidu_search_and_see_results(cli, tmp_path):
+def test_start_open_a_page_search_and_see_results(cli, tmp_path):
     # ---------------------------------------------------------------- 起
     #
     # **退出码是给脚本用的那一半。** `has` 什么都不打印,只回码 ——
     # `webmuxd has -t work || webmuxd new --id work` 就是靠这个。
     assert cli.sh("has", "-t", "demo").returncode == 3, "还没有 demo,该回 3"
 
-    # **走 VNC(有头),不是 JPG(无头)。** 实测:同一次搜索,无头那条
-    # 回车之后跳到 `wappass.baidu.com/.../tuxing_v2.html`(图形验证码),
-    # 有头这条直接出结果。这不是我们的 bug,是站点在挡自动化 ——
-    # 但它决定了这条测试只能走有头,顺带也就真的验了 VNC 那条腿。
-    # (无头那条腿由 [v2_cli_new_tab](../v2_cli_new_tab/) 验。)
+    # **走 VNC(有头),不是 JPG(无头)。**
+    #
+    # 原来的理由是"真站给无头弹图形验证码" —— 页面换成本地小站之后
+    # 那个理由没了,但**这条路还是该走有头**:三条腿里 VNC 最重
+    # (X 显示 + xpra + 有头 chrome),而 CLI 这一面只有这一条在走它。
+    # (无头那条由 [v2_cli_new_tab](../v2_cli_new_tab/) 验。)
     cli.run("new", "--id", "demo", "--transport", "vnc")
     cli.run("has", "-t", "demo")
 
@@ -49,17 +52,17 @@ def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     assert sessions[0]["url"] == "/s/demo/", "session 住在那个口下面"
 
     # ------------------------------------------------------- 打开百度
-    cli.run("goto", "-t", "demo", SITE)
+    cli.run("goto", "-t", "demo", cli.site)
     # **等那件事发生,不等一个秒数。** 睡固定时长是在赌网速 ——
     # 赌输了就是一条时灵时不灵的测试,而那比没有更坏。
     #
-    # 等的是"有个输入框了",不是"文字里有『百度』" —— 后者试过,
-    # 会偶发超时:那条路走 `body.innerText` 的行,而首页那几行
-    # 什么时候渲染出来跟网速有关。**结构比文案先到。**
+    # 等的是"有个输入框了",不是"文字里有那几个字" —— 后者试过,
+    # 会偶发超时:那条路走 `body.innerText` 的行,而它什么时候渲染出来
+    # 跟页面加载快慢有关。**结构比文案先到。**
     cli.run("wait", "-t", "demo", "--css", "input", "--timeout", "30")
 
     body = cli.out("capture", "-t", "demo")
-    assert "百度" in body, f"打开的不是百度?正文开头:{body[:200]!r}"
+    assert "小站" in body, f"打开的不是那一页?正文开头:{body[:200]!r}"
 
     shot = str(tmp_path / "p.webp")
     cli.run("capture", "-t", "demo", "--shot", shot)
@@ -107,12 +110,13 @@ def test_start_open_baidu_search_and_see_results(cli, tmp_path):
 
     # ------------------------------------------------------ 看到结果
     #
-    # **有结果**。至于结果标题里有没有那个词,取决于百度的索引 ——
-    # 那不是我们能测的东西,写进断言只会换来一条时灵时不灵的测试。
+    # **有结果。** 页面换成本地小站之后,结果里带不带那个词是**我们说了算**的
+    # (`site.py` 里那几条命中就是照着搜索词生成的)—— 所以这一条现在敢验内容,
+    # 而拿真站测的时候只能验"有几条",因为标题取决于对方的索引。
     #
     # 又是一次"数一数",以前也是抓整页(那一次 15KB、73 个元素)。
-    n = int(cli.out("get", "count", "-t", "demo", "--css", "h3").strip())
-    assert n >= 3, f"结果页上一条结果都没有:h3 有 {n} 个"
+    n = int(cli.out("get", "count", "-t", "demo", "--css", "a.hit").strip())
+    assert n >= 3, f"结果页上一条结果都没有:命中有 {n} 条"
     print(f"  搜到 {n} 条")
 
     # ------------------------------------------------- 过期的号点不动
@@ -126,7 +130,7 @@ def test_start_open_baidu_search_and_see_results(cli, tmp_path):
     # 而且它只是症状 —— 病根是**我们缺 `get` / `is`,于是每次确认都得抓整页,
     # 而抓整页会发号**。整条流原样录在
     # [issues](../../docs/v2/issues/每次确认都要抓一整页-于是号在膨胀.md),先不解决。
-    cli.run("goto", "-t", "demo", "https://example.com/")
+    cli.run("goto", "-t", "demo", cli.site + "about")
     cli.run("wait", "-t", "demo", "--css", "body", "--timeout", "20")
 
     stale = cli.sh("click", "-t", "demo", ref)

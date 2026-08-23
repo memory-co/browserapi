@@ -11,17 +11,18 @@
 import pytest
 
 from tests import v2kit
+from tests.site import site
 
 pytestmark = pytest.mark.slow
 
-A_SITE = "https://example.com/"
-B_SITE = "https://www.baidu.com/"
 
 
 @pytest.fixture
 def cli(tmp_path):
-    v2kit.need_network(A_SITE)
-    with v2kit.server(tmp_path) as c:
+    # **不出外网。** 页面是本地那个小站(tests/site.py)——
+    # 测的是我们自己的东西,不该把别人的可用性押进来。
+    with site() as base, v2kit.server(tmp_path) as c:
+        c.site = base
         yield c
 
 
@@ -41,17 +42,17 @@ def test_two_sessions_never_bleed_into_each_other(cli):
     assert len(cli.api("ls")["sessions"]) == 2, "幂等不该多出一个"
 
     # --------------------------------------------- 各自去各自的地方
-    cli.run("goto", "-t", "alpha", A_SITE)
-    cli.run("goto", "-t", "beta", B_SITE)
+    cli.run("goto", "-t", "alpha", cli.site + "about")
+    cli.run("goto", "-t", "beta", cli.site + "news")
     cli.run("wait", "-t", "alpha", "--css", "body", "--timeout", "30")
     cli.run("wait", "-t", "beta", "--css", "input", "--timeout", "30")
 
-    assert A_SITE in cli.out("url", "-t", "alpha")
-    assert "baidu" in cli.out("url", "-t", "beta")
+    assert cli.out("url", "-t", "alpha").strip().endswith("/about")
+    assert cli.out("url", "-t", "beta").strip().endswith("/news")
 
     # 正文也是两回事 —— **不是同一个页面被读了两遍**
-    assert "Example Domain" in cli.out("capture", "-t", "alpha")
-    assert "百度" in cli.out("capture", "-t", "beta")
+    assert "没什么可说的" in cli.out("capture", "-t", "alpha")
+    assert "新闻" in cli.out("capture", "-t", "beta")
 
     # ------------------------------------------- 号不串(这条最要紧)
     #
@@ -63,13 +64,13 @@ def test_two_sessions_never_bleed_into_each_other(cli):
     assert wrong.returncode == 4, f"别的 session 的号该点不动:{wrong.stdout!r}"
 
     # ------------------------------------------------- tab 也是各自的
-    cli.run("new-tab", "-t", "alpha", "-u", A_SITE)
+    cli.run("new-tab", "-t", "alpha", "-u", cli.site + "about")
     assert len(cli.api("tabs", "-t", "alpha")["tabs"]) == 2
     assert len(cli.api("tabs", "-t", "beta")["tabs"]) == 1, "beta 不该跟着多一个"
 
     # ------------------------------------------------ 日志也是各自的
     urls = {e.get("url") for e in cli.api("log", "-t", "beta")["entries"]}
-    assert not any(u and "example.com" in u for u in urls), \
+    assert not any(u and u.endswith("/about") for u in urls), \
         f"beta 的日志里不该有 alpha 去过的地方:{urls}"
 
     # ------------------------------------- 关掉一个,另一个照常能用
@@ -80,9 +81,9 @@ def test_two_sessions_never_bleed_into_each_other(cli):
     assert cli.sh("has", "-t", "alpha").returncode == 3
     cli.run("has", "-t", "beta")
 
-    cli.run("goto", "-t", "beta", A_SITE)
+    cli.run("goto", "-t", "beta", cli.site + "about")
     cli.run("wait", "-t", "beta", "--css", "body", "--timeout", "30")
-    assert "Example Domain" in cli.out("capture", "-t", "beta"), \
+    assert "没什么可说的" in cli.out("capture", "-t", "beta"), \
         "关掉 alpha 之后 beta 还得能干活"
 
     assert [s["id"] for s in cli.api("ls")["sessions"]] == ["beta"]

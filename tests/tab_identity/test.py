@@ -101,7 +101,9 @@ async def test_page_opened_tab_is_reason_page(table, cdp):
                        {"targetId": opener.target_id, "flatten": True})
     before = set(table._by_id)
     await cdp.send("Runtime.evaluate",
-                   {"expression": "window.open('https://example.com/x','_blank','noopener')",
+                   # **不出外网。** 这条验的是"页面自己开的窗口会不会被收成 tab",
+                    # 开到哪儿无所谓 —— 而开到真站会把别人的可用性押进来。
+                    {"expression": "window.open('about:blank#x','_blank','noopener')",
                     "userGesture": True}, session_id=a["sessionId"])
     for _ in range(200):
         if set(table._by_id) - before:
