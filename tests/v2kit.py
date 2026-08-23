@@ -510,11 +510,20 @@ class Human:
         self.page.wait_for_timeout(2000)
 
     def switch_to(self, label: str) -> dict:
-        """点那几个画面模式按钮之一(**使用者看到的是 JPG / VNC / DOM**),
-        等到新那条腿真的把画面铺上。"""
-        self.page.get_by_role("button", name=label, exact=True).click()
+        """换画面(**使用者看到的是 JPG / VNC / DOM**),等到新那条腿真的把画面铺上。
+
+        那块在**画面右下角**,收起来的时候只是一小块牌子 ——
+        所以要先点开它,再点里面那一项。像视频播放器的画质菜单。
+        """
+        self.page.locator("#q-now").click()
+        self.page.get_by_role("option", name=label, exact=False).click()
         self.page.wait_for_timeout(500)
         return self.wait_painted()
+
+    @property
+    def quality_badge(self) -> str:
+        """右下角那块牌子上写着什么 —— **人一眼看到的"现在是哪一种"**。"""
+        return self.page.locator("#q-now").inner_text().strip()
 
 
 @contextlib.contextmanager

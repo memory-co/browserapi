@@ -103,7 +103,17 @@ RECORD_JS = """
     rrweb.record({
       emit: function (e) { emit(JSON.stringify(e)); },
       recordCanvas: true,
-      sampling: { canvas: 10 },
+      // **不录鼠标。** 录了的话重放端会照着画一个自己的指针出来
+      // (rrweb 那个 `.replayer-mouse`,20x20,跟着录下来的轨迹走)——
+      // 而人自己的光标本来就在那儿,于是**画面上有两个指针**。
+      //
+      // 从源头关,不是在观看端遮:鼠标是增量事件里最密的一路,
+      // 不录就不传,顺带省了那份带宽。
+      //
+      // `mouseInteraction: false` 连点击和 focus/blur 一起关掉 ——
+      // 那些事件我们一样不需要(输入走 `Input.*`,和重放没关系),
+      // 而 focus 那几条正是把观看端键盘焦点夺走的那一类。
+      sampling: { canvas: 10, mousemove: false, mouseInteraction: false },
       inlineStylesheet: true,
     });
   } catch (e) {

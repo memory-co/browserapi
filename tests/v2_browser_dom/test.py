@@ -115,5 +115,19 @@ def test_a_human_watches_a_page_replayed_as_dom(cli):
         # 重放里那个 `<video>` 放不了:转发那条路不认 `Range`,媒体元素
         # 要边下边播 —— 记在 [issues](../../docs/v2/issues/DOM-重放里的视频放不了.md)。
         # 写成"允许有错"就等于把这一类全放过去了,所以是**指名**。
+        # ------------------------------- 重放里不该有第二个指针
+        #
+        # rrweb 会照着录下来的鼠标轨迹**画一个自己的指针**(`.replayer-mouse`,
+        # 20x20,跟着走)—— 而人自己的光标本来就在那儿,于是画面上有两个。
+        #
+        # 两头都验:**源头没录**(增量事件里不该有 `source` 1/2),
+        # **观看端也不画**(那个元素 rrweb 无条件建,不录也在,只是不动)。
+        ghost = who.page.evaluate("""() => {
+          const m = document.querySelector('#paintbox .replayer-mouse');
+          return m ? getComputedStyle(m).display : '(没有这个元素)';
+        }""")
+        assert ghost in ("none", "(没有这个元素)"), \
+            f"重放里画了第二个指针:display={ghost}"
+
         rest = [e for e in who.errors if "no supported source" not in e]
         assert rest == [], f"DOM 重放的时候报了别的错:{rest}"

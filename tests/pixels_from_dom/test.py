@@ -379,3 +379,19 @@ def test_binding_还没到时先攒着_不静默丢():
     # **满了整个丢,不从中间截** —— 增量链断在中间,重放出来的 DOM 从此是错的
     assert "pend.length = 0" in code and "pend.splice" not in code
     assert "lost" in code, "丢过要说出来,不能悄悄丢"
+
+
+def test_不录鼠标_重放里就不会多出一个指针():
+    """**画面上不该有两个光标。**
+
+    rrweb 会照着录下来的鼠标轨迹画一个自己的指针出来,而人自己的光标
+    本来就在那儿。实测:一个 20x20 的鬼影,跟着人的鼠标从画面这头跑到那头。
+
+    从源头关 —— 鼠标是增量事件里最密的一路,不录就不传,顺带省那份带宽。
+    `mouseInteraction` 一起关:点击和 focus/blur 我们都不需要
+    (输入走 `Input.*`),而 focus 那几条正是把观看端键盘焦点夺走的那一类。
+    """
+    from webmuxd import rrweb as dom_mod
+    js = dom_mod.RECORD_JS
+    assert "mousemove: false" in js, "鼠标轨迹又开始录了 —— 重放里会多一个指针"
+    assert "mouseInteraction: false" in js, "点击/焦点事件又开始录了"
