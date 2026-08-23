@@ -39,7 +39,7 @@ __all__ = [
     "CursorChanged",
     "SessionInfo", "SessionRow", "Pending", "PackageFamily",
     "LogEntry", "LOG_KINDS", "Download", "Locator",
-    "MachineFacts", "BrowserFact", "XpraFact", "RrwebFact", "FACTS_VERSION",
+    "HostEnvs", "BrowserEnv", "XpraEnv", "RrwebEnv", "HOSTENV_VERSION",
 ]
 
 
@@ -601,11 +601,11 @@ class PackageFamily:
 # ---------------------------------------------------------------------------
 
 #: 记录格式的版本。**格式变了老记录就当没有** —— 重新探,而不是猜字段。
-FACTS_VERSION = 3
+HOSTENV_VERSION = 3
 
 
 @dataclass(frozen=True)
-class BrowserFact:
+class BrowserEnv:
     """用哪个浏览器,以及它是哪来的。"""
 
     path: str
@@ -618,7 +618,7 @@ class BrowserFact:
                             "source": self.source})
 
     @classmethod
-    def from_json(cls, d: Any) -> "BrowserFact | None":
+    def from_json(cls, d: Any) -> "BrowserEnv | None":
         if not isinstance(d, dict) or not d.get("path"):
             return None
         return cls(str(d["path"]), str(d.get("version") or ""),
@@ -626,7 +626,7 @@ class BrowserFact:
 
 
 @dataclass(frozen=True)
-class XpraFact:
+class XpraEnv:
     """VNC 那条腿:xpra 在哪、**它自己的解释器**是哪个、版本多少。
 
     解释器单记一条不是学究气:`xpra` 是带 shebang 的脚本,用的是系统的
@@ -645,7 +645,7 @@ class XpraFact:
                             "version": self.version, "vfb": self.vfb})
 
     @classmethod
-    def from_json(cls, d: Any) -> "XpraFact | None":
+    def from_json(cls, d: Any) -> "XpraEnv | None":
         if not isinstance(d, dict) or not d.get("bin"):
             return None
         return cls(str(d["bin"]), str(d.get("python") or ""),
@@ -653,7 +653,7 @@ class XpraFact:
 
 
 @dataclass(frozen=True)
-class RrwebFact:
+class RrwebEnv:
     """DOM 那条腿的记录器:版本 + 落在哪。"""
 
     version: str = ""
@@ -663,14 +663,14 @@ class RrwebFact:
         return _drop_empty({"version": self.version, "js": self.js})
 
     @classmethod
-    def from_json(cls, d: Any) -> "RrwebFact | None":
+    def from_json(cls, d: Any) -> "RrwebEnv | None":
         if not isinstance(d, dict) or not d.get("js"):
             return None
         return cls(str(d.get("version") or ""), str(d["js"]))
 
 
 @dataclass
-class MachineFacts:
+class HostEnvs:
     """`~/.webmuxd.json` —— **这不是配置文件,是机器的事实**。
 
     `webmuxd install` 探一遍写下来,之后所有命令读它。
@@ -681,15 +681,15 @@ class MachineFacts:
     那是事实还是兜底([d](../docs/v2/works/d-install.md))。
     """
 
-    browser: BrowserFact | None = None
-    xpra: XpraFact | None = None
-    rrweb: RrwebFact | None = None
+    browser: BrowserEnv | None = None
+    xpra: XpraEnv | None = None
+    rrweb: RrwebEnv | None = None
     #: 传给 `--xvfb=` 的那个可执行文件(和 `xpra.vfb` 是两回事:
     #: 这个是绝对路径,那个是名字)。
     xvfb: str = ""
     #: 下下来的中文字体在哪。**今天不写这个键** —— install 不下字体。
     fonts_dir: str = ""
-    version: int = FACTS_VERSION
+    version: int = HOSTENV_VERSION
     at: str = ""
     #: 别人写进来的键。**原样留着** —— 不是我们的东西,不该被我们吃掉。
     extra: dict[str, Any] = field(default_factory=dict)
@@ -709,13 +709,13 @@ class MachineFacts:
         return out
 
     @classmethod
-    def from_json(cls, d: dict[str, Any]) -> "MachineFacts":
+    def from_json(cls, d: dict[str, Any]) -> "HostEnvs":
         known = {"version", "at", "default_browser", "xpra", "rrweb",
                  "xvfb", "fonts_dir"}
         return cls(
-            browser=BrowserFact.from_json(d.get("default_browser")),
-            xpra=XpraFact.from_json(d.get("xpra")),
-            rrweb=RrwebFact.from_json(d.get("rrweb")),
+            browser=BrowserEnv.from_json(d.get("default_browser")),
+            xpra=XpraEnv.from_json(d.get("xpra")),
+            rrweb=RrwebEnv.from_json(d.get("rrweb")),
             xvfb=str(d.get("xvfb") or ""),
             fonts_dir=str(d.get("fonts_dir") or ""),
             version=int(d.get("version") or 0), at=str(d.get("at") or ""),

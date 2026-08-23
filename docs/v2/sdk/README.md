@@ -135,7 +135,7 @@ except NotFound as e:
 | `SessionRow` | server 上那一行 —— 列表页 / `webmuxd ls` / `GET /api/sessions` 同一份 |
 | `Element` `Snapshot` | 定位用的元素表(**不对外**,见 §3) |
 | `ActionResult` `LogEntry` | 一个动作的结果、`log.jsonl` 里的一行 |
-| `MachineFacts` | `~/.webmuxd.json` —— install 探出来的路径表 |
+| `HostEnvs` | `~/.webmuxd.json` —— install 探出来的路径表 |
 | `Hello` `Cast` `ModeInfo` … | 观看端收到的下行消息,和 `protocol/messages.ts` 一一对应 |
 
 ## 5. ↔ 别处

@@ -1,4 +1,4 @@
-# facts · 机器的事实
+# hostenv · 这台机器上探到的东西
 
 **不在那四类里。** `~/.webmuxd.json` 是**这台机器**的事实,
 `webmuxd install` 探一遍写下来,比任何 session 都活得久。
@@ -6,7 +6,7 @@
 它只走一条介质:**落盘**。而它跨的是**时间** —— 另一头是上一次的自己,
 **而过去改不了**。
 
-## 1. `MachineFacts`
+## 1. `HostEnvs`
 
 | 字段 | JSON | 说明 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | `rrweb` | `rrweb` | |
 | `xvfb` | `xvfb` | |
 | `fonts_dir` | `fonts_dir` | |
-| `version` | `version` | `FACTS_VERSION`,今天是 **3** |
+| `version` | `version` | `HOSTENV_VERSION`,今天是 **3** |
 | `at` | `at` | 探的时间 |
 | `extra` | **展开进顶层** | 认不出的键**原样留着**,写回去时不丢 |
 
@@ -38,7 +38,7 @@
 写一个猜的值进去,下次读的人分不清"探到了是空"和"没探过" ——
 而这两件要做的事完全相反:前者该报错,后者该去探。
 
-## 3. `FACTS_VERSION` —— 唯一带版本号的一份
+## 3. `HOSTENV_VERSION` —— 唯一带版本号的一份
 
 > **格式变了,老记录就当没有** —— 重新探,而不是猜字段。
 
@@ -57,18 +57,18 @@
 
 | | 字段 | 说明 |
 | --- | --- | --- |
-| `BrowserFact` | `path` `version` `source` | `source` 是 `chrome-for-testing`(我们下的)或 `system`(本来就有的) |
-| `XpraFact` | `bin` `python` `version` `vfb` | |
-| `RrwebFact` | `version` `js` | |
+| `BrowserEnv` | `path` `version` `source` | `source` 是 `chrome-for-testing`(我们下的)或 `system`(本来就有的) |
+| `XpraEnv` | `bin` `python` `version` `vfb` | |
+| `RrwebEnv` | `version` `js` | |
 
 三个都**字段和键一一对应**,都有 `from_json`,返回 `None` 表示这条没探到。
 
-`XpraFact.python` 单记一条不是学究气:
+`XpraEnv.python` 单记一条不是学究气:
 
 > `xpra` 是带 shebang 的脚本,用的是**系统的** Python,而 webmuxd 很可能
 > 装在一个 venv 里 —— `python3-pil` 要装进**它那个**里面。
 
-`XpraFact.vfb` 默认 `"Xvfb"`,**显式钉死,不读发行版配置**。
+`XpraEnv.vfb` 默认 `"Xvfb"`,**显式钉死,不读发行版配置**。
 
 ## 5. 不出门:`PackageFamily`
 

@@ -41,16 +41,16 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from webmuxd.models import FACTS_VERSION, BrowserFact, MachineFacts
+from webmuxd.models import HOSTENV_VERSION, BrowserEnv, HostEnvs
 
 #: 记录格式的版本。**格式变了老记录就当没有** —— 重新探,而不是猜字段。
 #:
 #: 2 → 3:从"只记浏览器"扩成 [d §1](../docs/v2/works/d-install.md#1-产出一份路径表)
 #: 那张完整的路径表。老记录缺后面那些键,补不出来也不该猜 —— 重新探一遍。
 #:
-#: **形状在 [`models.MachineFacts`](models.py)**,这儿只是转发一个名字 ——
+#: **形状在 [`models.HostEnvs`](models.py)**,这儿只是转发一个名字 ——
 #: 版本号和形状必须是同一处说了算。
-FORMAT_VERSION = FACTS_VERSION
+FORMAT_VERSION = HOSTENV_VERSION
 
 #: 记录里认得的键 —— **每一项都要有一个"谁拿它干什么"**,否则就不该记:
 #: 记了没人读的东西,过期了也没人发现。
@@ -62,7 +62,7 @@ FORMAT_VERSION = FACTS_VERSION
 #:   rrweb            DOM 那条的记录器:版本 + 落在哪
 #:
 #: 多出来的键原样留着(是别人写的,不该被我们吃掉)—— 那是
-#: `MachineFacts.extra`。
+#: `HostEnvs.extra`。
 KEYS = ("default_browser", "fonts_dir", "xpra", "xvfb", "rrweb")
 
 
@@ -71,8 +71,8 @@ def path() -> Path:
                 or (Path.home() / ".webmuxd.json"))
 
 
-def load() -> MachineFacts | None:
-    """读记录 —— **回一个 `MachineFacts`,不是一坨 dict**。
+def load() -> HostEnvs | None:
+    """读记录 —— **回一个 `HostEnvs`,不是一坨 dict**。
 
     没有、读不动、版本对不上,一律当没有。
     """
@@ -82,18 +82,18 @@ def load() -> MachineFacts | None:
         return None
     if not isinstance(data, dict) or data.get("version") != FORMAT_VERSION:
         return None
-    return MachineFacts.from_json(data)
+    return HostEnvs.from_json(data)
 
 
-def save(facts: MachineFacts) -> Path:
+def save(facts: HostEnvs) -> Path:
     """整份重写。
 
-    **没探到的键一个都不写** —— 那条语义在 `MachineFacts.to_json()` 里,
+    **没探到的键一个都不写** —— 那条语义在 `HostEnvs.to_json()` 里,
     这儿只管落盘:补上时间戳,原子替换。
     """
     p = path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    out = MachineFacts(**{**vars(facts),
+    out = HostEnvs(**{**vars(facts),
                           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
                                               time.gmtime())}).to_json()
     tmp = p.with_suffix(".json.tmp")
@@ -102,7 +102,7 @@ def save(facts: MachineFacts) -> Path:
     return p
 
 
-def browser() -> BrowserFact | None:
+def browser() -> BrowserEnv | None:
     """记录里那个浏览器。**没有 `get(key)` 了** —— 一个字符串键换一个
     `Any`,等于把形状又交回给调用方去猜。"""
     rec = load()

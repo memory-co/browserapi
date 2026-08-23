@@ -9,7 +9,7 @@
 ## 1. 它们的关系
 
 ```
-  ~/.webmuxd.json ── MachineFacts          机器的事实,不属于任何 session(§5)
+  ~/.webmuxd.json ── HostEnvs          机器的事实,不属于任何 session(§5)
          │
          ▼
   ┌──────────────────────────────────────────────────────┐
@@ -65,7 +65,7 @@
 | [tab](tab.md) | `TabInfo` | `tab.created/updated/activated/closed` | — | `tab` | — |
 | [page](page.md) | `Snapshot` `Element` `Locator` `ActionResult` `Pending` `Download` | `action.started/done` `download.*` `auth.required` `permission.changed` | — | — | 进 `LogEntry.fields` |
 | [frame](frame.md) | `ModeInfo`(`/api/view/mode`) | — | `Cast` `Meta` `QualityChanged` `ModeInfo` `ModeError` `CursorChanged` + **二进制帧** | `ack` `mouse` `wheel` `key` `text` `resize` `mode` `ping` | — |
-| [facts](facts.md) | — | — | — | — | `MachineFacts` |
+| [hostenv](hostenv.md) | — | — | — | — | `HostEnvs` |
 
 **同一个 DTO 在不同介质上形状可以不同** —— 这正是要逐条写下来的原因。
 最典型的是 `ModeInfo`:走 HTTP 时没有 `type`(URL 已经说明它是什么),
@@ -85,7 +85,7 @@
 
 ## 5. 不在这四类里的一样
 
-[facts](facts.md) —— `~/.webmuxd.json`。它是**机器的事实**,
+[hostenv](hostenv.md) —— `~/.webmuxd.json`。它是**机器的事实**,
 `webmuxd install` 探一遍写下来,比任何 session 都活得久。
 它跨的是时间,所以它是唯一一份**带版本号**的。
 
@@ -101,4 +101,4 @@
 | ④ | `Cast.dsf` | Python 会发,`messages.ts` 里没声明 |
 
 外加两处**字段名和键名不一样**却没写在别处:
-`ViewMode.headed → needs_headed`、`MachineFacts.browser → default_browser`。
+`ViewMode.headed → needs_headed`、`HostEnvs.browser → default_browser`。

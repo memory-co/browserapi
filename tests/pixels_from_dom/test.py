@@ -282,7 +282,7 @@ def test_install_会把它下下来_并记进路径表():
 
     src = inspect.getsource(install)
     assert "dom_mod.download()" in src, "install 得负责下"
-    assert "facts.rrweb = models.RrwebFact" in src, \
+    assert "facts.rrweb = models.RrwebEnv" in src, \
         "得记进路径表,否则没人知道装的是哪一版"
     # 下不到只影响一种画面,得说清楚 —— 不能让人以为整个装挂了
     assert "jpg / vnc 不受影响" in src

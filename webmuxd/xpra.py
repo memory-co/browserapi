@@ -152,12 +152,12 @@ def xpra_python(exe: str | None = None) -> str | None:
     return parts[1] if parts[0].endswith("env") and len(parts) > 1 else parts[0]
 
 
-def probe() -> models.XpraFact:
+def probe() -> models.XpraEnv:
     """探出这台机器上 VNC 那条腿([d §1](../docs/v2/works/d-install.md#1-产出一份路径表))。
 
     **空 = 没探到。** 探不到的一律留空 —— 写一个猜的值,
     下次读的人分不清那是事实还是兜底。形状在
-    [`models.XpraFact`](models.py):**记录里那一段就是它**,
+    [`models.XpraEnv`](models.py):**记录里那一段就是它**,
     不是"探一个 dict 再由别人拼成记录"。
     """
     out: dict[str, str] = {}
@@ -176,7 +176,7 @@ def probe() -> models.XpraFact:
                 out["version"] = ver[0].replace("xpra", "").strip() or ver[0].strip()
         except Exception:                       # noqa: BLE001
             pass                                # 版本探不到不影响能不能跑
-    return models.XpraFact(bin=out.get("bin", ""), python=out.get("python", ""),
+    return models.XpraEnv(bin=out.get("bin", ""), python=out.get("python", ""),
                            version=out.get("version", ""))
 
 

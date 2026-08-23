@@ -1,5 +1,23 @@
 # 更新日志
 
+## 未发布
+
+### 改名:`MachineFacts` → `HostEnvs`
+
+连同它那三个子项和那个版本常量一起,**否则容器和内容会是两个词**:
+
+```
+MachineFacts   → HostEnvs        BrowserFact → BrowserEnv
+FACTS_VERSION  → HOSTENV_VERSION XpraFact    → XpraEnv
+                                 RrwebFact   → RrwebEnv
+```
+
+**磁盘上那份 `~/.webmuxd.json` 一个字节都没变** —— 类名不出现在 JSON 里,
+键还是 `default_browser` / `xpra` / `rrweb` / `xvfb` / `version`,
+所以老记录照样读得回来,`HOSTENV_VERSION` 也不用动(还是 3)。
+
+它在 `models.__all__` 和 `docs/v2/sdk/README.md` 那张表里,**算公开面**。
+
 ## 0.18.0
 
 **画面上是新闻页,tab 条和地址栏却指着首页。** 用户报的,附了截图和日志。

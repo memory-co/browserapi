@@ -67,14 +67,14 @@ def _cut(s: str, width: int) -> str:
 
 def install(*, version: str = config.PINNED, mirror: str | None = None,
             force: bool = False, with_deps: bool = False,
-            out=sys.stdout, **_compat: Any) -> models.MachineFacts:
+            out=sys.stdout, **_compat: Any) -> models.HostEnvs:
     say = lambda *a: print(*a, file=out)      # noqa: E731
     say("探测环境…")
     say(f"  {_pad('python', 10)} {_pad(platform.python_version(), 38)} {OK}")
 
-    #: 这一趟探出来的**事实**。形状在 `models.MachineFacts` ——
+    #: 这一趟探出来的**事实**。形状在 `models.HostEnvs` ——
     #: **没探到的字段留 None,`save()` 一个都不会写。**
-    facts = models.MachineFacts()
+    facts = models.HostEnvs()
 
     fam = detect()
     rooted = can_root()
@@ -137,7 +137,7 @@ def install(*, version: str = config.PINNED, mirror: str | None = None,
                 lambda: (config.has_cjk_font(), config.FONT_HINT[1]),
                 fam.font if fam else APT.font, good_text="有")
 
-        facts.browser = models.BrowserFact(path, version, "chrome-for-testing")
+        facts.browser = models.BrowserEnv(path, version, "chrome-for-testing")
 
     # ------------------------------------------------------------------ xpra
     # **画面默认走 xpra**(works/11 §6),所以它和浏览器一样是"跑之前要有的东西",
@@ -171,7 +171,7 @@ def install(*, version: str = config.PINNED, mirror: str | None = None,
     if ok_dom:
         say(f"  {_pad('DOM 画面', 10)} "
             f"{_pad('rrweb ' + dom_mod.RRWEB_VERSION, 38)} {OK}")
-        facts.rrweb = models.RrwebFact(dom_mod.RRWEB_VERSION,
+        facts.rrweb = models.RrwebEnv(dom_mod.RRWEB_VERSION,
                                        str(dom_mod.paths()["js"]))
     else:
         # **不静默略过。** DOM 是三种画面之一,下不到就说清楚:
