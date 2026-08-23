@@ -21,6 +21,7 @@ from typing import Any
 
 from webmuxd import Webmuxd
 from webmuxd import models
+from webmuxd import logfmt
 from webmuxd import processes
 from webmuxd import sessions as rt
 from webmuxd.api import Session, Tab
@@ -768,21 +769,7 @@ def cmd_log(args: argparse.Namespace) -> int:
     _out(args, {"entries": entries})
     if args.json:
         return 0
-    for e in entries:
-        at = (e.get("at") or "")[11:19]
-        if e.get("note"):
-            print(f"{at}  💭 {e.get('user','')}:{e['note']}")
-        if e.get("kind") != "action":
-            print(f"{at}  · {e.get('kind')}: {e.get('event','')} {e.get('tab','')}")
-            continue
-        mark = "✗" if e.get("ok") is False else ("👤" if e.get("user") == "human" else " ")
-        hit = (e.get("hit") or {}).get("name")
-        print(f"{at}  {mark} {e.get('action')} {json.dumps(e.get('target'), ensure_ascii=False)}"
-              + (f" → {hit}" if hit else "")
-              + (f"  {e.get('error')}" if e.get("error") else ""))
-        after = e.get("after") or {}
-        if after.get("changed"):
-            print(f"          → {after.get('url','')}  {after['changed']}")
+    print(logfmt.render(entries, debug=args.debug))
     return 0
 
 
@@ -981,11 +968,15 @@ def _parser() -> argparse.ArgumentParser:
     cap = add("capture", cmd_capture, help="抓正文或截图")
     cap.add_argument("--text", action="store_true")
     cap.add_argument("--shot", default=None)
-    lg = add("log", cmd_log, help="操作日志")
+    lg = add("log", cmd_log, help="这个 session 的流水:谁做了什么 + 出了什么问题")
     lg.add_argument("-n", type=int, default=50)
     lg.add_argument("--failed", action="store_true")
-    lg.add_argument("--kind", default=None, choices=["action", "tab", "session"])
+    # `diag` 是"出了什么问题"那一类,和前几类同一条流、同一套编号
+    lg.add_argument("--kind", default=None,
+                    choices=["action", "tab", "session", "diag"])
     lg.add_argument("--user", dest="log_user", default=None)
+    lg.add_argument("--debug", action="store_true",
+                    help="连 debug 那档诊断一起显示(默认只显示 warn)")
     b = add("bundle", cmd_bundle, help="打包日志和截图")
     b.add_argument("-o", "--out", default="bundle.zip")
 

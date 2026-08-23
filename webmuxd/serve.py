@@ -145,6 +145,7 @@ def build(server: Server) -> web.Application:
     r.add_get("/s/{sid}/api/text", h_text)
 
     r.add_get("/s/{sid}/api/log", h_log)
+    r.add_get("/s/{sid}/api/log.txt", h_log_txt)
     r.add_get("/s/{sid}/api/log/bundle", h_bundle)
     r.add_get("/s/{sid}/api/log/{seq}/shot", h_log_shot)
 
@@ -455,6 +456,29 @@ async def h_log(request: web.Request) -> web.Response:
     return _json({"entries": entries})
 
 
+async def h_log_txt(request: web.Request) -> web.Response:
+    """**这个 session 的流水,人能直接读的那一份。**
+
+    观看页上那个「日志」按钮就是拉它。渲染用的是和 `webmuxd log` 同一份代码
+    ([logfmt](logfmt.py))—— 两处各写一遍的话,人拿到的两份"同一个 session
+    的日志"会长得不一样。
+
+    带 `Content-Disposition`,点一下就是存文件 —— 不用人自己另存为。
+    """
+    from webmuxd import logfmt
+    q = request.query
+    sid = request.match_info["sid"]
+    entries = _s(request).log.read(
+        limit=int(q.get("limit", 2000)), only=q.get("only"),
+        user=q.get("user"), tab=q.get("tab"), kind=q.get("kind"))
+    text = logfmt.render(entries, debug=q.get("debug") in ("1", "true"))
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    return web.Response(
+        text=text + "\n", content_type="text/plain", charset="utf-8",
+        headers={"Content-Disposition":
+                 f'attachment; filename="webmuxd-{sid}-{stamp}.log"'})
+
+
 async def h_bundle(request: web.Request) -> web.Response:
     data = _s(request).log.bundle(tab=request.query.get("tab"))
     return web.Response(body=data, content_type="application/zip",
@@ -712,6 +736,14 @@ async def _view_msg(s: Session, v: Viewer, m: dict) -> None:
     if kind == "ack":
         fid = m.get("frameId")
         await s.view.on_viewer_ack(v, int(fid) if isinstance(fid, (int, float)) else None)
+        return
+    if kind == "ping":
+        # **原样把时间戳送回去。** 延迟是观看端自己算的 ——
+        # 两边的钟不用对齐,减的是同一个钟上的两个读数。
+        #
+        # **放在"只读就丢弃"那道前面**:只读的人也在看画面,
+        # 延迟对他一样是那条"卡不卡"的唯一读数。量一下不改变任何状态。
+        await v.send({"type": "pong", "t": m.get("t")})
         return
     if not v.writable:
         return                                  # **服务端丢弃**,静默

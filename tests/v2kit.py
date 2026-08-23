@@ -248,7 +248,13 @@ class Human:
 
     @property
     def status(self) -> str:
-        return self.page.locator("#status").inner_text().replace("\n", " ")
+        """左下角那块上写着什么 —— **人唯一能看到的那个状态**。
+
+        正常是延迟(`42 ms`),断了是那句话(`断开,重连中…`)。
+        以前这儿读的是底下那条状态栏,而那条栏撤了:
+        fps / kbps / 有效缩放那几样是调试期的读数,天天挂着只是噪音。
+        """
+        return self.page.locator("#h-rtt").inner_text().strip()
 
     def screen_sel(self) -> str:
         """当值的那个画面元素的选择器。**三个里只有一个可见。**
@@ -332,7 +338,12 @@ class Human:
 
     def wait_connected(self, timeout: float = 20000) -> None:
         """等到那条 WS 接上。"""
-        self.page.wait_for_selector("#s-conn:has-text('已连接')", timeout=timeout)
+        # **等的是"延迟量出来了",不是"它说自己连上了"。**
+        # 量出一个数意味着一个来回**真的走通了** —— 比读一句"已连接"结实:
+        # 那句话只说明 WS 开着,不说明对面还答不答话。
+        self.page.wait_for_function(
+            "() => /\\d/.test(document.getElementById('h-rtt').textContent || '')",
+            timeout=timeout)
 
     def wait_painted(self, timeout: float = 40) -> dict:
         """等到**画面上真的有东西**(不止一种颜色)。

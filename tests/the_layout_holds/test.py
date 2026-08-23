@@ -16,7 +16,7 @@ PKG = ROOT / "webmuxd"
 #: [j §5](../../docs/v2/works/j-layout.md#5-依赖方向扁平之后层要靠规矩守) 那张表。
 #: **只能往下 import,不能往上。**
 LAYERS = [
-    "models exceptions",
+    "models exceptions logfmt",
     "processes config cdp log",
     "tabs act locate capture probe browser_ui frames quality input cursor "
     "jpg xpra rrweb",

@@ -55,7 +55,11 @@ def test_a_human_opens_the_page_and_drives_the_browser(cli):
         # 画面真的画上去了 —— `naturalWidth` 是 0 就是一帧都没落地
         cw, ch = who.cast()
         assert cw > 0 and ch > 0, f"画面是空的:{who.status}"
-        assert f"{cw}×{ch}" in who.status, f"状态条和实际对不上:{who.status}"
+        # **左下角那块上是延迟。** 以前这儿还比过"状态栏写的帧尺寸 == 实际",
+        # 而那个读数撤了 —— fps / 帧尺寸 / 有效缩放是调试期的东西,
+        # 天天挂在界面上只是噪音。尺寸对不对由 v2_browser_pixel_align 盯着,
+        # 那条比对得严得多(三个数同时相等)。
+        assert "ms" in who.status, f"左下角该显示延迟:{who.status!r}"
 
         # 地址栏和 tab 条上是**里面那个页面**的状态 —— 真的同步过来了
         assert who.address_bar.startswith(cli.site), who.address_bar

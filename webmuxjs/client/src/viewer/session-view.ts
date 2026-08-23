@@ -17,7 +17,7 @@ import { CdpChannel } from "../channel/cdp.ts";
 import { RrwebChannel } from "../channel/rrweb.ts";
 import { XpraClient } from "../channel/xpra.ts";
 import type { Downstream } from "../protocol/messages.ts";
-import { pickMode, pickTab, resize } from "../protocol/messages.ts";
+import { ping, pickMode, pickTab, resize } from "../protocol/messages.ts";
 import { bindKeyboard } from "../input/keyboard.ts";
 import { bindPointer } from "../input/pointer.ts";
 import { DomScreen } from "../screen/dom.ts";
@@ -36,6 +36,21 @@ export function startSessionView(auth: string, base: string): void {
   const img = $<HTMLImageElement>("screen");
   const cvs = $<HTMLCanvasElement>("screen2");
   const dom3 = $("screen3");
+
+  /**
+   * 左下角那块 —— **只留延迟**,和右下角那块画质牌对称。
+   *
+   * fps / kbps / 有效缩放那几样是调试期的读数,天天挂在状态栏上只是噪音;
+   * 真要看,日志里都有。而**延迟是人唯一会看的那个数** ——
+   * "卡不卡"就靠它。
+   *
+   * 断线的时候这块就顶上去说那句话:状态栏没了,那条消息**不能跟着消失**。
+   */
+  function hud(ms: number | null, why?: string): void {
+    const el = $("h-rtt");
+    el.textContent = why ? why : (ms === null ? "–" : `${Math.round(ms)} ms`);
+    el.className = why ? "bad" : "";
+  }
   const ime = $<HTMLTextAreaElement>("ime");
 
   // **画面在哪个元素上。** JPG 是 <img>,VNC 是 <canvas>,DOM 是那个容器 ——
@@ -55,15 +70,6 @@ export function startSessionView(auth: string, base: string): void {
     screenEl.style.width = w + "px";
     screenEl.style.height = h + "px";
     screenEl.classList.remove("dead");
-    updateZoom();
-  }
-
-  function updateZoom(): void {
-    if (!frameW) return;
-    const z = effectiveZoom(screenEl.clientWidth, devicePixelRatio, frameW);
-    const el = $("s-zoom");
-    el.textContent = z.toFixed(2) + "x";
-    el.className = aligned(z) ? "" : "bad";
   }
 
   // **帧的真实尺寸只有解码之后才知道。** CDP 的 metadata 报的是 CSS 尺寸,
@@ -73,16 +79,14 @@ export function startSessionView(auth: string, base: string): void {
     if (!img.naturalWidth) return;
     frameW = img.naturalWidth;
     frameH = img.naturalHeight;
-    $("s-size").textContent = `${frameW}×${frameH}`;
-    updateZoom();
   });
 
   // ---------------------------------------------------------------- 通道
 
   const cdp = new CdpChannel(api.ws("/channel/cdp"), {
     open() {
-      $("s-conn").textContent = "已连接";
-      $("s-conn").className = "";
+      hud(null);
+      cdp.now(ping());          // 连上就先量一发,别让第一个读数等满一个周期
     },
     frame(bytesIn, _frameId) {
       frames++;
@@ -95,8 +99,7 @@ export function startSessionView(auth: string, base: string): void {
     },
     message: onMessage,
     close() {
-      $("s-conn").textContent = "断开,重连中…";
-      $("s-conn").className = "bad";
+      hud(null, "断开,重连中…");
       screenEl.classList.add("dead");
     },
   });
@@ -119,8 +122,7 @@ export function startSessionView(auth: string, base: string): void {
     }),
     onSize(w, h) { frameW = w; frameH = h; },
     onError(m) {
-      $("s-conn").textContent = "DOM 重放器加载失败";
-      $("s-conn").className = "bad";
+      hud(null, "重放器起不来");
       toast(m + " —— 换 --transport jpg 可以先用", 20000);
     },
   });
@@ -153,7 +155,6 @@ export function startSessionView(auth: string, base: string): void {
     } else if (modes.current === "dom") {
       img.hidden = true; cvs.hidden = true; dom3.hidden = false;
       screenEl = dom3;
-      $("s-q").textContent = "DOM";
       rrweb.connect();
     } else {
       img.hidden = false; cvs.hidden = true; dom3.hidden = true;
@@ -188,14 +189,11 @@ export function startSessionView(auth: string, base: string): void {
         // **好起来了要说,不只是坏了要说。** 原来 `dead` 那个类加上去就再没
         // 摘过 —— xpra 加上重连之后,画面回来了人看到的还是一块灰的。
         const ok = st === "ready";
-        $("s-conn").textContent = ok ? "已连接(xpra)"
-          : st === "connected" ? "xpra 握手中…" : "xpra " + st;
-        $("s-conn").className = ok ? "" : "bad";
         cvs.classList.toggle("dead", !ok);
+        if (!ok) hud(null, "xpra " + st);
       },
       size(w, h) {
         frameW = w; frameH = h;
-        $("s-size").textContent = `${w}×${h}`;
         setSize(w, h);
       },
       log: (m) => toast(m, 12000),
@@ -205,7 +203,6 @@ export function startSessionView(auth: string, base: string): void {
     // 于是一张 300×150 的图被拉成整块画面,**糊,但不报错**。
     xpra.size(w0, h0);
     xpra.connect();
-    $("s-q").textContent = "xpra";
     addEventListener("beforeunload", () => xpra?.close());
   }
 
@@ -213,6 +210,13 @@ export function startSessionView(auth: string, base: string): void {
 
   function onMessage(m: Downstream): void {
     switch (m.type) {
+      case "pong":
+        // **延迟是本地算的** —— 减的是同一个钟上的两个读数,
+        // 两边的钟不用对齐(对齐本身就是个解不完的问题)。
+        if (typeof (m as { t?: number }).t === "number") {
+          hud(performance.now() - (m as { t: number }).t);
+        }
+        return;
       case "hello": {
         $("ro").hidden = !!m.writable;
         if (m.transport === "vnc" && !xpra) startXpra();
@@ -227,11 +231,9 @@ export function startSessionView(auth: string, base: string): void {
       }
       case "cast":
         setSize(m.w, m.h);
-        $("s-q").textContent = String(m.quality ?? "");
         cdp.resetTarget();
         return;
       case "quality":
-        $("s-q").textContent = m.quality + (m.every_nth > 1 ? " /" + m.every_nth : "");
         return;
       case "mode":
         applyMode(m as never);
@@ -277,7 +279,6 @@ export function startSessionView(auth: string, base: string): void {
   addEventListener("resize", () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(sendSize, 250);
-    updateZoom();
   });
 
   // ---------------------------------------------------------------- tab / 弹窗
@@ -313,11 +314,19 @@ export function startSessionView(auth: string, base: string): void {
       bytes = st.bytes - xLast.bytes;
       xLast = { frames: st.frames, bytes: st.bytes };
     }
-    $("s-fps").textContent = String(frames);
-    $("s-kbps").textContent = String(Math.round(bytes * 8 / 1000));
     frames = 0;
     bytes = 0;
   }, 1000);
+
+  // **每两秒量一次延迟。** 三种画面模式共用这一条 —— 它量的是控制通道那条路,
+  // 而那正是人点下去到里面收到的那条。JPG 那边另有一个按帧 ack 算的 RTT,
+  // 那是给背压和画质自适应用的内部信号,不是给人看的这个数(c1)。
+  setInterval(() => cdp.now(ping()), 2000);
+
+  // **日志按钮:点一下就把这个 session 的流水存下来。**
+  // 拉的是服务端渲染好的那一份(和 `webmuxd log` 同一份代码),
+  // 带 `Content-Disposition`,所以点一下就是存文件,不用人自己另存为。
+  $("h-log").onclick = () => { location.href = api.asset("/api/log.txt"); };
 
   cdp.connect();
   events();

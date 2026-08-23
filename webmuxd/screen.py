@@ -87,6 +87,7 @@ class Screencaster:
         #: 更早,那时 `self.dom` 还是 None,记录器就漏装了。
         from webmuxd.rrweb import DomSource
         self.dom = DomSource()
+        self.dom.log = session.log            # 诊断也进这个 session 那条流
         self.width, self.height = width, height
         #: **JPG 那条腿在 `jpg.py`。** 这儿只编排 —— 跟哪个 tab、谁在看、
         #: 慢了降多少;真正开关 `Page.startScreencast` 的是它。
@@ -160,6 +161,7 @@ class Screencaster:
                 sid = await self.session.cdp_session_for(tab_id)
             except Exception as e:
                 log.warning("attach 不上 %s: %s", tab_id, e)
+                self._diag("warn", "attach 不上这个 tab", tab=tab_id, err=str(e)[:200])
                 return
             self._sid = sid
             if self.dom is not None:
@@ -271,10 +273,23 @@ class Screencaster:
             if got != (width, height):
                 log.warning("窗口摁不到位:要 %dx%d,到手 %dx%d",
                             width, height, *got)
+                self._diag("warn", "窗口摁不到位 —— 画面和窗口会错位",
+                           want=[width, height], got=list(got))
         except Exception as e:                          # noqa: BLE001
             # **说出来。** 摁不上去的下场是画面和窗口错位,而那看起来像
             # "画面糊了" —— 人会去查编码质量,查不到这儿来。
             log.warning("摁不动浏览器窗口(%dx%d):%s", width, height, e)
+            self._diag("warn", "摁不动浏览器窗口 —— 画面和窗口会错位",
+                       want=[width, height], err=str(e)[:200])
+
+    def _diag(self, level: str, what: str, **fields: object) -> None:
+        """把诊断记进**这个 session 自己**那条流。
+
+        这些话本来只进 `server.log` —— 整台 server 一份、不带 session id,
+        排查一个 session 得同时看两份东西,而两份没有共同的编号可以对齐。
+        """
+        with contextlib.suppress(Exception):
+            self.session.log.diag(level, what, **fields)
 
     async def _settled(self, width: int, height: int) -> tuple[int, int]:
         """**等窗口真的到了那个尺寸**,返回它最后的样子。

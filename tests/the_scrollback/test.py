@@ -29,9 +29,15 @@ def test_kinds_are_a_closed_set():
 
     仍然进不来的是页面自己的变化:滚动、动画、XHR、DOM 改了 ——
     那些没有人"做",它们属于观测,不属于 scrollback。
+
+    **`diag` 是唯一一个不属于"有人做了什么"的类**,它是"出了什么问题"。
+    放进来是因为排查时**只该看一个地方**:以前诊断只进 `server.log`,
+    那是整台 server 一份、不带 session id,而且和这条流没有共同的编号 ——
+    最需要它的时候最找不到(CPU 打满那种情况下这条流是**空白**的,
+    没有人在"做"任何事,而真相在另一份文件里)。
     """
     assert KINDS == ("action", "tab", "session", "dialog", "download",
-                     "file", "permission", "auth")
+                     "file", "permission", "auth", "diag")
 
 
 def test_unknown_kind_is_rejected(log):

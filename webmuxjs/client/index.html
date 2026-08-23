@@ -49,8 +49,22 @@
 
   /* **画质那块贴在画面右下角**,像视频播放器那样。
      全屏之后所有控制层都得和主屏融合 —— 顶栏那排按钮那时候没地方待。 */
-  #quality { position: absolute; right: 14px; bottom: 14px; z-index: 5;
+  #quality, #hud { position: absolute; bottom: 14px; z-index: 5;
              font: 12px/1 ui-monospace, monospace; user-select: none; }
+  #quality { right: 14px; }
+  /* **左下角,和右边那块对称。** 只留延迟 —— fps / kbps / 缩放那几样
+     是调试期的读数,天天挂在那儿只是噪音;真要看,日志里都有。 */
+  #hud { left: 14px; display: flex; gap: 6px; align-items: stretch; }
+  #hud > * { padding: 6px 10px; border-radius: 6px; opacity: .72;
+             border: 1px solid rgba(255,255,255,.18); background: rgba(18,22,28,.62);
+             color: #e6edf3; backdrop-filter: blur(3px);
+             transition: background .12s, opacity .12s; }
+  #hud > *:hover, #hud > *:focus-visible { opacity: 1; outline: none;
+             background: rgba(18,22,28,.86); }
+  #h-rtt { min-width: 54px; text-align: center; font-variant-numeric: tabular-nums; }
+  /* 断线的时候这块就是那条消息 —— **状态没了地方待,不能让它消失** */
+  #h-rtt.bad { color: var(--warn); border-color: rgba(255,120,90,.5); opacity: 1; }
+  #h-log { cursor: pointer; }
   #quality[hidden] { display: none; }
   #q-now { display: block; min-width: 52px; padding: 6px 10px; border-radius: 6px;
            border: 1px solid rgba(255,255,255,.18); background: rgba(18,22,28,.62);
@@ -139,17 +153,7 @@
        而那正是 [works/test.md](../../docs/v2/works/test.md) 第二条规矩不许做的。
      **同一个缺陷,人和机器都被挡在外面** —— 这种时候修一处解决两件事。 -->
 <div id="stage"><img id="screen" alt="浏览器画面"><canvas id="screen2" role="img" aria-label="浏览器画面" hidden></canvas><div id="screen3" role="img" aria-label="浏览器画面" hidden><div id="paintbox"></div></div>
-<div id="quality" hidden><button id="q-now" aria-haspopup="listbox" aria-expanded="false" aria-controls="q-list"></button><ul id="q-list" role="listbox" aria-label="画面质量" hidden></ul></div></div>
-
-<div id="status">
-  <span>帧 <b id="s-fps">0</b> fps</span>
-  <span><b id="s-kbps">0</b> kbps</span>
-  <span>画质 <b id="s-q">–</b></span>
-  <span>RTT <b id="s-rtt">–</b></span>
-  <span>帧 <b id="s-size">–</b></span>
-  <span>有效缩放 <b id="s-zoom">–</b></span>
-  <span id="s-conn">连接中…</span>
-</div>
+<div id="hud"><span id="h-rtt" title="到那台浏览器的往返延迟">–</span><button id="h-log" title="把这个 session 的流水下载下来(谁做了什么 + 出了什么问题)">日志</button></div><div id="quality" hidden><button id="q-now" aria-haspopup="listbox" aria-expanded="false" aria-controls="q-list"></button><ul id="q-list" role="listbox" aria-label="画面质量" hidden></ul></div></div>
 
 <div id="modal"><div class="card" id="card"></div></div>
 <div id="toasts"></div>

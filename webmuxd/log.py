@@ -88,6 +88,28 @@ class Log:
 
     # ---------------------------------------------------------------- 写
 
+    def diag(self, level: str, what: str, **fields: Any) -> int:
+        """记一条**诊断** —— "出了什么问题",不是"谁做了什么"。
+
+        和另外八类同一条流、同一套 `seq`,所以排查时**只看一个地方**就够:
+        人点了什么、agent 做了什么、中间哪一步出了毛病,按时间和编号串在一起。
+
+        以前这些只进 `server.log`(整台 server 一份、不带 session id),
+        于是最需要它的时候最找不到:CPU 打满那种情况下操作日志是**空白**的
+        —— 没有人在"做"任何事,而真相在另一份文件里。
+
+        `level` 只有两档:
+
+        - `warn` —— **默认就显示**。人该知道的:某一步没做成、退而求其次了。
+        - `debug` —— 要 `--debug` 才显示。量大、平时是噪音的那些。
+
+        没有 `error` 那一档:真错了会走异常那条路,有退出码、有 message,
+        **那是契约,不是日志**。
+        """
+        if level not in ("warn", "debug"):
+            raise ValueError(f"级别只有 warn / debug,给的是 {level!r}")
+        return self.append("diag", level=level, what=what, **fields)
+
     def append(self, kind: str, **fields: Any) -> int:
         """写一条,返回它的 seq。
 
@@ -221,7 +243,13 @@ def _iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
 
 
 def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z"
+    """**到毫秒。** 秒级不够用 —— 排查时序的时候,同一秒里发生五件事
+    (点下去、派发、页面回报、画面重发、日志落地)是常态,
+    而"谁先谁后"往往就是答案。多三位数,一行多三个字节。
+    """
+    t = time.time()
+    return (time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t))
+            + f".{int(t % 1 * 1000):03d}Z")
 
 
 def _offline_html(entries: Iterable[dict[str, Any]]) -> str:

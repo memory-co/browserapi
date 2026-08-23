@@ -71,7 +71,7 @@ def _check(cli, sid: str, who, kind: str) -> None:
     assert fresh["colors"] > 1, fresh
 
     # 好起来了要说出来 —— 状态条回到「已连接」,画面不再是灰的
-    assert "已连接" in who.status, who.status
+    assert "ms" in who.status, f"重连之后该重新量出延迟:{who.status!r}"
     assert "dead" not in (who.screen().get_attribute("class") or "")
     assert who.errors == [], who.errors
 

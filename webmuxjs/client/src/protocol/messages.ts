@@ -11,6 +11,7 @@
 
 export const UPSTREAM = [
   "ack", "mouse", "wheel", "key", "text", "resize", "tab", "mode",
+  "ping",          // 量延迟。服务端原样回一个 pong,不改变任何状态
 ] as const;
 
 export type UpstreamType = (typeof UPSTREAM)[number];
@@ -36,9 +37,10 @@ export interface TabPick { type: "tab"; id: string }
 export interface ModePick { type: "mode"; mode: string }
 
 export type Upstream =
-  | Ack | Mouse | Wheel | Key | Text | Resize | TabPick | ModePick;
+  | Ack | Mouse | Wheel | Key | Text | Resize | TabPick | ModePick | Ping;
 
 export const ack = (frameId: number): Ack => ({ type: "ack", frameId });
+export const ping = (): Ping => ({ type: "ping", t: performance.now() });
 export const resize = (w: number, h: number): Resize => ({ type: "resize", w, h });
 export const pickTab = (id: string): TabPick => ({ type: "tab", id });
 export const pickMode = (mode: string): ModePick => ({ type: "mode", mode });
@@ -67,7 +69,10 @@ export interface ModeMsg {
   available?: { name: string; label: string; blurb: string; when: string }[];
 }
 export interface ModeError { type: "mode_error"; message: string; hint?: string }
+export interface Ping { type: "ping"; t: number }
 export interface Cursor { type: "cursor"; cursor: string }
+/** 量延迟用。**服务端原样把 `t` 送回来** —— 减的是同一个钟上的两个读数。 */
+export interface Pong { type: "pong"; t: number }
 
 export type Downstream =
-  | Hello | Cast | QualityMsg | ModeMsg | ModeError | Cursor;
+  | Hello | Cast | QualityMsg | ModeMsg | ModeError | Cursor | Pong;

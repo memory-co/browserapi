@@ -45,7 +45,8 @@ def test_switching_the_picture_back_and_forth(cli):
         vnc = who.wait_painted()
         assert vnc["kind"] == "canvas", f"VNC 该画在 canvas 上:{vnc}"
         assert vnc["colors"] > 1, f"canvas 是一整块纯色 —— 没画出来:{vnc}"
-        assert "xpra" in who.status, who.status
+        # 画质那块牌上写的就是现在这条腿 —— 状态栏撤了,那个读数搬到了它上面
+        assert who.quality_badge == "VNC", who.quality_badge
 
         # 输入**永远只走一条通道**([b §1](../../docs/v2/works/b-input.md)),
         # 和像素从哪来无关。VNC 下点一下也该到里面。

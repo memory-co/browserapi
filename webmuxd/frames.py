@@ -62,4 +62,5 @@ UPSTREAM = frozenset({
     "resize",       # 改视口
     "tab",          # 切 tab
     "mode",         # 换一种画面(c §9)—— 只换画面来源,不碰别的
+    "ping",         # 量延迟。**原样回一个 pong**,把观看端那个时间戳带回去
 })

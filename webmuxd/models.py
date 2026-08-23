@@ -870,8 +870,15 @@ class CursorChanged:
 #: 日志有哪几类。v1 是三类;v2 多出来的四类是**没有桌面之后**那批原生 UI ——
 #: 它们是"页面为什么停住"的唯一解释,不进 scrollback 的话,
 #: 现象就只剩"页面一直没变,而且不知道为什么"。
+#: `diag` 是第九类,**和前八类不是一回事**:前八类回答"谁做了什么",
+#: 它回答"出了什么问题"。
+#:
+#: 以前诊断只进 `server.log` —— 那是**整台 server 一份**,十个 session 混在
+#: 一起,而且每条都不带 session id。排查一个 session 得同时看两份东西,
+#: 两份还没有共同的编号可以对齐。最难受的是:CPU 打满那种时候,
+#: 操作日志是**完全空白**的(没有人在"做"任何事),而真相在另一份里。
 LOG_KINDS = ("action", "tab", "session", "dialog", "download", "file",
-             "permission", "auth")
+             "permission", "auth", "diag")
 
 
 @dataclass

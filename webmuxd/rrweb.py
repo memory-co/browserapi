@@ -268,6 +268,8 @@ class DomSource:
         #: url -> (mime, 字节)。页面加载过的资源留一份,重放时从这儿出。
         self.res: dict[str, tuple[str, bytes]] = {}
         self.page_url = ""
+        #: 写诊断用。**上层塞进来** —— DomSource 自己拿不到 session。
+        self.log: Any = None
         self.armed: set[str] = set()
         #: 想让哪个 tab 录。**认这个,不认"现在谁在录"** ——
         #: 后者会被"装上就自己开录"那一下弄乱(见下)。
@@ -351,6 +353,8 @@ class DomSource:
                                session_id=session_id)
         except Exception as e:                    # noqa: BLE001
             log.warning("当前页补注入失败(等下次导航):%s", e)
+            self._diag("warn", "记录器补不进当前这一页 —— 要等下次导航",
+                       err=str(e)[:200])
             return
         if r.get("exceptionDetails"):
             log.warning("当前页补注入抛了:%s",
@@ -395,6 +399,7 @@ class DomSource:
             return
         if kind == -1:                            # 页面里抛的,别吞
             log.warning("DOM 记录器出错:%s", payload[:300])
+            self._diag("warn", "DOM 记录器在页面里抛了", err=payload[:200])
             return
         payload = self._rewrite(payload)
         if kind == 4:                             # Meta:新的一页,从这里重来
@@ -407,6 +412,8 @@ class DomSource:
                 # 上面那条 `kind == 4` 就把缓冲清了 —— 根本到不了这里。
                 log.warning("DOM 事件缓冲超了 %d 条而快照没来 —— 整个丢掉重来,"
                             "重放会缺一段(页面卡住了?)", MAX_EVENTS)
+                self._diag("warn", "DOM 事件缓冲超了而快照没来 —— 丢掉重来,"
+                                   "重放会缺一段", cap=MAX_EVENTS)
                 self.events = []
                 self.bytes["events"] = 0
         self.bytes["events"] += len(payload)
@@ -528,6 +535,12 @@ class DomSource:
     def snapshot_for_new_viewer(self) -> list[str]:
         """新来的观看者要从最近一张全量快照接上,不能从半路接。"""
         return list(self.events)
+
+    def _diag(self, level: str, what: str, **fields: Any) -> None:
+        """记进这个 session 自己那条流(有的话)。"""
+        if self.log is not None:
+            with contextlib.suppress(Exception):
+                self.log.diag(level, what, **fields)
 
     async def only_record(self, cdp: Any, session_id: str | None) -> None:
         """**只让这一个 tab 录,别的全停;而且让它重新出一张全量快照。**
