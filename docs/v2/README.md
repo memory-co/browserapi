@@ -37,7 +37,7 @@ loopback、KasmVNC 的抽象 socket、kasm 的窗口看门狗)全部仍然成立
 | [`sdk`](sdk/) | Python 包 —— 主体,行为定义在这儿 | **只写变了的那几处**,其余仍看 v1 |
 | [`api`](api/) | HTTP + WS 的线上格式 | 同上 |
 | [`cli`](cli/) | `webmuxd` 命令 | 同上 |
-| [`modules`](modules/) | **按「一件事」分模块** —— 量到"一次改动动 6.2 个文件",以及该怎么分 | 设计稿,**还没落地** |
+| [`models`](models/) | **DTO 对齐** —— 跨边界那些数据逐字段:Python 字段名 / JSON 键名 / TS interface | |
 | [`issues`](issues/) | 撞上过的坑,以及怎么定的位 | |
 
 **这三篇只写"和 v1 不一样的地方"**,不抄一遍没变的东西 ——
