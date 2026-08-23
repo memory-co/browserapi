@@ -158,7 +158,12 @@ ui.render(sess.tabs, sess.active)  # 值一直是新的
 ([works/02](02-lib-and-api.md))。TypeScript 写的前端拿不到这份内存,
 那才需要自己订 `tab.*` 做局部合并。
 
-### 4.1 「当前是哪个 tab」不去观测,直接记账
+### 4.1 ~~「当前是哪个 tab」不去观测,直接记账~~
+
+> **这一节的结论在 0.18.0 被推翻了。** 现在 `active` 是观测值:
+> 页面自己报 `document.visibilityState`。下面这段留着,因为
+> **它错在哪比它说了什么更有用** —— 见
+> [api/tabs.md §5.1](../api/tabs.md)。
 
 CDP 没有"tab 被激活了"这种事件。但也不用为此发明观测手段 —— **反过来做**:
 `active` 是 sessiond 自己的字段,它改完用 `Target.activateTarget` 把 Chromium 拽过来对齐。
@@ -168,7 +173,11 @@ CDP 没有"tab 被激活了"这种事件。但也不用为此发明观测手段 
 
 **人点不到 Chromium 自己的 tab 条**——它被裁在可视区外,连命中测试都进不去,
 点上去落在你画的那条 bar 上,也就是走 API。所以漂移只可能来自键盘快捷键,
-下次进入时自愈。细节见 [api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)。
+下次进入时自愈。
+
+> **"只可能来自键盘快捷键"这句话是错的**,而且漏掉的恰好是最常见的那种:
+> 人点一个 `target=_blank`,Chromium 自己就把前台切走了。
+> 见 [api/tabs.md §5.1](../api/tabs.md)。
 
 新 tab 怎么被感知到,见 [06](06-tab-sync.md)。
 

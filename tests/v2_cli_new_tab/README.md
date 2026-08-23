@@ -11,8 +11,9 @@ webmuxd goto -t nt baidu               打开百度
 webmuxd snapshot -t nt -i              找「新闻」那个 link  → @eN
 (观看端)鼠标移上去                     → 光标 default → pointer
 webmuxd click -t nt @eN                点它
-webmuxd tabs -t nt                     → 两个 tab,新的那个 opener=t_1
-webmuxd select-tab -t nt:1             切过去 → url 是 news.baidu.com
+webmuxd tabs -t nt                     → 两个 tab,新的那个 opener=t_1,**而且是它 active**
+webmuxd get text -t nt:1 --css #vis    → visible(判据来自页面,不是我们那张表)
+webmuxd select-tab -t nt:0 / nt:1      切回去再切过来,验 select-tab 自己那条路
 webmuxd snapshot -t nt:1 -i            新 tab 上照样能用,号接着发
 webmuxd kill-tab -t nt:1               收 → 只剩一个
 webmuxd log -t nt --kind tab           一开一关都在流里
@@ -35,9 +36,13 @@ webmuxd log -t nt --kind tab           一开一关都在流里
 
 1. **popup 一律转成 tab,而且转完还认得爹。**
    `opener` 少了,`window.close()` / `window.opener` 这一类就断了。
-2. **焦点不跟过去。** 浏览器里点 `target=_blank` 会切过去,我们不切 ——
-   切了就等于替调用方决定"接下来看哪个",而它可能正在别的 tab 上干活。
-   要切是一条独立的命令(`select-tab`)。
+2. **焦点跟着浏览器走。** `active` 就是"浏览器现在把哪一页放在前台" ——
+   普通左键点 `target=_blank` 是**前台开**,所以它跟过去。
+
+   > 0.18.0 之前这儿写的是"焦点不跟过去,我们不切"。那条规矩**只写在
+   > 我们自己的字段里,浏览器那边从没成立过** —— 断言和事实各自自洽,
+   > 合起来是错的,而人看到的正是合起来那一份。
+   > 判据现在来自页面自己(`site._VIS` 的 `document.visibilityState`)。
 3. **`@e1` 换了 tab 也接着发**,不从头来一遍。
 
 ## 已知偶发

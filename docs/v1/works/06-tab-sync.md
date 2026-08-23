@@ -161,9 +161,21 @@ Runtime.enable      ← favicon 要用
 `waitForDebuggerOnStart`(让新 target 停在第一行 JS 之前,等注入完再放行)。
 那套东西存在的理由**只有一个**:监听 `visibilitychange` 来判断当前是哪个 tab。
 
-改成 sessiond 自己记账、用 `Target.activateTarget` 把 Chromium 拽过来对齐之后
-([api/tabs.md §5](../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算)),
+改成 sessiond 自己记账、用 `Target.activateTarget` 把 Chromium 拽过来对齐之后,
 这个需求没了,整套跟着塌掉。
+
+> **0.18.0:这段塌掉的东西又立回来了,而且是被一次线上事故立回来的。**
+>
+> "记账"那套的前提是"只有我们会动前台" —— 而页面 `target=_blank` 开出来的
+> tab,Chromium 直接把前台切过去且不发任何事件。于是画面上一页、tab 条另一页,
+> **输入还打在那个看不见的页面上,全程不报错**。
+>
+> 所以 `addScriptToEvaluateOnNewDocument` + `Runtime.addBinding` +
+> `waitForDebuggerOnStart` 这三样今天全都在,而且 `visibilitychange`
+> 正是 `active` 的唯一信息来源 —— **当年判断"不需要"的那件事,恰恰是需要的。**
+> 现在那段 JS 在 [`webmuxjs/sidecar/`](../../../webmuxjs/sidecar/),
+> 结论写在 [api/tabs.md §5](../api/tabs.md) 和
+> [v2/works/f-tabs.md §3](../../v2/works/f-tabs.md)。
 
 **favicon 也不需要常驻脚本**:`Page.loadEventFired` 之后一次性
 

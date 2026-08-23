@@ -1,6 +1,7 @@
 """tab 表 —— 对着 docs/v1/api/tabs.md 和 works/06 校,跑在真 Chromium 上。"""
 
 import asyncio
+import contextlib
 import time
 
 import pytest
@@ -125,15 +126,88 @@ async def test_api_opened_tab_is_reason_api(table):
 # ----------------------------------------------------------------- active
 
 @pytest.mark.asyncio
-async def test_active_is_ours_not_observed(table):
-    """改自己的字段,再把 Chromium 拽过来对齐(api/tabs.md §5)。"""
+async def test_active_只由_front_is_改(table):
+    """**`front_is()` 是唯一改 `active` 的地方。**
+
+    这条以前叫 `active_is_ours_not_observed`,断言的是"改自己的字段,
+    再把 Chromium 拽过来对齐"。**0.18.0 把它整个翻过来了**:`active` 是
+    观测值 —— 浏览器把哪一页放在前台。那本账错在一个没写出来的前提
+    ("只有我们会动前台"),而页面 `target=_blank` 开出来的 tab,
+    Chromium 直接就把前台切走了([f §3](../../docs/v2/works/f-tabs.md))。
+
+    这儿这张表是**裸的**(没接 `prepare` / `confirm` 那两个钩子),
+    所以 `activate()` 退化成"发了就算" —— 端到端那一半在
+    [`who_is_in_front/`](../who_is_in_front/),它用真 Session、
+    判据来自页面自己的 `visibilityState`。
+    """
     a = await table.open("about:blank")
     b = await table.open("about:blank")
-    assert table.active == b.id, "新建的没切过去"
+    assert table.active == b.id
 
     await table.activate(a.id)
-    assert table.active == a.id, "activate 之后记录立刻就该是新的,不该慢半拍"
+    assert table.active == a.id
     assert ("tab.activated", {"id": a.id, "previous": b.id}) in table.events
+
+
+@pytest.mark.asyncio
+async def test_前台是别人换的_也走同一个口子(table):
+    """浏览器自己换了前台 —— `front_is()` 收,和我们自己切**发一样的事件**。
+
+    这一条守的是"只有一个口子"这件事本身:要是哪天有人再加一条
+    "浏览器换前台"的专用路径,`active` 就又有两个写入方了,而那正是
+    这次事故的形状。
+    """
+    a = await table.open("about:blank")
+    b = await table.open("about:blank")
+    assert table.active == b.id
+
+    table.front_is(a.id)                       # 页面报上来的那一刻
+    assert table.active == a.id
+    assert ("tab.activated", {"id": a.id, "previous": b.id}) in table.events
+
+    n = len(table.events)
+    table.front_is(a.id)                       # 已经是它了,不该再发一条
+    assert len(table.events) == n, "没变还发事件,外面那条 bar 会白闪"
+
+
+@pytest.mark.asyncio
+async def test_确认不了就不算切过去(cdp):
+    """**等不到不许静默成功。**
+
+    悄悄当它成了,正是那个"画面上是新闻页、tab 条却指着首页"的做法。
+    这儿把 `confirm` 钩子按死成"确认不了",看它是不是真的抛,
+    以及**抛完之后 `active` 没被改坏**。
+    """
+    from webmuxd.exceptions import TabNotFront
+    from webmuxd.tabs import TabTable
+
+    order: list[str] = []
+
+    async def prepare(tab_id: str) -> None:
+        order.append("prepare")
+
+    async def confirm(tab_id: str) -> bool:
+        order.append("confirm")
+        return False
+
+    t = TabTable(cdp, prepare=prepare, confirm=confirm)
+    await t.start()
+    await asyncio.sleep(0.3)
+    try:
+        a = await t.open("about:blank", activate=False)
+        b = await t.open("about:blank", activate=False)
+        was = t.active
+        with pytest.raises(TabNotFront):
+            await t.activate(a.id if was != a.id else b.id)
+        assert t.active == was, "确认不了却把 active 改了 —— 那就是记账,不是观测"
+        # **顺序是硬的:先准备好那一页,再发信号,最后才等确认。**
+        # 不先放行的话它一行脚本都没跑过(`waitForDebuggerOnStart`),
+        # 等的是个永远不来的东西。
+        assert order[:2] == ["prepare", "confirm"], order
+    finally:
+        for tab_id in list(t._by_id):
+            with contextlib.suppress(Exception):
+                await t.close(tab_id)
 
 
 @pytest.mark.asyncio

@@ -170,11 +170,39 @@ VNC 传输中文一直是难点:要么在服务端安装完整输入法(候选�
 
 由此确立一条约束:**探针只保留一个,新功能复用它,不为每个功能新增。**
 
+### 6.1 那"一个"今天在哪
+
+在 [`webmuxjs/sidecar/`](../../../webmuxjs/sidecar/) —— 和观看页平级的一棵树,
+产物是**一段 IIFE、一次注入、一个 binding**(`__webmuxd`),
+页面里只留一个 `window.__wm_side` 作幂等标记。里面四样:
+
+| | |
+| --- | --- |
+| `open-shim.ts` | popup 转 tab —— 唯一一个不碰 binding 的 |
+| `input-watch.ts` | 人在动没在动 + 动的是哪个东西 |
+| `cursor.ts` | 光标形状(本节 §5) |
+| `foreground.ts` | 这一页是不是浏览器的前台([f §3](f-tabs.md)) |
+
+**为什么值得单开一棵。** 原来这四样是四段 Python 字符串字面量,
+各自把 `addBinding` + `addScriptToEvaluateOnNewDocument` + `evaluate`
+那套仪式走一遍。四份一样的仪式就是四次犯同一个错的机会,而那个错犯过两次
+(`Runtime` 域没开 → binding 装上了、页面调了、**服务端一条收不到还不报错**)。
+更要紧的是:**那是全项目唯一一块没有类型检查、没有单元测试的代码,
+而它跑在别人的页面里** —— 密码明文进日志那次就是从那儿漏的。
+
+两条这儿特有的硬规矩:
+
+- **探针不许读表单控件的 `value`**(密码框上那就是明文)
+- **一个探针塌了不许带走其它几个** —— 合并是为了少犯错,不是为了多一种坏法
+
+跨语言那两条接缝各有一条测试盯着(binding 名两边一致;探针不读 `value`,
+而且读的是**建出来那份**),因为它们错起来都**不报错**。
+
 ## 7. ↔ 别处
 
 | | |
 | --- | --- |
 | 这一跳在整条链路的什么位置 | [a §3](a-architecture.md#3-chromium--sessiondcdp-是-rpc不是流) |
 | 程序化操作(`click("提交订单")`)不走这条路 | 它走 `core/act`,是另一条线 |
-| 落地在 | [`view/input.py`](../../../webmuxd/input.py) · [`cursor.py`](../../../webmuxd/cursor.py) · [`serve/app.py`](../../../webmuxd/serve.py) |
-| 测试在 | [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) · [`tests/the_http_face/`](../../../tests/the_http_face/) |
+| 落地在 | [`input.py`](../../../webmuxd/input.py) · [`cursor.py`](../../../webmuxd/cursor.py)(只剩白名单,它是信任边界)· [`sidecar.py`](../../../webmuxd/sidecar.py)(装)· [`webmuxjs/sidecar/`](../../../webmuxjs/sidecar/)(那段 JS)· [`serve.py`](../../../webmuxd/serve.py) |
+| 测试在 | [`tests/pixels_on_a_wire/`](../../../tests/pixels_on_a_wire/) · [`tests/the_http_face/`](../../../tests/the_http_face/) · [`webmuxjs/sidecar/test/`](../../../webmuxjs/sidecar/test/)(那段 JS 自己的) |

@@ -60,9 +60,10 @@ tab.activate()
 
 **画面跟着切。** 一块 VNC 屏同时只显示一个 tab。
 
-`active` 是 sessiond 记的账,不是观测出来的 —— 它改完会用 `Target.activateTarget`
-把 Chromium 拽过来对齐([api/tabs.md §5](../../api/tabs.md#5-当前是哪个-tab是-sessiond-说了算))。
-所以 `sess.active` 立刻就是新的。
+`active` 是**观测值** —— `activate()` 发出 `Target.activateTarget` 之后
+**等那一页自己报回来才返回**([api/tabs.md §5](../../api/tabs.md))。
+所以它返回的时候 `sess.active` 已经是新的,**而且那件事真的成立了**;
+确认不了会抛 `TabNotFront`,不会悄悄当它成了。
 
 ## 4. `close` —— 关掉
 
