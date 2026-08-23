@@ -32,6 +32,7 @@ Python 那棵照 requests **平铺**:一个文件一件事,文件名就是那件
 ├── webmuxd/          ← Python 的全部。**包名不变,位置不动**
 ├── webmuxjs/         ← JS 的全部
 │   ├── client/       浏览器里跑的接收端 —— 一个前端工程(§4),产物打进 wheel
+│   ├── sidecar/      **注进被控页面里的那一段** —— 同上,产物也打进 wheel(§4.4)
 │   └── server/       另一个服务端实现 —— **不实现**,只放完整的协议文档
 └── docs/
 ```
@@ -82,7 +83,7 @@ webmuxd/
 ├── act.py          动作执行
 ├── locate.py       元素定位
 ├── capture.py      读一眼:一张图,和正文
-├── probe.py        页面里的探针(今天叫 shim.py)
+├── sidecar.py      页面里那一段:装 + 那个唯一的 binding(JS 在 webmuxjs/sidecar/)
 │
 ├── browser_ui.py   浏览器自己弹的那五类:对话框 / 下载 / 文件选择 / 权限 / 认证
 │
@@ -107,7 +108,8 @@ webmuxd/
 ├── cli.py          命令行 + **只有 CLI 用的那套调用代码**(§3.5)
 ├── install.py      `webmuxd install` —— 探、下、装、写记录,**包名表也在这儿**
 │
-└── _client/        浏览器端那份的构建产物 —— **不在 git 里**(§4.3)
+├── _client/        浏览器端那份的构建产物 —— **不在 git 里**(§4.3)
+└── _sidecar/       页面里那段的构建产物 —— 同上(§4.4)
 ```
 
 ### 3.1 `models.py`:所有跨边界的数据,在这儿定义一次
@@ -388,12 +390,48 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 用 TypeScript —— Vite 原生支持,几乎不额外要什么;类型管 API 面,
 **边界仍然要运行时校验**(类型过不了网络)。
 
-### 4.4 这一层不做的
+### 4.4 `webmuxjs/sidecar/`:注进被控页面里的那一段
+
+和 `client/` 平级,同一套工具链,**同一条"产物打进 wheel"的路**:
+
+```
+npm run build → webmuxjs/sidecar/dist/sidecar.js → 打包时拷进 webmuxd/_sidecar/ → 进 wheel
+```
+
+Python 那边只剩一个 `sidecar.py`:装(`addScriptToEvaluateOnNewDocument`
++ 对当前文档 `evaluate`)、以及那个唯一的 binding 名。**它不写 JS。**
+
+**为什么值得单开一棵。** 原来这些是四段 Python 字符串字面量,散在
+`probe.py` 和 `cursor.py` 里,各自把 `addBinding` +
+`addScriptToEvaluateOnNewDocument` + `evaluate` 那套仪式走一遍。
+两个问题,后一个更要命:
+
+1. **四份一样的仪式,就是四次犯同一个错的机会。** 那个错犯过两次
+   (`Runtime` 域没开 → binding 装上了、页面调了、服务端一条收不到、
+   而且不报错),两次的表现都是"什么都没发生,也没有错"。
+2. **那是全项目唯一一块没有类型检查、没有单元测试的代码 ——
+   而它跑在别人的页面里。** 密码明文进日志那次就是从那儿漏出去的:
+   一行 `innerText || value`,而 `value` 在密码框上就是明文。
+
+搬过来之后 `tsc` 管类型、`vitest` 管行为、`vite` 打成一段干净的 IIFE
+(不留全局,只留一个幂等标记)。里面装四样:popup 转 tab、
+人在动没在动、光标形状、**这一页是不是浏览器的前台**
+([f §3.1](f-tabs.md))。
+
+两条跨语言的接缝各有一条测试盯着,因为它们错起来都不报:
+
+| 接缝 | 错了会怎样 | 盯着它的 |
+| --- | --- | --- |
+| binding 名两边写了两遍 | 页面照样调、服务端一条收不到 | `the_layout_holds` |
+| 探针读了表单的 `value` | 明文进 `log.jsonl`,`bundle` 带得走 | `pixels_on_a_wire`(读**建出来那份**)+ `sidecar/test/label.test.ts` |
+
+### 4.5 这一层不做的
 
 - ❌ **不发 npm。** [e §9](e-client.md#9-该发出去的是哪一层) 说协议层将来该能单独发,
   但那是另一个决定 —— 今天只往 wheel 里打
 - ❌ **不引前端框架。** 内置页是验链路的调试页,框架买不到任何东西
-- ❌ **不上 monorepo 工具。** 就一个 JS 工程
+- ❌ **不上 monorepo 工具。** 两个工程各自 `npm install`,各自一份锁 ——
+  加一层工具管两个包,买到的比付出的少
 
 ## 5. 依赖方向:扁平之后,层要靠规矩守
 
@@ -402,7 +440,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 ```
 第 0 层   models.py  exceptions.py          谁都能用;它们谁都不用
 第 1 层   processes.py  config.py  cdp.py  log.py               对外部世界做事
-第 2 层   tabs.py  act.py  locate.py  capture.py  probe.py     对浏览器做事
+第 2 层   tabs.py  act.py  locate.py  capture.py  sidecar.py   对浏览器做事
           browser_ui.py
           frames.py  quality.py  input.py  cursor.py
           jpg.py  xpra.py  rrweb.py
@@ -461,7 +499,7 @@ npm run build → webmuxjs/client/dist/ → 打包时拷进 webmuxd/_client/ →
 | `cli/install.py` + `cli/deps.py` | **`install.py` 一个文件** | 只有一个调用方,没有单独的测试(§3.7) |
 | `core/cdp.py` `tabs.py` `act.py` `locate.py` | 同名平铺 | |
 | `core/observe.py` | **`capture.py`**,而且只剩两个函数 | 那一包东西砍了 —— 读只剩「一张图和正文」([v2/api](../api/)) |
-| `core/shim.py` | `probe.py` | 它是页面里的探针,`shim` 说的是手段不是身份 |
+| `core/shim.py` | `sidecar.py` | 它是页面里的探针,`shim` 说的是手段不是身份。<br>0.18.0 起 JS 那半搬进 `webmuxjs/sidecar/`(§4.4),这边只剩"装" |
 | `core/log.py` | `log.py` | |
 | `browser.py` | **`install.py`**(下载 / 镜像 / 测速)+ **`config.py`**(路径在哪 / 这台机器缺什么) | 装完之后"浏览器在哪"就是配置(§3.3)。**探测那半要跟着配置走**,因为第 1 层的 `processes.py` 要用它,而 `install.py` 在第 5 层 |
 | `env.py` | `config.py` | 大家会去找的就是这个词;**只有 install 写,别人只读** |

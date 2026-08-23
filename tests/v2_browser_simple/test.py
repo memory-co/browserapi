@@ -79,7 +79,7 @@ def test_a_human_opens_the_page_and_drives_the_browser(cli):
         box = next(e for e in cli.snap("demo", "-i")
                    if "type" in e["affords"] and e["in_viewport"])
         who.hover_blank()
-        assert "text" in who.hover(box), \
+        assert "text" in who.hover(box, "text"), \
             f"移到搜索框上,光标该变成 I 型,实际:{who.cursor()!r}"
         assert "default" in who.hover_blank(), \
             f"移开该变回箭头,实际:{who.cursor()!r}"

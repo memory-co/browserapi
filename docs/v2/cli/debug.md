@@ -29,7 +29,7 @@ webmuxd bundle -t demo --out out.zip
 
 > 后端要加的:`Runtime.consoleAPICalled` 和 `Runtime.exceptionThrown` 两个事件,
 > 存进那条流。**而 `Runtime` 域现在已经是开着的了**
-> ([probe.enable](../../../webmuxd/probe.py))—— 那是刚补上的,
+> ([sidecar.enable](../../../webmuxd/sidecar.py))—— 那是刚补上的,
 > 之前没开,所以连接都接不上。
 >
 > 这一条**优先级最高**:调 agent 的时候"页面报了什么错"是第一手信息,

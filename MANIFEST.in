@@ -6,8 +6,11 @@
 include _build/backend.py
 recursive-include webmuxjs *.ts *.json *.html *.md *.gitignore
 exclude webmuxjs/client/package-lock.json
+exclude webmuxjs/sidecar/package-lock.json
 prune webmuxjs/client/node_modules
 prune webmuxjs/client/dist
+prune webmuxjs/sidecar/node_modules
+prune webmuxjs/sidecar/dist
 
 recursive-include docs *.md
 include tests/README.md

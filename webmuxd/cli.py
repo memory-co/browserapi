@@ -36,7 +36,9 @@ EXIT = {
     # 而是"那个地址拿不到"(改地址、换 https、看网络)。
     "nav_failed": 8,
     "timeout": 5,
-    "busy": 6, "busy_human": 6,
+    # **可重试那一档。** `tab_not_front` 是"切过去了但那一页没确认自己在前台"
+    # —— tab 好好的,是那件事我们确认不了(它可能正忙、也可能崩了)。
+    "busy": 6, "busy_human": 6, "tab_not_front": 6,
     "chrome_gone": 7, "session_dead": 7, "runtime_unavailable": 7,
     "port_in_use": 7,
 }

@@ -31,7 +31,7 @@ from typing import Any, Protocol
 
 from webmuxd import config, models, processes, xpra as xpra_mod
 from webmuxd import cursor as cursor_probe
-from webmuxd import capture, locate, probe
+from webmuxd import capture, locate, sidecar
 from webmuxd.act import MASK, READ_ACTIONS, Executor
 from webmuxd.browser_ui import Natives
 from webmuxd.cdp import CDP
@@ -65,7 +65,11 @@ class Session:
         self._recent: list[dict] = []          # 事件环,断线重连补这段
         self._recent_cap = 1000
 
-        kwargs: dict[str, Any] = {"emit": self._emit}
+        # 两个钩子往下递,方向没变(`tabs` 在下层,不认识 `Session`):
+        # `prepare` 把那一页准备好(不然它是哑的),`confirm` 去问它是不是前台。
+        kwargs: dict[str, Any] = {"emit": self._emit,
+                                  "prepare": self._prepare_tab,
+                                  "confirm": self._confirm_front}
         if tab_max is not None:
             kwargs["tab_max"] = tab_max
         self.tabs = TabTable(cdp, **kwargs)
@@ -81,6 +85,15 @@ class Session:
         self.started_at = time.time()
         self.restarts = 0
         self._dispatched_at = 0.0
+
+        #: 每个 tab 最近一次报的"我是不是前台"(`sidecar` 里的 `foreground`)。
+        #: **`active` 的全部信息来源** —— 见 `_on_foreground`。
+        self._fg: dict[str, bool] = {}
+        #: 正在等某个 tab 确认"我是前台"的人(`_confirm_front`)。
+        self._fg_waiters: dict[str, list[asyncio.Future]] = {}
+        #: 一个 tab 只准备一次 —— `open()` 那条路和 `tab.created` 那条路
+        #: 会同时走到 `executor_for`,不锁就是两次 attach。
+        self._prep_locks: dict[str, asyncio.Lock] = {}
 
         root = Path(data_dir)
         self.files_dir = root / "files"
@@ -153,13 +166,19 @@ class Session:
 
     def _on_binding(self, params: dict, sid: str | None) -> None:
         """页面报上来一次输入。**是人还是我们,靠相关性分**。"""
-        if params.get("name") != probe.BINDING:
+        if params.get("name") != sidecar.BINDING:
             return
         import json as _json
         try:
             info = _json.loads(params.get("payload") or "{}")
         except Exception:
             info = {}
+
+        if info.get("kind") == "foreground":
+            # **浏览器自己换前台了。** 这是那张表里唯一一个原来没有观测的字段,
+            # 现在有了 —— 见 `_on_foreground`。不是人的输入,不开让路窗口。
+            self._on_foreground(sid, bool(info.get("on")))
+            return
 
         if info.get("kind") == "cursor":
             # 光标形状变了 —— 不是人的输入,不开让路窗口,也不进日志。
@@ -188,6 +207,95 @@ class Session:
 
     # 弹窗的拦截、超时和记账搬到 `native/dialogs.py` 了 —— v1 只做了"记在 tab 上",
     # 而 v2 没有桌面兜底,还得有事件、超时和日志(works/06 §1)。
+
+    #: 发完 `activateTarget` 之后等那一页确认自己在前台,最多等这么久。
+    #:
+    #: 实测切 tab 首帧 14–39 ms,所以这是个**很宽的**余量,不是在赌。
+    #: 等不到也不当它成了 —— 见 `_confirm_front`。
+    _FRONT_WAIT = 3.0
+
+    def _on_foreground(self, sid: str | None, on: bool) -> None:
+        """页面报:我(不)是浏览器的前台了。
+
+        **这是 `active` 唯一的信息来源。** CDP 没有「tab 被激活了」这种事件,
+        但页面自己知道 —— `document.visibilityState` 是标准的,
+        DevTools 连上去读到的是同一个值。
+
+        收到 `on=True` 就直接认(`front_is`),**不问是谁让它变成前台的**:
+        我们自己发的 `activateTarget` 也好、人点了个 `target=_blank` 也好,
+        对这张表来说是同一件事 —— **前台换了**。
+
+        > 早先这儿写过一套"告警 + 按回去 + 打不过就认输"。那套的前提是
+        > `active` 归我们定、浏览器动了叫"漂移"。前提没了,那套也就没了。
+        > 而它抹掉的正是 Chromium 判对了的东西:Ctrl+左键和中键是**后台开**,
+        > 按回去等于把人的手势一起按没。
+
+        `on=False` 不做任何事:它只说"前台不在我这儿了",说不出在谁那儿。
+        **说不出来就不说** —— 接管的那一页会自己报上来(每个 tab 一 adopt
+        就把探针装进去了,所以它一定说得出话)。
+        """
+        tab_id = self._tab_of_session(sid)
+        if not tab_id:
+            return
+        self._fg[tab_id] = on
+        if not on:
+            return
+        for fut in self._fg_waiters.pop(tab_id, []):
+            if not fut.done():
+                fut.set_result(True)
+        self.tabs.front_is(tab_id)
+
+    async def _prepare_tab(self, tab_id: str) -> None:
+        """把那一页准备好:attach、注入探针、放行。
+
+        **每个 tab 一进表就做**,不再等到有人操作它 —— 因为现在
+        "前台是谁"要靠那一页自己报,**而没装探针的那一页是哑的**。
+        实测过:页面 `target=_blank` 开出来的 tab,被人碰之前
+        `window.__wm_side` 是 `undefined`。
+        """
+        with contextlib.suppress(Exception):
+            await self.executor_for(tab_id)
+
+    async def _confirm_front(self, tab_id: str) -> bool:
+        """前台真的是它了吗。**等观测,等不到就去问,还不行就说不行。**"""
+        if self._fg.get(tab_id):
+            return True
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        self._fg_waiters.setdefault(tab_id, []).append(fut)
+        try:
+            await asyncio.wait_for(fut, self._FRONT_WAIT)
+            return True
+        except asyncio.TimeoutError:
+            # **主动问一次 —— 这仍然是观测,不是猜。**
+            # 报不上来的情形是有的:那一页崩了、注入失败、或者根本没跑到
+            # 我们的脚本。问一次能把"事情成了但没人告诉我们"和
+            # "事情没成"分开,而这两件对使用者是完全不同的。
+            return await self._ask_front(tab_id)
+        finally:
+            left = [f for f in self._fg_waiters.get(tab_id, []) if f is not fut]
+            if left:
+                self._fg_waiters[tab_id] = left
+            else:
+                self._fg_waiters.pop(tab_id, None)
+
+    async def _ask_front(self, tab_id: str) -> bool:
+        sid = self._sessions.get(tab_id)
+        if not sid:
+            return False
+        try:
+            r = await self.cdp.send(
+                "Runtime.evaluate",
+                {"expression": "document.visibilityState === 'visible'",
+                 "returnByValue": True}, session_id=sid, timeout=5)
+        except Exception:                                        # noqa: BLE001
+            return False
+        got = bool((r.get("result") or {}).get("value"))
+        if got:
+            self._fg[tab_id] = True
+            self.log.diag("debug", "那一页没主动报,问了一次才确认在前台",
+                          tab=tab_id)
+        return got
 
     def _tab_of_session(self, sid: str | None) -> str | None:
         if not sid:
@@ -237,6 +345,17 @@ class Session:
             self.log.append("tab", event="opened", tab=tab.get("id"),
                             url=tab.get("url"), title=tab.get("title"),
                             reason=payload.get("reason"), opener=tab.get("opener"))
+            # **一进表就把探针装进去。**
+            #
+            # 以前注入是懒的(等有人操作那个 tab)。现在不行了:`active` 靠
+            # 那一页自己报"我是前台",**而没装探针的那一页是哑的** ——
+            # 实测页面 `target=_blank` 开出来的 tab 在被人碰之前
+            # `window.__wm_side` 是 `undefined`,于是最常见的那种前台变化
+            # 反而没人说得出话。
+            #
+            # 顺带补掉两个本来就缺的:那个 tab 里的光标同步、人的操作流水。
+            if tab.get("id"):
+                asyncio.create_task(self._prepare_tab(str(tab["id"])))
         elif type_ == "tab.closed":
             self.log.append("tab", event="closed", tab=payload.get("id"),
                             final_url=payload.get("final_url"),
@@ -286,6 +405,17 @@ class Session:
         ex = self._exec.get(tab_id)
         if ex is not None:
             return ex
+        # **一个 tab 只准备一次。** 现在有两条路会同时走到这儿:
+        # `open()` 里那句显式的,和 `tab.created` 上那条"一进表就装探针"。
+        # 不锁的话两边各 attach 一次,拿到两个 sessionId,而探针只装进其中一个。
+        lock = self._prep_locks.setdefault(tab_id, asyncio.Lock())
+        async with lock:
+            ex = self._exec.get(tab_id)
+            if ex is not None:
+                return ex
+            return await self._make_executor(tab_id)
+
+    async def _make_executor(self, tab_id: str) -> Executor:
         tab = self.tabs.get(tab_id)
         sid = self._pending_sessions.get(tab.target_id)
         if sid is None:
@@ -296,14 +426,23 @@ class Session:
         ex = Executor(self.cdp, sid, secrets=self.secrets,
                       refs=self.refs, tab_id=tab_id)
         await ex.start()
-        # **popup 一律转成 tab**(works/07 §4)—— 装在页面层,
-        # 因为只有页面自己调原生 open 才能保住 opener 关系。
-        # **Runtime 域先开、binding 先装** —— 页面里那三样探针都靠它往回报,
-        # 而 `bindingCalled` 只在域开着时才推(probe.enable 的 docstring)
-        await probe.enable(self.cdp, sid)
-        await probe.install(self.cdp, sid)
-        await probe.install_input_watch(self.cdp, sid)
-        await cursor_probe.install(self.cdp, sid)
+        # **页面里那一段,一次装完。**
+        #
+        # popup 转 tab、人在动没在动、光标形状、前台换没换 —— 四样在
+        # 同一个 bundle 里(`webmuxjs/sidecar/`),所以这儿只有一次注入、
+        # 一个 binding。原来是四段字符串各装各的,而那套仪式咬过两次。
+        #
+        # **Runtime 域先开、binding 先装** —— 页面里的东西全靠它往回报,
+        # 而 `bindingCalled` 只在域开着时才推(`sidecar.enable` 的 docstring)。
+        await sidecar.enable(self.cdp, sid)
+        try:
+            await sidecar.install(self.cdp, sid)
+        except Exception as e:                                   # noqa: BLE001
+            # **装不上不能把这个 tab 卡死** —— 下面那句 `release` 不跑的话,
+            # 页面永远停在 `waitForDebuggerOnStart` 那一刻。
+            # 但也**不许悄悄地缺**:少了它,光标永远是箭头、人的操作不进流水、
+            # 前台漂了没人知道 —— 三样一起没,而且一条错都没有。
+            self.log.diag("warn", "页面里那段没装上", tab=tab_id, err=str(e)[:200])
         # **DOM 那条画面的记录器也在这儿装。**
         # 注入只对**之后的文档**生效 —— 等第一个观看者连上再装就晚了,
         # 那时页面早加载完,记录器一个事件都发不出来
@@ -328,8 +467,16 @@ class Session:
         return self._sessions[tab_id]
 
     def resolve_tab(self, tab_id: str | None) -> str:
-        """不传就是当前激活的那个 —— 线上才需要这条规则,因为 HTTP 没有句柄
-        (api/README §2)。"""
+        """不传就是**现在屏幕上那一页** —— 线上才需要这条规则,因为 HTTP
+        没有句柄(api/README §2)。
+
+        **这句话是字面的。** `active` 是观测值(浏览器把哪一页放在前台),
+        不是我们记的账 —— 所以"不带下标"落在哪儿,和人眼看到的是同一页,
+        不会出现"命令打在一个看不见的页面上"([f §3](../docs/v2/works/f-tabs.md))。
+
+        代价说在明处:人点了个 `target=_blank`,前台跟着换,**不带下标的
+        下一条命令也跟着换**。要确定性就带下标(`-t nt:0`)。
+        """
         if tab_id:
             self.tabs.get(tab_id)              # 不在就抛 TabGone
             return tab_id

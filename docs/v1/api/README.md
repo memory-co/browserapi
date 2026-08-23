@@ -147,6 +147,7 @@ Agent 平时不用关心 tab;需要跨 tab 操作时再指定。
 | `timeout` | 408 | settle 或 wait_for 超时 | 重试或放宽条件 |
 | `nav_failed` | 502 | 页面打不开 | 检查 URL / 网络 |
 | `tab_gone` | 404 | tab 没了,`details.reason` 说是关的还是**被挤掉的** | 重新拉 `/api/tabs`;被挤的话拿 `final_url` 重开 |
+| `tab_not_front` | 409 | `activateTarget` 发出去了,**但那一页没确认自己在前台**。tab 好好的,是我们没能确认那件事真的发生([f §3](../../v2/works/f-tabs.md)) | 重试;一直这样就去看那一页是不是崩了 |
 | `busy` | 409 | 已有动作在跑 | 等,或多起几个 session |
 | `busy_human` | 409 | 人正在 VNC 里操作 | 见 §5 |
 | `read_only` | 403 | 用的是只读 token | — |

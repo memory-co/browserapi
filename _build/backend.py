@@ -25,6 +25,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "webmuxjs" / "client"
 DEST = ROOT / "webmuxd" / "_client"
 
+#: 注进页面里的那一段。和观看页平级、同一套工具链,**所以也同一个把关点**
+#: —— 它漏进 wheel 的后果比观看页还隐蔽:光标、人的操作流水、
+#: 前台漂移告警一起没了,而**一条错都不报**。
+SIDE_SRC = ROOT / "webmuxjs" / "sidecar"
+SIDE_DEST = ROOT / "webmuxd" / "_sidecar"
+
 
 def _say(msg: str) -> None:
     print(f"[webmuxd] {msg}", file=sys.stderr)
@@ -70,13 +76,50 @@ def build_client() -> None:
     _say(f"浏览器端 → {DEST.relative_to(ROOT)}/({len(list(DEST.iterdir()))} 个文件)")
 
 
-def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+def build_sidecar() -> None:
+    """页面里那段,规矩和 `build_client` 一样:能建就现建,建不了就用现成的,
+    两样都没有当场停。"""
+    npm = shutil.which("npm") if SIDE_SRC.exists() else None
+    out = SIDE_DEST / "sidecar.js"
+
+    if npm is None:
+        if out.exists():
+            why = "没有 webmuxjs/sidecar/" if not SIDE_SRC.exists() else "本机没有 npm"
+            _say(f"{why},用已经建好的 {SIDE_DEST.name}/")
+            return
+        raise SystemExit(
+            "页面里那段既建不了也没有现成的:"
+            f"{'没有 ' + str(SIDE_SRC) if not SIDE_SRC.exists() else '本机没有 npm'},"
+            f"而 {out} 也不在 —— 打不出完整的包。")
+
+    if not (SIDE_SRC / "node_modules").exists():
+        _say("npm install(sidecar)…")
+        subprocess.run([npm, "install", "--no-audit", "--no-fund"],
+                       cwd=SIDE_SRC, check=True)
+    _say("npm run build(sidecar)…")
+    subprocess.run([npm, "run", "build"], cwd=SIDE_SRC, check=True)
+
+    built = SIDE_SRC / "dist" / "sidecar.js"
+    if not built.exists():
+        raise SystemExit(f"构建完了但 {built} 不在 —— 构建配置改坏了?")
+
+    SIDE_DEST.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(built, out)
+    _say(f"页面里那段 → {out.relative_to(ROOT)}({out.stat().st_size} 字节)")
+
+
+def _build_all() -> None:
     build_client()
+    build_sidecar()
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    _build_all()
     return _upstream.build_wheel(wheel_directory, config_settings, metadata_directory)
 
 
 def build_sdist(sdist_directory, config_settings=None):
-    build_client()
+    _build_all()
     return _upstream.build_sdist(sdist_directory, config_settings)
 
 

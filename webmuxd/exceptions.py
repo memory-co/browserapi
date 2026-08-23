@@ -200,6 +200,21 @@ class ReadOnly(UsageError):
     code = "read_only"
 
 
+class TabNotFront(ActionError):
+    """`activateTarget` 发出去了,但那一页没确认自己在前台。
+
+    **这不是"tab 没了"**,所以不用 `TabGone` —— 那个 tab 好好的,
+    只是**我们没能确认那件事真的发生**。两者对调用方是不同的:
+    前者该换一个 tab,后者该重试或者去看那一页是不是崩了。
+
+    它存在的全部理由是不静默成功。`active` 是观测值(浏览器把哪一页放在
+    前台),而"发了命令就当它成了"正是那个"画面上是新闻页、tab 条却指着
+    首页"的 bug 的做法([f §3](../docs/v2/works/f-tabs.md))。
+    """
+
+    code = "tab_not_front"
+
+
 class SessionExists(UsageError):
     code = "session_exists"
 
@@ -215,7 +230,8 @@ class SessionNotFound(UsageError):
 _BY_CODE: dict[str, type[WebmuxdError]] = {
     cls.code: cls
     for cls in (
-        NotFound, NotClickable, Timeout, NavFailed, TabGone, Busy, BusyHuman,
+        NotFound, NotClickable, Timeout, NavFailed, TabGone, TabNotFront,
+        Busy, BusyHuman,
         ChromeGone, SessionDead, RuntimeUnavailable, PortInUse,
         BadRequest, BlockedURL, ReadOnly, SessionExists, SessionNotFound,
     )

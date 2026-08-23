@@ -8,5 +8,7 @@ dist/
 
 # 浏览器端的构建产物 —— 源码在 webmuxjs/client/src/,**一份就够**
 webmuxd/_client/
+webmuxd/_sidecar/
 webmuxjs/client/dist/
+webmuxjs/sidecar/dist/
 node_modules/

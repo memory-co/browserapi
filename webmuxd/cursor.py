@@ -1,20 +1,15 @@
-"""光标同步 —— docs/v2/works/b-input.md §5。
+"""光标同步的**服务端那一半** —— docs/v2/works/b-input.md §5。
 
-远端页面里光标是什么形状,本地就跟着变。没有这个,画面上一切都是箭头,
-**人会分不清哪里能点**。
+算形状的那段在页面里跑(`webmuxjs/sidecar/src/cursor.ts`)——
+CDP 里没有「光标变了」这种事件,screencast 的帧里也不含光标,
+所以只能在页面里 `elementFromPoint` + `getComputedStyle`,**值变了才上报**。
 
-**CDP 里没有「光标变了」这种事件** —— 光标是纯渲染层的东西,screencast 的帧里
-也不含光标。所以只能往页面注入探针,`elementFromPoint` + `getComputedStyle`,
-**值变了才上报**,基本不占带宽。
-
-复用 `core/probe.BINDING` 那一个 binding,**不新开第二个**([b](../docs/v2/works/b-input.md)):
-探针改变了页面环境这件事要如实承认,那就更没理由多加一个。
+留在这儿的只有一样,而它必须留在这儿:**那份白名单。**
+它是信任边界 —— 页面报上来的值会被直接写进观看端的 `style.cursor`,
+而**远端页面是不可信的**。这道闸放在页面里就等于没有。
 """
 
 from __future__ import annotations
-
-from webmuxd.cdp import CDP, CDPError
-from webmuxd.probe import BINDING
 
 #: CSS 规范里的 cursor 关键字。**白名单,不是黑名单。**
 #:
@@ -33,80 +28,3 @@ def sanitize(value: str) -> str:
     """不在白名单里一律降级成 `default`。"""
     v = (value or "").strip().lower()
     return v if v in ALLOWED else "default"
-
-
-CURSOR_JS = """
-(() => {
-  if (window.__webmuxdCursorShim) return;
-  let last = '', pending = false, lx = 0, ly = 0;
-
-  // `cursor: auto` 的语义是"文字上 I 型,其它地方箭头",光读计算样式
-  // 区分不出来 —— 两种情况读出来都是 auto。所以要做命中测试。
-  const overText = (x, y) => {
-    const f = document.caretRangeFromPoint;
-    if (!f) return false;
-    let r;
-    try { r = document.caretRangeFromPoint(x, y); } catch (e) { return false; }
-    if (!r || !r.startContainer || r.startContainer.nodeType !== 3) return false;
-    // caretRangeFromPoint 会"吸附"到最近的文字,**不校验就会让空白处也报 I 型**
-    const range = document.createRange();
-    range.selectNodeContents(r.startContainer);
-    for (const rect of range.getClientRects()) {
-      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
-        return true;
-    }
-    return false;
-  };
-
-  // **能输入的东西,`auto` 就是 I 型** —— 哪怕里面一个字都没有。
-  //
-  // 光靠 `overText` 判不出来:空的搜索框没有文字节点,`caretRangeFromPoint`
-  // 落不到东西上,于是报箭头。而"一个空的搜索框看上去不能输入"正是这个
-  // 功能要防的事([b §5](../docs/v2/works/b-input.md))。
-  const NON_TEXT = /^(button|submit|reset|checkbox|radio|range|color|file|image)$/i;
-  const editable = (el) => {
-    const t = el.tagName;
-    if (t === 'TEXTAREA') return true;
-    if (t === 'INPUT') return !NON_TEXT.test(el.type || 'text');
-    return el.isContentEditable === true;
-  };
-
-  const read = () => {
-    pending = false;
-    let el;
-    try { el = document.elementFromPoint(lx, ly); } catch (e) { return; }
-    if (!el) return;
-    let c = 'default';
-    try { c = getComputedStyle(el).cursor || 'auto'; } catch (e) {}
-    if (c === 'auto') c = (editable(el) || overText(lx, ly)) ? 'text' : 'default';
-    if (c === last) return;                 // **值变了才上报**
-    last = c;
-    try { __webmuxd(JSON.stringify({ kind: 'cursor', cursor: c })); } catch (e) {}
-  };
-
-  const tick = (e) => {
-    if (e) { lx = e.clientX; ly = e.clientY; }
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(read);            // rAF 节流
-  };
-
-  addEventListener('pointermove', tick, true);
-  addEventListener('pointerdown', tick, true);
-  addEventListener('scroll', () => tick(null), true);
-  window.__webmuxdCursorShim = true;
-})();
-""".replace("__webmuxd", BINDING)
-
-
-async def install(cdp: CDP, session_id: str) -> None:
-    """装到这个 target 上,每次导航自动重装。"""
-    try:
-        await cdp.send("Runtime.addBinding", {"name": BINDING},
-                       session_id=session_id)
-        await cdp.send("Page.addScriptToEvaluateOnNewDocument",
-                       {"source": CURSOR_JS}, session_id=session_id)
-        await cdp.send("Runtime.evaluate", {"expression": CURSOR_JS},
-                       session_id=session_id)
-    except CDPError:
-        pass

@@ -49,6 +49,9 @@ POST /api/tabs/{id}/activate 切过去
 `Target.activateTarget`;点关闭,发出的是 `Target.closeTarget`。
 **不是先改自己的状态再去同步** —— 那才会产生漂移。
 
+> 这句话一度只对了一半:`active` 恰恰是"先改自己的状态"。
+> 那个例外和它造成的事故记在 §3。
+
 **③ 可以直接核对。** 用 DevTools 连上同一个浏览器,看到的 target 列表
 与我们的 tab 表逐条对应。这是这个项目一贯的逃生舱:
 **我们看到的东西,你能用标准工具独立看到。**
@@ -94,49 +97,135 @@ POST /api/tabs/{id}/activate 切过去
 - **`t_N` 不复用。** 一个编号用过就不再出现,即使那个 tab 已经关闭。
   否则"你以为的 t_3"和"现在的 t_3"可能是两个页面。
 
-## 3. `active`:从一本账,变成当前事实
+## 3. `active`:不是一本账,是一个观测值
 
 CDP 没有「tab 被激活了」这种事件。最直接的做法是自己记一个字段,
 改完用 `Target.activateTarget` 把浏览器拽过来对齐。
 
-这个做法能用,但它承认了两件事:**存在两份真相**,以及**它们会漂移**
-(例如人在浏览器里用快捷键切了 tab)。
+**这项目试过那条路,它错了。** 错的不是实现,是那个没写出来的前提:
 
-**这里不需要那本账,因为帧本身就是证据。**
+> **只有我们会动前台。**
 
-`/channel/cdp` 那条的依据是实测:
+不是的。页面 `window.open` / `<a target=_blank>` 开出来的 tab,
+**Chromium 直接把前台切过去,而且不发任何事件。** 实测(Chromium 152):
 
-| 量的是什么 | 结果 |
+| 问谁 | 新那个 tab | 原来那个 |
+| --- | --- | --- |
+| `document.visibilityState` | `visible` | **`hidden`** |
+| `document.hasFocus()` | `true` | `false` |
+| 那本账里的 `active` | 不是它 | **还是它** |
+
+漂了之后两条腿各错各的,**都不报错**:
+
+- `/channel/xpra`:画面是那个真窗口,人看到的是**新那一页**,
+  而 tab 条高亮、地址栏、不带下标的命令**全指着旧那一页**。
+  **输入也打在旧那一页上** —— 人看着新闻页,点下去落在一个看不见的页面里。
+- `/channel/cdp`:截屏还挂在旧 target 上,后台不产帧 ——
+  画面**冻在旧那页最后一帧**。看着一致,其实已经死了。
+
+> 这一节原来写着「漂移在物理上不可能:真漂了就是**黑屏**,立刻可见」。
+> **那句话是错的**,而且它是"我们不用管前台"的全部依据。
+> 它错在把"没有新帧"当成了"没有画面" —— 没有新帧的结果是上一帧留在那儿,
+> 那恰恰是最不容易被发现的一种坏。
+
+### 3.1 结论:让浏览器说了算
+
+> **`active` 就是一个意思:浏览器现在把哪一页放在前台。**
+> 我们的命令只是**发个信号**,信号发出去不算数 ——
+> 要等那一页自己报回来"我是前台了"才记账。
+>
+> **这条规矩没有例外,包括我们自己发的命令。**
+
+理由不是"省事",是**浏览器判得比我们好**。同一个 `target=_blank` 链接:
+
+| 怎么点 | Chromium |
 | --- | --- |
-| A / B / C 三个 tab 同时开启截屏,前台是 C | 2 秒内 A=0 帧,B=0 帧,**C=41 帧** |
-| 对后台的 A 开着截屏干等 | 1 秒 **0 帧** |
-| 随后 `Target.activateTarget(A)` | 后续 1 秒 **20 帧** |
+| 普通左键 | **前台开** |
+| Ctrl + 左键 | **后台开** |
+| 中键 | **后台开** |
 
-**后台 tab 不产帧。** 这不是缺陷 —— 没人看的东西不该占带宽。
+而我们那条输入腿本来就把 `modifiers` 和 `button` 原样转给了 CDP
+([b](b-input.md))。所以**人的意图靠手势表达,Chromium 解释它,
+结果就是前台是谁**。我们自己再定一套"跟不跟",第一件事就是把 Ctrl+左键
+判错 —— 那不是更安全,那是更差。
 
-由此:
+于是「没有第二份账本」这句话第一次真的成立:`active` 原来是这张表里
+**唯一一个**例外,而这次的 bug 就是从那个唯一的例外里长出来的。
 
-- 没有 activate 就没有帧,**帧本身就是 active 的证据**
-- 漂移在物理上不可能:真漂了就是**黑屏**,立刻可见,而不是悄悄不一致
+### 3.2 怎么观测
 
-`/channel/xpra` 那条的形式不同,结论相同:它截的是**同一个窗口**,
-切 tab 后窗口内容随之改变,画面自然跟随。**同样没有第二份真相。**
+`document.visibilityState` 是标准的、页面自己就知道的,DevTools 连上去
+读到的是同一个值。页面里那段探针
+([`webmuxjs/sidecar/src/foreground.ts`](../../../webmuxjs/sidecar/src/foreground.ts))
+监听 `visibilitychange` 报回来,`Session._on_foreground` 收,
+`TabTable.front_is()` 记账。
 
-> `Target.activateTarget` 仍然要发,但它的地位变了 ——
-> 从「把记的账同步给浏览器」变成了**「让帧流起来的那条命令」**。
-> 同一个调用,完全不同的含义。
+三件配套的事,每件都是被实测逼出来的:
+
+- **每个 tab 一进表就装探针**,不再等到有人操作它。因为没装探针的那一页
+  是**哑的** —— 实测页面 `target=_blank` 开出来的 tab 在被人碰之前
+  `window.__wm_side` 是 `undefined`,而那恰恰是最常见的那种前台变化。
+- **`activate()` 会阻塞到确认为止。** 顺序是硬的:先把那一页准备好
+  (attach、注入、放行 —— 它停在 `waitForDebuggerOnStart` 上,一行脚本
+  都没跑过),再发 `activateTarget`,再等它报。
+- **等不到不许静默成功。** 超时之后**主动问一次**
+  `document.visibilityState`(这仍然是观测,不是猜);还问不到就**报错**,
+  说"切过去了但那一页没确认自己在前台"。悄悄当它成了,正是那个 bug 的做法。
+
+唯一一处我们不得不猜的地方在 `_forget()`:当值那个 tab 刚被关掉,
+表里留一个指向死人的 `active` 比猜错更糟(画面不知道该跟谁、不带下标的
+命令没有落点)。所以先挪到邻居上、同时发个信号,**然后照样等观测纠正**。
+
+### 3.3 代价,说在明处
+
+**一、`resolve_tab(None)` 的语义变了** —— 从「我们表里记的那一页」变成
+**「屏幕上那一页」**。后者更好解释,但它是个行为变更:人点了个
+`target=_blank`,前台跟着换,**不带下标的下一条命令也跟着换**。
+要确定性就带下标(`-t nt:0`),那本来就是 agent 该用的。
+
+**二、广告能搭 agent 那次点击的顺风车。** Chrome 会拦掉没有用户手势的
+`window.open`,但 agent 的 click 就是一次手势 —— 页面可以顺手弹一个前台 tab。
+缓解是上面那条(带下标),而且这件事现在**看得见**:tab 条会跳、
+流水里有 `tab.activated`,不再是悄悄不一致。
+
+**三、页面疯狂抢前台我们不打架。** 一个在 `window.focus()` 里打转的页面
+会让 tab 条一直跳。这是这条规则的固有代价,**不做防御,只记流水** ——
+它看得见,比悄悄歪着好。
+
+### 3.4 为什么这个 bug 在测试里全绿地跑了很久
+
+`v2_browser_new_tab` 用 Playwright 开真浏览器、连光标都验了,**照样没抓到**。
+三件事叠在一起:
+
+1. **四条断言,一份账。** bar 高亮、地址栏、后端 `active`、不带下标的命令
+   落在谁身上 —— 看着像交叉验证,其实全都是同一张表的四种呈现。
+   **一份账抄四遍,再怎么对账也对不出问题。**
+2. **画面只被问过"变没变",从没被问过"你放的是哪一页"。**
+   `paint()` 答得出 `colors > 1`(有东西)和 `sig` 变了(变过),
+   两样都答不了那一页的**身份**。
+3. **跑的是 JPG,而这个 bug 在 JPG 下是隐形的**(画面冻在上一帧,
+   前两条判据全过)。用户遇到的是 VNC,而那一段从来没在 VNC 上跑过。
+
+对应补了三样:判据换**来源**(页面的 `visibilityState`)、
+判据换**问题**(小站每页一个底色,于是"画面上是哪一页"答得出来)、
+以及**同一段在 VNC 腿上再跑一遍** —— 一条腿绿不能替另一条说话。
+
+测试在 [`tests/who_is_in_front/`](../../../tests/who_is_in_front/)
+和 [`v2_browser_new_tab`](../../../tests/v2_browser_new_tab/) 那条 VNC 用例。
 
 ## 4. 切 tab
 
 `/channel/cdp`:
 
 ```
+Target.activateTarget(新 target)      ← 只是个信号
+等它报 foreground:on                   ← 这一刻 active 才变(§3.2)
 Page.stopScreencast(旧 target)
-Target.activateTarget(新 target)
 Page.startScreencast(新 target)
 ```
 
-实测首帧延迟 **14–39 ms**,不可感知。
+实测首帧延迟 **14–39 ms**,不可感知。多出来的那一步(等确认)是同一个数量级
+的一个来回 —— 换来的是**命令返回时那件事已经真的成立了**。
 
 `/channel/xpra`:只需 `Target.activateTarget` —— 截的是同一个窗口,
 不存在"把截屏搬过去"这件事。
@@ -196,5 +285,6 @@ per-观看者的状态、tab 条要按观看者渲染、`tab.activated` 要带�
 | 画面里为什么没有 bar | [c §11](c-view.md#11-画面里没有-bar) |
 | 帧头为什么带 `targetId` | [e1 §1.1](e1-wire-format.md#11-下行二进制28-字节头--一整张图) |
 | 内置观看页与外部用同一组接口 | [e §8](e-client.md#8-ui-层内置那个页面不是界面) |
-| 落地在 | [`core/tabs.py`](../../../webmuxd/tabs.py) · [`view/cast.py`](../../../webmuxd/screen.py) 的 `follow()` |
-| 测试在 | [`tests/tab_identity/`](../../../tests/tab_identity/) · [`tests/v2_cli_new_tab/`](../../../tests/v2_cli_new_tab/) |
+| 落地在 | [`tabs.py`](../../../webmuxd/tabs.py) 的 `front_is()` · [`screen.py`](../../../webmuxd/screen.py) 的 `follow()` |
+| 「前台是谁」怎么观测的 | [`webmuxjs/sidecar/src/foreground.ts`](../../../webmuxjs/sidecar/src/foreground.ts) · `sessions.py` 的 `_on_foreground` / `_confirm_front` |
+| 测试在 | [`tests/tab_identity/`](../../../tests/tab_identity/) · [`tests/who_is_in_front/`](../../../tests/who_is_in_front/) · [`tests/v2_cli_new_tab/`](../../../tests/v2_cli_new_tab/) · [`tests/v2_browser_new_tab/`](../../../tests/v2_browser_new_tab/)(三种点法那条走 VNC) |

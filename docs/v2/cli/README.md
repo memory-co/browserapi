@@ -106,7 +106,7 @@
 | 3 | `session_not_found` `tab_gone` `session_exists` | **寻址落空** —— 没有那个 session/tab,或那个 id 已经被占了 |
 | 4 | `not_found` `not_clickable` | 找不到那个元素 / 点不了 |
 | 5 | `timeout` | 超时 |
-| 6 | `busy` `busy_human` | 有动作在跑,或**人正在操作** |
+| 6 | `busy` `busy_human` `tab_not_front` | 有动作在跑、**人正在操作**,或者切过去了但**那一页没确认自己在前台** |
 | 7 | `chrome_gone` `session_dead` `runtime_unavailable` `port_in_use` | 环境不行:浏览器没了、runtime 起不来、端口被占 |
 | 8 | `nav_failed` | **那一页打不开** —— 改地址、换 https、看网络。和 4(改定位)是两条路 |
 

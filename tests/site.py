@@ -30,6 +30,63 @@ _HEAD = ('<!doctype html><meta charset="utf-8">'
          '<style>body{{margin:0;font:16px/1.5 system-ui,monospace;padding:24px}}'
          'a{{color:#06c}} .row{{margin:10px 0}}</style>')
 
+#: **这一页现在是不是浏览器的前台。**
+#:
+#: 每一页都带着,因为它是**唯一一个不靠我们自己那张表**就能回答
+#: "浏览器到底把哪个 tab 放在前台"的东西 —— `document.visibilityState`
+#: 是标准的,DevTools 连上去也能独立读到同一个值。
+#:
+#: 为什么非要它:我们那张表里的 `active` 是**我们记的**,而浏览器自己
+#: 也会动前台(页面 `target=_blank` 开出来的那个,Chromium 直接切过去)。
+#: 两边一漂,VNC 上人看到的是新那页、tab 条却高亮着旧那页,**一句错都不报**。
+#: 拿我们的字段去验我们的字段永远是绿的,所以判据必须来自页面这一侧。
+#:
+#: `position:fixed` 且挪到屏外:读得到,但不进版面、不撑滚动条、
+#: 不出现在 `in_viewport` 的快照里 —— 别的场景当它不存在。
+_VIS = ('<span id="vis" style="position:fixed;left:-9999px;top:0"></span>'
+        '<script>(function(){var s=document.getElementById("vis");'
+        'function v(){s.textContent=document.visibilityState}'
+        'document.addEventListener("visibilitychange",v);v()})()</script>')
+
+
+#: **每一页一个底色。**
+#:
+#: 这不是装饰,是让"画面上现在是哪一页"**能被断言**。
+#:
+#: 原来观看端那一侧只答得出两件事:画面上有没有东西(`colors > 1`)、
+#: 和刚才比变没变(`sig`)。两样都答不了"你放的是哪一页" ——
+#: 而那正是用户报过来的那个 bug 的样子:tab 条说首页、**画面上是新闻页**。
+#: JPG 那条腿更阴:后台 tab 不产帧,画面**冻在上一帧**,
+#: "有东西"和"没变"两条判据它全过。
+#:
+#: 底色要**离得足够远**:推过来的是 JPEG,平坦区域偏个两三度,
+#: 靠最近邻匹配认回来(`v2kit.Human.showing`)。
+TINT = {
+    "/":       "#1f6feb",   # 蓝
+    "/news":   "#2ea043",   # 绿
+    "/about":  "#d29922",   # 琥珀
+    "/tall":   "#8957e5",   # 紫
+    "/search": "#bf3989",   # 品红
+    "/ticker": "#0f4f4f",   # 深青
+}
+
+#: 调色板里最近的两个隔多远(实测 87.6)—— `v2kit.Human.showing()`
+#: 的容差取它的一半,所以"认错页"和"认不出"之间没有灰带。
+
+#: 标题 → 路径。DOM 那条腿画面是一棵真 DOM,不是一张图,
+#: 认页靠 `title` 比认底色直接。
+TITLES = {
+    "小站首页": "/", "小站新闻": "/news", "关于": "/about",
+    "长页": "/tall", "一直在动": "/ticker",
+}
+
+
+def _head(title: str, path: str = "/") -> str:
+    tint = TINT.get(path, "#1f6feb")
+    return (_HEAD.format(title=title)
+            + f'<style>body{{background:{tint};color:#fff}}'
+            f'a{{color:#fff;text-decoration:underline}}</style>' + _VIS)
+
 
 #: 一张图和一份外链样式表。**它们是"资源转发"那条路的探针。**
 #:
@@ -50,7 +107,7 @@ def _abs(host: str, path: str) -> str:
 
 
 def _home(host: str) -> str:
-    return _HEAD.format(title="小站首页") + f"""
+    return _head("小站首页", "/") + f"""
 <link rel="stylesheet" href="{_abs(host, '/style.css')}">
 <img id="logo" src="{_abs(host, '/img.svg')}" width="64" height="64" alt="小站标">
 """ + """
@@ -71,7 +128,7 @@ def _search(host: str, q: str) -> str:
     rows = "".join(
         f'<div class="row"><a class="hit" href="/about">{safe} 的第 {i} 条结果</a></div>'
         for i in range(1, 6))
-    return _HEAD.format(title=f"{safe}_搜索结果") + f"""
+    return _head(f"{safe}_搜索结果", "/search") + f"""
 <link rel="stylesheet" href="{_abs(host, '/style.css')}">
 <img id="logo" src="{_abs(host, '/img.svg')}" width="64" height="64" alt="小站标">
 <h1 id="hello">搜索结果</h1>
@@ -82,7 +139,7 @@ def _search(host: str, q: str) -> str:
 
 
 def _news(host: str) -> str:
-    return _HEAD.format(title="小站新闻") + f"""
+    return _head("小站新闻", "/news") + f"""
 <link rel="stylesheet" href="{_abs(host, '/style.css')}">
 <img id="logo" src="{_abs(host, '/img.svg')}" width="64" height="64" alt="小站标">""" + """
 <h1 id="hello">新闻</h1>
@@ -97,15 +154,15 @@ def _tall() -> str:
     blocks = "".join(
         f'<div style="height:200px">第 {i} 格 · y={i * 200}</div>'
         for i in range(TALL // 200))
-    return _HEAD.format(title="长页") + f"""
+    return _head("长页", "/tall") + f"""
 <a id="top" href="#top">TOP</a>
-<div style="background:linear-gradient(#fff,#ddd)">{blocks}</div>
+<div>{blocks}</div>
 """
 
 
 def _ticker(host: str) -> str:
     """**一直在动的一页。** 用来验"后台 tab 的变化会不会混进来"。"""
-    return _HEAD.format(title="一直在动") + """
+    return _head("一直在动", "/ticker") + """
 <h1 id="hello">ticker</h1>
 <div class="row">这一页每 200ms 改一次下面那个数。</div>
 <div class="row">用来验:后台 tab 的变化会不会混进当前 tab 的增量链。</div>
@@ -116,7 +173,7 @@ def _ticker(host: str) -> str:
 
 
 def _about() -> str:
-    return _HEAD.format(title="关于") + """
+    return _head("关于", "/about") + """
 <h1 id="hello">关于</h1><p id="blurb">没什么可说的。</p>
 <div class="row"><a id="home" href="/">回首页</a></div>
 """

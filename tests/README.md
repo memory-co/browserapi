@@ -22,6 +22,7 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | [`pixels_from_xpra/`](pixels_from_xpra/) | **换一条像素来源,别的一律不动**:上行白名单是闭集(输入包一个过不去)、xpra 下不发 `startScreencast` 但照发 `activateTarget`、rencodeplus 两边对得上、**观看页的脚本能被解析** |
 | [`no_desktop/`](no_desktop/) | **六类原生 UI 用 CDP 收回来**:拦得下来、回填得进去、超时不静默。判据是页面自己动了,不是我们收到了事件 |
 | [`tab_identity/`](tab_identity/) | **tab 表就是 target 表**:`t_N` 不复用、`reason` 靠 `openerId` 分、关掉和被挤掉是两回事、先建后挤 |
+| [`who_is_in_front/`](who_is_in_front/) | **浏览器把哪一页放在前台,那就是 `active`** —— 那张表里原来唯一一本"我们自己记的账"。我们的命令只是信号,`activate()` **返回即为真**;第三方抢走前台我们跟着走。判据取自页面那一侧的 `visibilityState`,由第二条 CDP 读回来 |
 | [`pointing_at_things/`](pointing_at_things/) | **按人看得见的字找**:分档匹配命中即停、有歧义给候选不替你挑、找不到也要说这页上有什么 |
 | [`doing_and_seeing/`](doing_and_seeing/) | **做一下再看看**:变化变成一句人话(没变就不说)、观测一次给全、标注层用完就撤 |
 | [`the_scrollback/`](the_scrollback/) | **日志是 scrollback 不是事件流**:三类、按条数切、`seq` 跨重启、半行不毁全份、能打包带走 |
@@ -36,13 +37,13 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | 目录 | 面 | 测什么 |
 |---|---|---|
 | [`v2_cli_simple/`](v2_cli_simple/) | cli | **一条完整的路**:起服务 → 开 session → 打开百度 → 搜一个词 → 看到结果。走 **VNC(有头)**,顺带验那条腿 |
-| [`v2_cli_new_tab/`](v2_cli_new_tab/) | cli | **点一个 `target=_blank` 的链接,弹出来的是个 tab**:opener 认得爹、焦点不跟过去。走 **JPG(无头)**,验另一条腿 |
+| [`v2_cli_new_tab/`](v2_cli_new_tab/) | cli | **点一个 `target=_blank` 的链接,弹出来的是个 tab**:opener 认得爹、**前台跟着浏览器走**(它把新那个开在前台)。走 **JPG(无头)**,验另一条腿 |
 | [`v2_cli_session/`](v2_cli_session/) | cli | **两个 session,各干各的**:各去各的地址、号不串、日志不串、**关掉一个另一个照常能用**。替掉了 `session_identity/` |
 | [`v2_refs/`](v2_refs/) | 数据 | **`@e1` 这个号的规矩**,不起浏览器:四种失败各说各的话、只增不重用、**不跨文档** |
 | [`v2_browser_simple/`](v2_browser_simple/) | browser | **一个真人打开观看页会撞上什么**:Playwright 起一个真浏览器,点一下、敲几个键、把窗口拉小 —— 里面真的动了,观看页一条错都没报 |
 | [`v2_browser_modes/`](v2_browser_modes/) | browser | **换画面,而且换得回来**:VNC → JPG → VNC。判据是画布上真的有东西(数颜色),不是"有尺寸"。**这一条是被一个 bug 逼出来的** —— 切回 VNC 曾经什么都不做,还不报错 |
 | [`v2_browser_reconnect/`](v2_browser_reconnect/) | browser | **网抖一下,画面回不回得来**。挖出 `/channel/xpra` 根本不重连 —— VNC 下网一抖画面就永远停在最后一帧。判据是**新帧在流**,不是"画面上有东西" |
-| [`v2_browser_new_tab/`](v2_browser_new_tab/) | browser | **那条 tab 条跟不跟得上**:人在画面上点 `target=_blank`、点 tab、点 `×`、点 `＋`、地址栏敲回车 —— 每一下之后**两边都看**。「外挂的 bar 和真的那张表是同一份数据」这句话以前没人验 |
+| [`v2_browser_new_tab/`](v2_browser_new_tab/) | browser | **那条 tab 条跟不跟得上**:人在画面上点 `target=_blank`、点 tab、点 `×`、点 `＋`、地址栏敲回车 —— 每一下之后**六样一起看**,而且其中两样**不来自我们那张表**(页面的 `visibilityState`、画面上到底是哪一页)。最后一条跑 **VNC**:**同一个链接三种点法** —— 普通左键前台开、Ctrl+左键和中键后台开,画面各自跟对。这条只能在 VNC 上验,JPG 下画面冻在上一帧,判据穿不透 |
 
 三条规矩写在 [`v2kit.py`](v2kit.py) 开头:
 

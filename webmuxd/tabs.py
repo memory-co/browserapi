@@ -6,8 +6,17 @@ docs/v1/works/06-tab-sync.md 和 docs/v1/api/tabs.md 是这份代码的规格。
 
 1. **`t_N` 是我们自己分配的,关掉之后不复用。** CDP 的 targetId 是 32 位 hex、
    Chromium 一重启就全变;而日志和历史观测里的 `t_7` 必须永远指同一个东西。
-2. **`active` 不是观测出来的,是我们记的。** CDP 根本没有"tab 被激活了"这种事件,
-   所以别去猜 —— 我们改自己的字段,再用 `Target.activateTarget` 把 Chromium 拽过来对齐。
+2. **`active` 是观测出来的,不是我们记的。** 它就一个意思:**浏览器现在把哪一页
+   放在前台**。我们的命令(`open` / `activate`)只是**发个信号**,信号发出去不算数,
+   要等那一页自己报回来"我是前台了"(`front_is()`)才记账。
+   **这条规矩没有例外,包括我们自己发的命令。**
+
+   为什么让浏览器说了算:"前台开还是后台开"这个判断 Chromium 已经做完了,
+   而且做得对 —— 实测同一个 `target=_blank` 链接,普通左键**前台开**、
+   Ctrl+左键和中键**后台开**;而我们那条输入腿本来就把 `modifiers` 和 `button`
+   原样转给了 CDP。**人的意图靠手势表达,Chromium 解释它,结果就是前台是谁。**
+   我们没有比这更好的判据,自己再记一本只会漂
+   ([f §3](../docs/v2/works/f-tabs.md))。
 3. **同时开着的 tab 有上限,超了挤掉最不活跃的。** 每个活着的 tab 是一个渲染进程,
    而失控的通常不是人,是页面 `window.open` 一串或者循环里忘了关。
 """
@@ -20,10 +29,10 @@ import logging
 import os
 import time
 from contextlib import suppress
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from webmuxd.cdp import CDP, CDPError
-from webmuxd.exceptions import BadRequest, TabGone
+from webmuxd.exceptions import BadRequest, TabGone, TabNotFront
 from webmuxd.models import TabInfo
 
 log = logging.getLogger("webmuxd.tabs")
@@ -54,10 +63,19 @@ class TabTable:
         *,
         emit: Callable[[str, dict], Any] | None = None,
         tab_max: int = TAB_MAX,
+        prepare: Callable[[str], Awaitable[None]] | None = None,
+        confirm: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         self._cdp = cdp
         self._emit = emit or (lambda *_: None)
         self._tab_max = tab_max
+        #: **把那一页准备好** —— attach、注入探针、放行。
+        #: 不做的话它一行脚本都没跑过(`waitForDebuggerOnStart`),
+        #: 于是"等它报自己是前台"是在等一个永远不会来的东西。
+        self._prepare = prepare
+        #: **前台真的是它了吗。** 由上层去问那一页(`document.visibilityState`)。
+        #: 没给就退化成"发了就算"—— 只有裸用 `TabTable` 的测试会这样。
+        self._confirm = confirm
 
         self._by_id: dict[str, TabInfo] = {}
         self._by_target: dict[str, str] = {}
@@ -196,6 +214,15 @@ class TabTable:
             self._emit("tab.created", {"tab": tab.to_json(
                 index=self.index_of(tab_id), active=tab_id == self._active), "reason": reason})
 
+            # **这儿不碰前台。**
+            #
+            # 原来这里有一句 `_enforce_active()`,把浏览器按回我们说的那个上 ——
+            # 那是"我们记账"那套的最后残余,而且它**正好抹掉 Chromium 已经
+            # 判对了的那件事**:普通左键前台开、Ctrl+左键和中键后台开,
+            # 一视同仁按回去就是把人的手势判断也一起按没了。
+            #
+            # 现在前台是谁由那一页自己报(`front_is()`),这儿只管把它收进表里。
+
         # protect:刚建出来的那个不能被自己挤掉(api/tabs.md §3「先建后挤」)。
         # 光靠 LRU 顺序保护不住 —— 上限很小时,排除掉激活的之后,
         # 唯一的候选恰好就是它自己。
@@ -267,10 +294,16 @@ class TabTable:
         self._retired[tab_id] = {"reason": reason, "final_url": tab.url}
 
         if self._active == tab_id:
-            # 焦点落到邻居,而不是留个空 —— 画面上总得显示点什么
+            # **这是全项目唯一一处我们不得不猜的地方。**
+            #
+            # 别处 `active` 一律等观测(`front_is`)。但当值那个 tab 刚没了,
+            # 表里留一个指向死人的 `active` 比猜错更糟:画面不知道该跟谁、
+            # 不带下标的命令没有落点。所以先把它挪到邻居上,同时发一个
+            # `activateTarget` 当信号 —— **然后照样等观测**:Chromium 要是
+            # 选了别的那一页,它会自己报上来,`front_is()` 会纠正这一下。
             self._active = self._order[-1] if self._order else None
             if self._active:
-                asyncio.create_task(self._enforce_active())
+                asyncio.create_task(self._signal_front(self._active))
         self._emit("tab.closed", {"id": tab_id, "active": self._active,
                                   "reason": reason, "final_url": tab.url})
 
@@ -290,29 +323,62 @@ class TabTable:
     # ------------------------------------------------------------- active
 
     async def activate(self, tab_id: str) -> TabInfo:
-        """切过去。
+        """切过去 —— **发个信号,然后等它真的成立**。
 
-        **我们改自己的字段,再把 Chromium 拽过来对齐**,不是反过来观测
-        (api/tabs.md §5)。CDP 没有"tab 被激活了"这种事件,所以没得观测。
+        三步,顺序是硬的:
+
+        1. **先把那一页准备好**(`_prepare`):attach、注入探针、放行。
+           新建的 target 停在 `waitForDebuggerOnStart` 上,一行脚本都没跑过 ——
+           不先放行的话第 3 步是在等一个永远不会来的东西。
+        2. `Target.activateTarget` —— **只是个信号**,不代表事情成了。
+        3. **等那一页自己报"我是前台了"**(`_confirm`),报到了才 `front_is()`。
+
+        原来是反过来的:先改 `self._active`,再去发命令,然后宣布。
+        那等于**先记账再去做**,而账和事实会漂 —— 这次那个"画面上是新闻页、
+        tab 条却指着首页"就是这么来的。
+
+        **等不到不算成功**,抛出去。悄悄当它成了正是那个 bug 的做法。
         """
         tab = self.get(tab_id)
-        previous, self._active = self._active, tab_id
-        tab.touched_at = time.time()
-        await self._enforce_active()
-        if previous != tab_id:
-            self._emit("tab.activated", {"id": tab_id, "previous": previous})
+        if self._prepare is not None:
+            await self._prepare(tab_id)
+        try:
+            await self._cdp.send("Target.activateTarget",
+                                 {"targetId": tab.target_id})
+        except CDPError as e:
+            raise TabGone(f"{tab_id} 切不过去:{e}", code="tab_gone",
+                          details={"reason": "closed"}) from e
+        if self._confirm is not None and not await self._confirm(tab_id):
+            raise TabNotFront(
+                f"{tab_id} 的 activateTarget 发出去了,但那一页没确认自己在前台 ——"
+                "它可能崩了、或者我们那段探针没注进去",
+                details={"tab": tab_id, "url": tab.url})
+        self.front_is(tab_id)
         return tab
 
-    async def _enforce_active(self) -> None:
-        """把画面对齐到记录上。已经对着就是个空操作。"""
-        if not self._active:
+    def front_is(self, tab_id: str) -> None:
+        """**观测说前台是它了。** 这是唯一改 `_active` 的地方。
+
+        两个调用点,含义相同:`activate()` 里等到确认那一刻,
+        以及页面自己报上来那一刻(浏览器替人做了决定 —— 人点了个
+        `target=_blank`)。**两条路我们都只是记录,不做主。**
+        """
+        if tab_id not in self._by_id or self._active == tab_id:
             return
-        tab = self._by_id.get(self._active)
-        if tab:
-            try:
-                await self._cdp.send("Target.activateTarget", {"targetId": tab.target_id})
-            except CDPError as e:
-                log.debug("activateTarget 没成:%s", e)
+        previous, self._active = self._active, tab_id
+        self._by_id[tab_id].touched_at = time.time()
+        self._emit("tab.activated", {"id": tab_id, "previous": previous})
+
+    async def _signal_front(self, tab_id: str) -> None:
+        """只发信号,不记账 —— 记账是 `front_is()` 的事。"""
+        tab = self._by_id.get(tab_id)
+        if not tab:
+            return
+        try:
+            await self._cdp.send("Target.activateTarget",
+                                 {"targetId": tab.target_id})
+        except CDPError as e:
+            log.debug("activateTarget 没成:%s", e)
 
     def touch(self, tab_id: str) -> None:
         """记一笔"这个 tab 刚被操作过" —— LRU 挤谁看它。"""

@@ -64,17 +64,43 @@ def test_clicking_a_blank_link_becomes_a_tab(cli):
     assert born["reason"] == "page", "页面自己开的,不是人开的"
     assert born["url"].endswith("/news"), f"点「{MENU}」该去新闻页:{born['url']}"
 
-    # **焦点没跟过去。** 浏览器里点 `target=_blank` 会切过去,我们不切 ——
-    # 因为切了就等于替调用方决定"接下来看哪个",而它可能正在别的 tab 上干活。
-    # 要切是一条独立的命令。
-    assert cli.api("tabs", "-t", "nt")["active"] == first
+    # **焦点跟过去了 —— 因为浏览器把它开在前台。**
+    #
+    # 这条以前是反着写的("焦点不跟过去,切了就等于替调用方决定接下来看哪个")。
+    # 那条规矩**只写在我们自己的字段里**,浏览器那边从没成立过 ——
+    # 它同时是假的和全绿的,而用户看到的是"画面上是新闻页、tab 条指着首页"。
+    #
+    # 现在 `active` 就是**浏览器把哪一页放在前台**。而"前台开还是后台开"
+    # 这件事 Chromium 判得比我们好:普通左键前台开、Ctrl+左键和中键后台开
+    # (三种点法的实测在 `v2_browser_new_tab`,那条走完整条输入腿)。
+    cli.until(lambda: cli.api("tabs", "-t", "nt")["active"], born["id"],
+              what="active 跟到浏览器放在前台的那一页")
+
+    # **而且这不是我们那张表的一面之词。**
+    # 判据来自页面自己(`site._VIS` 里那个 `document.visibilityState`)——
+    # 拿我们的字段验我们的字段,漂的时候一样是绿的。
+    assert cli.out("get", "text", "-t", f"nt:{born['index']}",
+                   "--css", "#vis").strip() == "visible", \
+        "我们说 active 是它,浏览器却没把它放在前台"
+    assert cli.out("get", "text", "-t", "nt:0", "--css", "#vis").strip() == "hidden", \
+        "原来那一页该退到后台了"
+
+    # 不带下标的命令跟着落到屏幕上那一页 —— 这就是 `resolve_tab(None)` 的语义
+    assert cli.out("url", "-t", "nt").strip().endswith("/news")
 
     # ------------------------------------------------ 新 tab 上照样能用
     #
     # `-t session:tab` 一个语法寻址到具体哪个 tab。
     here = f"nt:{born['index']}"
+    # 切回第一个再切过来 —— **验的是 `select-tab` 自己那条路**,
+    # 而不是蹭上面浏览器已经切好的结果。
+    cli.run("select-tab", "-t", "nt:0")
+    assert cli.api("tabs", "-t", "nt")["active"] == first
     cli.run("select-tab", "-t", here)
     assert cli.api("tabs", "-t", "nt")["active"] == born["id"]
+    # **`select-tab` 返回的时候那件事已经成了。** 它不是"发出去就返回" ——
+    # 所以这儿一次都不用等。
+    assert cli.out("get", "text", "-t", here, "--css", "#vis").strip() == "visible"
     assert cli.out("url", "-t", "nt").strip().endswith("/news")
 
     # **等的是那个 tab,不是当前 tab。** 上面那次 `tabs` 只证明"记录有了",

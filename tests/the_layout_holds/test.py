@@ -18,7 +18,7 @@ PKG = ROOT / "webmuxd"
 LAYERS = [
     "models exceptions logfmt",
     "processes config cdp log",
-    "tabs act locate capture probe browser_ui frames quality input cursor "
+    "tabs act locate capture sidecar browser_ui frames quality input cursor "
     "jpg xpra rrweb",
     "screen sessions",
     "serve",
@@ -109,6 +109,25 @@ def test_三条腿互不认识(leg):
     others = {"jpg", "xpra", "rrweb"} - {leg}
     got = {m for m, _ in _imports(PKG / f"{leg}.py")}
     assert not (got & others), f"{leg}.py import 了 {got & others}"
+
+
+def test_那个_binding_两边写的是同一个名字():
+    """**页面里那个函数名,Python 和 TypeScript 各写了一遍。**
+
+    不一样的后果特别难查:`addBinding` 照样成功、页面里那个函数照样在、
+    页面照样调它 —— **服务端一条都收不到,而且不报错**。表现是光标永远
+    是箭头、人的操作不进流水、前台漂了没人知道,三样一起没。
+
+    两处各写一遍是没法避免的(一个在 Python 里发 CDP,一个在页面里被调),
+    那就把"它们必须一样"这件事验起来。
+    """
+    from webmuxd import sidecar
+
+    ts = (ROOT / "webmuxjs" / "sidecar" / "src" / "wire.ts").read_text()
+    m = re.search(r'export const BINDING = "([^"]+)"', ts)
+    assert m, "wire.ts 里那行 `export const BINDING` 找不到了"
+    assert m.group(1) == sidecar.BINDING, \
+        f"两边对不上:wire.ts 是 {m.group(1)!r},sidecar.py 是 {sidecar.BINDING!r}"
 
 
 # --------------------------------------------------------------------------

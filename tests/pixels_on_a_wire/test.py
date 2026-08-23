@@ -518,9 +518,13 @@ async def test_人的动作进日志_但密码不进(live):
 
 
 def test_探针不许去读表单控件的_value():
-    """不依赖跑浏览器的那一半 —— **永远会跑**。"""
-    from webmuxd import probe
-    js = probe.HUMAN_INPUT_JS
-    assert "e.target.value" not in js and "el.value" not in js, \
-        "输入探针又去读 value 了 —— 密码框上那就是明文"
+    """不依赖跑浏览器的那一半 —— **永远会跑**。
+
+    **读的是建出来那份**,不是 `.ts` 源码。装进页面的就是这一份;
+    盯着源码而放过产物,等于把"构建有没有把它带上"这半段留在外面。
+    行为那一半在 `webmuxjs/sidecar/test/label.test.ts`。
+    """
+    from webmuxd import sidecar
+    js = sidecar.source()
+    assert ".value" not in js, "输入探针又去读 value 了 —— 密码框上那就是明文"
     assert "aria-label" in js and "placeholder" in js, "得从标签取控件身份"

@@ -363,13 +363,18 @@ class Human:
       const g = off.getContext('2d');
       try { g.drawImage(el, 0, 0); } catch (e) { return {kind: 'tainted', w, h, colors: -1}; }
       const d = g.getImageData(0, 0, w, h).data;
-      const seen = new Set();
+      const seen = new Map();
       let sig = 0;
       for (let i = 0; i < d.length; i += 4 * 997) {
-        seen.add(`${d[i]},${d[i+1]},${d[i+2]}`);
+        const k = `${d[i]},${d[i+1]},${d[i+2]}`;
+        seen.set(k, (seen.get(k) || 0) + 1);
         sig = (sig * 31 + d[i] + d[i+1] * 7 + d[i+2] * 13) >>> 0;
       }
-      return {kind: el.tagName.toLowerCase(), w, h, colors: seen.size, sig};
+      // **占地最大的那个颜色。** 小站每页一个底色,所以它就是"这是哪一页" ——
+      // 见 `Human.showing()`。
+      let top = '', n = 0;
+      for (const [k, c] of seen) if (c > n) { top = k; n = c; }
+      return {kind: el.tagName.toLowerCase(), w, h, colors: seen.size, sig, top};
     }"""
 
     def paint(self) -> dict:
@@ -475,21 +480,46 @@ class Human:
         return self.page.eval_on_selector(self.screen_sel(),
                                           "e => e.style.cursor || ''")
 
-    def hover(self, el: dict, settle_ms: int = 900) -> str:
-        """把鼠标移到里面那个元素上,返回**这时人看到的光标**。"""
+    def hover(self, el: dict, want: str = "", *, timeout: float = 8) -> str:
+        """把鼠标移到里面那个元素上,返回**这时人看到的光标**。
+
+        `want` 给了就**等它变成那样**;没给就等它和移之前不一样 ——
+        光标那条通道是"值变了才上报"的,所以"变了"本身就是那件事发生了。
+
+        原来这儿是 `wait_for_timeout(900)`。900 毫秒是在赌一个来回:
+        鼠标事件出去、页面算完形状、binding 报回来、观看页写进 `style.cursor`。
+        机器一忙就不够 —— 全量里那条"移开该变回箭头、实际还是 text"就是这么红的,
+        而**单跑永远绿**。这类红最坏的地方不是慢,是它看着像产品的偶发。
+
+        **等不到不在这儿抛。** 调用方本来就要断言那个值,
+        让它去报 —— 它那句话里带着实际读到的光标,比一句超时有用。
+        """
+        was = self.cursor()
         x, y = self.point_for(el)
         self.page.mouse.move(x, y)
-        self.page.wait_for_timeout(settle_ms)
+        ok = ((lambda: want in self.cursor()) if want
+              else (lambda: self.cursor() != was))
+        with contextlib.suppress(AssertionError):
+            self._until(ok, f"光标变成 {want or '别的什么'}", timeout=timeout,
+                        show=self.cursor)
         return self.cursor()
 
-    def hover_blank(self, settle_ms: int = 900) -> str:
-        """移到画面左下角那块空地上。**光标是"变了才报",得先有个起点。**"""
+    def hover_blank(self, *, timeout: float = 8) -> str:
+        """移到画面左下角那块空地上,**等它真的变回箭头**。
+
+        **光标是"变了才报",得先有个起点** —— 不回空地就分不清
+        "本来就是手"和"刚变成手"。所以这一下必须**等到位**,
+        它是后面那些断言的前提。
+        """
         rect = self.screen().bounding_box()
         self.page.mouse.move(rect["x"] + 20, rect["y"] + rect["height"] - 30)
-        self.page.wait_for_timeout(settle_ms)
+        with contextlib.suppress(AssertionError):
+            self._until(lambda: self.cursor() in ("", "default", "auto"),
+                        "光标回到箭头", timeout=timeout, show=self.cursor)
         return self.cursor()
 
-    def click(self, el: dict) -> tuple[float, float]:
+    def click(self, el: dict, *, button: str = "left",
+              ctrl: bool = False) -> tuple[float, float]:
         """在画面上点里面那个元素,**等到服务端真的收到那一下**。
 
         返回点的是屏幕上哪一点(报错时好看)。
@@ -497,10 +527,24 @@ class Human:
         以前这儿是睡 1200 毫秒 —— 那是在赌"一个来回够了"。
         机器一忙就不够,而不够的表现是红在后面某个莫名其妙的地方。
         现在等的是日志里那条 `pointerdown`:**它到了才算点了**。
+
+        `button` / `ctrl` 存在的理由只有一个:**`target=_blank` 上,
+        普通左键是前台开、Ctrl+左键和中键是后台开**,而那个判断归 Chromium
+        ([f §3](../docs/v2/works/f-tabs.md))。
+
+        **它们走的是真人那条路** —— Playwright 按真的中键、真的按住 Ctrl,
+        观看页自己的 `pointer.ts` 从 DOM 事件里读出 `e.button` 和 `mods(e)`
+        再发上去。**不给观看页开测试后门**:那样验的就不是人点下去会怎样了。
         """
         before = self.log_seq()
         x, y = self.point_for(el)
-        self.page.mouse.click(x, y)
+        if ctrl:
+            self.page.keyboard.down("Control")
+        try:
+            self.page.mouse.click(x, y, button=button)
+        finally:
+            if ctrl:
+                self.page.keyboard.up("Control")
         self.wait_logged(before, "pointerdown")
         return x, y
 
@@ -736,6 +780,52 @@ class Human:
     def quality_badge(self) -> str:
         """右下角那块牌子上写着什么 —— **人一眼看到的"现在是哪一种"**。"""
         return self.page.locator("#q-now").inner_text().strip()
+
+    def showing(self) -> str:
+        """**画面上现在放的是小站的哪一页。**
+
+        这个方法补的是一个空缺,而那个空缺**让一个用户报上来的 bug
+        在这套测试里全绿地跑了很久**:观看端这一侧原来只答得出两件事 ——
+        画面上有没有东西(`colors > 1`)、和刚才比变没变(`sig`)。
+        两样都答不了"你放的是哪一页"。
+
+        而那个 bug 的样子恰恰是:tab 条、地址栏说首页,**画面上是新闻页**。
+        JPG 那条腿更阴 —— 后台 tab 不产帧,画面**冻在上一帧**,
+        "有东西"和"没变"两条判据它全过。
+
+        判法按腿分,但**答案是同一种东西**(小站的一个路径):
+
+        - JPG / VNC:一张图。认**占地最大的那个颜色** —— 小站每页一个底色
+          (`site.TINT`)。推过来的是 JPEG,平坦区域会偏个两三度,所以是
+          最近邻匹配,不是等值比较。
+        - DOM:一棵真 DOM,不是图。直接读 `title`(`site.TITLES`)。
+
+        认不出来就返回 `"?"` —— **说不出来就不说**,不猜一个最像的。
+        """
+        from tests import site as _site
+
+        p = self.paint()
+        if p.get("kind") == "dom":
+            return _site.TITLES.get((p.get("title") or "").strip(), "?")
+
+        top = p.get("top") or ""
+        try:
+            got = tuple(int(v) for v in top.split(","))
+        except ValueError:
+            return "?"
+        if len(got) != 3:
+            return "?"
+
+        best, how_far = "?", 1 << 30
+        for path, hexv in _site.TINT.items():
+            want = tuple(int(hexv[i:i + 2], 16) for i in (1, 3, 5))
+            d = sum((a - b) ** 2 for a, b in zip(got, want))
+            if d < how_far:
+                best, how_far = path, d
+        # 40 是**认得出**和**瞎认**之间那条线:调色板里最近的两个隔着 87.6,
+        # 取它的一半 —— 于是不存在"同时像两页"的灰带;而 JPEG 在平坦区域
+        # 的偏差(个位数)远在这之内。
+        return best if how_far <= 40 ** 2 else "?"
 
 
 @contextlib.contextmanager
