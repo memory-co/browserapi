@@ -35,7 +35,7 @@ from typing import Any, Callable
 import aiohttp
 from aiohttp import WSMsgType, web
 
-from webmuxd import models
+from webmuxd import extension, models
 from webmuxd.exceptions import unavailable
 
 #: 虚拟显示开多大。**建好就改不了,所以一次给够。**
@@ -232,6 +232,8 @@ def build_chrome_argv(exe: str, *, cdp_port: int, profile: str, url: str,
     argv = [exe, *KIOSK_ARGS,
             f"--remote-debugging-port={cdp_port}",
             f"--user-data-dir={profile}",
+            # 和 headless 那条一样装那个扩展 —— **两条腿不该在这件事上不一样**
+            *extension.args(),
             # 窗口尺寸给满,kiosk 下它就是整个显示
             "--window-position=0,0",
             # **多要 2 像素。** 实测 `--window-size=1024,768` 在 1024×768 的显示上

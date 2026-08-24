@@ -22,6 +22,7 @@ fixture 来源)和 `test.py`。相关的用例合并在一个场景下,跟「按
 | [`pixels_from_xpra/`](pixels_from_xpra/) | **换一条像素来源,别的一律不动**:上行白名单是闭集(输入包一个过不去)、xpra 下不发 `startScreencast` 但照发 `activateTarget`、rencodeplus 两边对得上、**观看页的脚本能被解析** |
 | [`no_desktop/`](no_desktop/) | **六类原生 UI 用 CDP 收回来**:拦得下来、回填得进去、超时不静默。判据是页面自己动了,不是我们收到了事件 |
 | [`tab_identity/`](tab_identity/) | **tab 表就是 target 表**:`t_N` 不复用、`reason` 靠 `openerId` 分、关掉和被挤掉是两回事、先建后挤 |
+| [`the_extension/`](the_extension/) | **那个扩展装上了没有、在不在干活**:判据是它**自报家门**的那个标记(不靠文件名、不靠"我们传了参数"),以及 `Browser.getWindowForTarget` 给的 `windowId`。顺带盯住权限面:只要 `tabs`、**没有 host 权限、没有内容脚本** |
 | [`who_is_in_front/`](who_is_in_front/) | **浏览器把哪一页放在前台,那就是 `active`** —— 那张表里原来唯一一本"我们自己记的账"。我们的命令只是信号,`activate()` **返回即为真**;第三方抢走前台我们跟着走。判据取自页面那一侧的 `visibilityState`,由第二条 CDP 读回来 |
 | [`pointing_at_things/`](pointing_at_things/) | **按人看得见的字找**:分档匹配命中即停、有歧义给候选不替你挑、找不到也要说这页上有什么 |
 | [`doing_and_seeing/`](doing_and_seeing/) | **做一下再看看**:变化变成一句人话(没变就不说)、观测一次给全、标注层用完就撤 |

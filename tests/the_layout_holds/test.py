@@ -18,7 +18,7 @@ PKG = ROOT / "webmuxd"
 LAYERS = [
     "models exceptions logfmt",
     "processes config cdp log",
-    "tabs act locate capture sidecar browser_ui frames quality input cursor "
+    "tabs act locate capture sidecar extension browser_ui frames quality input cursor "
     "jpg xpra rrweb",
     "screen sessions",
     "serve",

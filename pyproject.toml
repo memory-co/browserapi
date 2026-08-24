@@ -53,7 +53,7 @@ include = ["webmuxd*"]
 # 开发机上跑的是源码目录,一切正常。写成通配,以后加 css/svg 也不会再漏一次。
 #
 # `_client/` 是浏览器端那份的落地处(原 `webmuxd/view/static/`)。
-"webmuxd" = ["_client/*", "_sidecar/*"]
+"webmuxd" = ["_client/*", "_sidecar/*", "_extension/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

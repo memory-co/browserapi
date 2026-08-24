@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "webmuxd",
+  "version": "0.1.0",
+  "description": "webmuxd 用它接管浏览器自己那几件事 —— 不注入页面。",
+  "permissions": ["tabs"],
+  "background": { "service_worker": "sw.js" }
+}

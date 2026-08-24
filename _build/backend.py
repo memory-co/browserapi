@@ -31,6 +31,11 @@ DEST = ROOT / "webmuxd" / "_client"
 SIDE_SRC = ROOT / "webmuxjs" / "sidecar"
 SIDE_DEST = ROOT / "webmuxd" / "_sidecar"
 
+#: 装进被控浏览器的那个扩展。**产物是一个目录** —— `--load-extension`
+#: 只收目录,所以这一份不能像 sidecar 那样拷一个文件了事。
+EXT_SRC = ROOT / "webmuxjs" / "extension"
+EXT_DEST = ROOT / "webmuxd" / "_extension"
+
 
 def _say(msg: str) -> None:
     print(f"[webmuxd] {msg}", file=sys.stderr)
@@ -108,9 +113,43 @@ def build_sidecar() -> None:
     _say(f"页面里那段 → {out.relative_to(ROOT)}({out.stat().st_size} 字节)")
 
 
+def build_extension() -> None:
+    """那个扩展。规矩和前两样一样,只有一处不同:**产物是整个目录**。"""
+    npm = shutil.which("npm") if EXT_SRC.exists() else None
+    need = ("manifest.json", "sw.js")
+
+    if npm is None:
+        if all((EXT_DEST / f).exists() for f in need):
+            why = "没有 webmuxjs/extension/" if not EXT_SRC.exists() else "本机没有 npm"
+            _say(f"{why},用已经建好的 {EXT_DEST.name}/")
+            return
+        raise SystemExit(
+            "那个扩展既建不了也没有现成的:"
+            f"{'没有 ' + str(EXT_SRC) if not EXT_SRC.exists() else '本机没有 npm'},"
+            f"而 {EXT_DEST}/ 里也不全 —— 打不出完整的包。")
+
+    if not (EXT_SRC / "node_modules").exists():
+        _say("npm install(extension)…")
+        subprocess.run([npm, "install", "--no-audit", "--no-fund"],
+                       cwd=EXT_SRC, check=True)
+    _say("npm run build(extension)…")
+    subprocess.run([npm, "run", "build"], cwd=EXT_SRC, check=True)
+
+    dist = EXT_SRC / "dist"
+    missing = [f for f in need if not (dist / f).exists()]
+    if missing:
+        raise SystemExit(f"构建完了但 {dist} 里少 {missing} —— 构建配置改坏了?")
+
+    if EXT_DEST.exists():
+        shutil.rmtree(EXT_DEST)
+    shutil.copytree(dist, EXT_DEST)
+    _say(f"扩展 → {EXT_DEST.relative_to(ROOT)}/({len(list(EXT_DEST.iterdir()))} 个文件)")
+
+
 def _build_all() -> None:
     build_client()
     build_sidecar()
+    build_extension()
 
 
 def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):

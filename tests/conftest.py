@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import time
+import urllib.request
 
 import pytest
 
@@ -72,6 +73,48 @@ def chromium_endpoint():
     # **profile 目录也要收。** 一个 chrome profile 几十兆,一轮测试几十个 ——
     # 不收的话它只是攒着,直到有人发现 /tmp 有几百个 `wm-*`
     shutil.rmtree(profile, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def chromium_endpoint_with_extension():
+    """起一个**装着那个扩展**的 Chromium。
+
+    和 `chromium_endpoint` 分开一个,而不是给它加参数:那个是 session 级的、
+    别处都在用,**改它等于改所有用例跑在什么浏览器上**。而这儿要问的恰恰是
+    "装了扩展会怎样",所以它必须是自己那一个。
+    """
+    from webmuxd import extension
+
+    if not CHROMIUM:
+        pytest.skip("本机没有浏览器 —— 跑 `webmuxd install` 下一个")
+    if extension.path() is None:
+        pytest.skip("扩展没建出来 —— 在 webmuxjs/extension/ 里 npm run build")
+
+    port = _free_port()
+    profile = os.path.join("/tmp", f"wm-ext-{port}")
+    proc = subprocess.Popen(
+        [CHROMIUM, "--headless=new", "--no-sandbox", "--disable-gpu",
+         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+         f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
+         f"--user-data-dir={profile}", *extension.args(), "about:blank"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(200):
+        try:
+            urllib.request.urlopen(f"{url}/json/version", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.05)
+    else:
+        proc.terminate()
+        pytest.fail("装了扩展的 Chromium 起不来")
+    try:
+        yield url
+    finally:
+        proc.terminate()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=5)
+        shutil.rmtree(profile, ignore_errors=True)
 
 
 @pytest.fixture

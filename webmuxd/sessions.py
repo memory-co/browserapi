@@ -31,7 +31,7 @@ from typing import Any, Protocol
 
 from webmuxd import config, models, processes, xpra as xpra_mod
 from webmuxd import cursor as cursor_probe
-from webmuxd import capture, locate, sidecar
+from webmuxd import capture, extension, locate, sidecar
 from webmuxd.act import MASK, READ_ACTIONS, Executor
 from webmuxd.browser_ui import Natives
 from webmuxd.cdp import CDP
@@ -821,7 +821,11 @@ class ProcessRuntime:
 
         args = [exe, *processes.BASE_ARGS,
                 f"--remote-debugging-port={cdp_port}",
-                f"--user-data-dir={os.path.join(work, 'profile')}"]
+                f"--user-data-dir={os.path.join(work, 'profile')}",
+                # **浏览器自己那一层的事归扩展。** 没建出来就一个参数都不加
+                # ——过渡期 sidecar 那半还在,少了它不影响能不能用
+                # ([l](../docs/v2/works/l-extension.md))。
+                *extension.args()]
         # **起之前把上次那些 tab 忘掉**(登录态不动)—— 见 `forget_last_tabs`
         processes.forget_last_tabs(os.path.join(work, "profile"))
         # **root 下沙箱起不来,这不是选择题。**

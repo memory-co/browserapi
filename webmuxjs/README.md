@@ -8,6 +8,7 @@
 webmuxjs/
 ├── client/    浏览器端那份 —— 人打开的那个观看页
 ├── sidecar/   **注进被控页面里的那一段** —— 探针,跑在别人的页面里
+├── extension/ **装进被控浏览器的那个扩展** —— 浏览器自己那一层的事
 └── server/    JS 版服务端 —— 今天只有协议文档和一份 TODO
 ```
 
@@ -43,6 +44,20 @@ npm test          # vitest + jsdom
 - **不许读表单控件的 `value`** —— 密码框上那就是明文([`src/label.ts`](sidecar/src/label.ts))
 - **一个探针塌了,不许带走其它几个** —— 凑在同一个 bundle 里之后,
   一个没接住的异常会让后面的全装不上([`src/index.ts`](sidecar/src/index.ts))
+
+## extension
+
+和 `sidecar/` 平级,分工的判据是"**这件事要不要碰页面**":不用碰的一律搬到
+扩展来。**每搬一样,"探针改变了页面环境"那条代价就小一分。**
+
+```
+npm install
+npm run build     # → dist/,打包时拷进 webmuxd/_extension/(**是个目录**)
+npm test
+```
+
+今天装了一样:**popup 一律变成 tab**,而且一个字都不注进页面 ——
+它替代 sidecar 里那个 `open-shim`,详见它自己的 README。
 
 ## server
 

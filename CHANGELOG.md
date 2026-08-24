@@ -2,6 +2,51 @@
 
 ## 未发布
 
+### 新增 `webmuxjs/extension/` —— 和 sidecar 平级
+
+装进被控浏览器的一个 MV3 扩展。分工的判据只有一条:**这件事要不要碰页面。**
+
+| | 跑在哪 | 干什么 |
+| --- | --- | --- |
+| `sidecar` | **被控页面里** | 改/看页面本身:光标、人在动没在动 |
+| `extension` | **浏览器自己那一层** | 浏览器替我们做的:窗口、tab |
+
+不用碰页面的一律往这边搬 —— **每搬一样,"探针改变了页面环境"那条代价就小一分**。
+
+今天搬了一样:**popup 一律变成 tab**。做法是等 Chromium 把那个窗口开出来,
+再 `chrome.tabs.move` 搬回主窗口,**一个字都不注进页面**。
+三处比 sidecar 里那个 `open-shim` 强(实测,Chromium 152):
+
+| 页面调的 | `open-shim` | 扩展 |
+| --- | --- | --- |
+| `width=400,height=300,left=10` | tab | tab |
+| `popup=1` | tab | tab |
+| `noopener,width=400` | tab,返回 `null` | tab,返回 `null` |
+| **`attributionsrc`** | **POPUP** ⚠ | **tab** |
+
+1. **不碰页面** —— 没有 `window.open` 补丁、没有伪造 `toString`
+2. **不需要白名单,所以没有那个洞** —— 白名单必然有"少列了一个词"的失败,
+   而它真的漏过:`attributionsrc` 在 `KEEP` 里留着,实测**照样开出真窗口**
+   (代码注释写的"它们不触发 popup"是错的)
+3. **`noopener` 的 `null` 自动保住** —— 那是 Chromium 自己算的,我们没插手
+
+**权限面比 sidecar 小得多**:只有 `"permissions": ["tabs"]`,
+**没有 `host_permissions`、没有内容脚本**,有测试盯着这三样。
+
+**sidecar 那个 `open-shim` 先留着,已标注要被替代。** 两套并存是安全的,
+而且比任何一边单独都严:shim 先把 features 过滤掉,于是根本不开 popup,
+扩展那条就成了空操作;唯一两边不一致的 `attributionsrc`,扩展接得住。
+**等下一版发出去、验完功能完全等同,再删 shim。**
+
+一条真代价:那个 popup 窗口**真的被创建了**再被搬走。无头下看不出来;
+**有头(VNC)那条腿上它可能闪一下** —— 这条**还没在有头下实测过**,
+文档里标了。
+
+`remote` 那条路装不了扩展 —— 那个场景不做,见
+[works/l](docs/v2/works/l-extension.md)。
+
+新增 [`tests/the_extension/`](tests/the_extension/)。
+
 ### 改名:`MachineFacts` → `HostEnvs`
 
 连同它那三个子项和那个版本常量一起,**否则容器和内容会是两个词**:
