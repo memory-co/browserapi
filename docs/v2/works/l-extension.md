@@ -1,10 +1,8 @@
 # l · sidecar 变成 Chrome 扩展?
 
-**一句话**:三件事**实测全通** —— 扩展装得上、`chrome.tabs.onActivated`
-比我们那个探针**准得多**、rrweb 在**隔离世界**里录得动而且**完全不碰页面**。
-
-但它**换不掉 sidecar**,只能换掉其中三样;而且 `remote` 那条路上**一样也换不掉**。
-所以真正的问题不是"可不可行",是**"要不要多一条腿"**。
+**一句话**:实测下来 —— **sidecar 那四样,扩展一样不缺,而且样样更好**。
+唯一真正换不掉的是 `remote`(那条路上装不了扩展)。
+所以问题从来不是"可不可行",是**"要不要多一条腿"**。
 
 > 设计评估。下面每个"实测"都是在本机 Chromium 152.0.7977.42 上跑出来的,
 > 脚本形状见 §7。
@@ -96,16 +94,51 @@ sidecar 里另外两样也能搬进隔离世界:**光标**(`elementFromPoint` +
 
 ## 5. 换不掉的那些
 
-### 5.1 `open-shim` 必须留在主世界
+### 5.1 ~~`open-shim` 必须留在主世界~~ —— 写错了,而且反了
 
-popup 转 tab 靠改写 `window.open` 的 features
-([f §5](f-tabs.md#5-popup-不是特殊情况))。**隔离世界里改不了页面的
-`window.open`** —— 那是页面自己那个全局。
+> **这一节原来的结论是错的,留着改正。**
+> 原文说"隔离世界改不了页面的 `window.open`,所以四样里三样能搬,第四样搬不了"。
+> 前半句对,后半句**不成立** —— 它把"隔离世界做不到"当成了"扩展做不到"。
+> 扩展的内容脚本可以指定 `world: "MAIN"`(Chrome 111+),照样改得了。
 
-所以要么这一样仍然用 `world: "MAIN"` 的内容脚本(扩展也支持),
-要么继续用 CDP 注。**不管哪种,"页面上一个字节都没多"这句话就不成立了。**
+**而且扩展根本不用改它。** popup 转 tab 有一条不碰页面的路:
 
-诚实的说法是:**四样里三样能搬,第四样搬不了,而它恰好是唯一一个改页面行为的。**
+```js
+chrome.tabs.onCreated.addListener(async (tab) => {
+  if (tab.windowId === mainWin) return;
+  await chrome.tabs.move(tab.id, { windowId: mainWin, index: -1 });
+});
+```
+
+实测(扩展**没有内容脚本、没有 `host_permissions`**,页面上一个字节都没注):
+
+| 页面调的 | 今天的 shim | 这个扩展 |
+| --- | --- | --- |
+| `width=400,height=300,left=10` | tab,返回 `Window` | **tab**,返回 `Window` |
+| `popup=1` | tab | **tab** |
+| `noopener,width=400` | tab,返回 `null` | **tab**,返回 `null` |
+| **`attributionsrc`** | **POPUP** ⚠ 白名单放它过去了 | **tab** |
+
+三处它比 shim 强,而且都不是小事:
+
+1. **不碰页面。** 没有 `window.open` 补丁、没有伪造 `toString` ——
+   [b §6](b-input.md) 那条"探针页面看得见"的代价,这一样上没有了。
+2. **不需要白名单,所以没有那个洞。** 今天 `KEEP` 里留着 `attributionsrc`,
+   而实测它**照样开出真窗口**(代码注释写的"它们不触发 popup"是错的)。
+   扩展这条路**从不解析 features 串**,所以不存在"少列了一个词"这种失败。
+3. **语义自动保住。** `noopener` 仍然返回 `null` —— 因为那是 Chromium
+   自己算的,我们没插手。shim 要靠一条正则**记得**把它留下。
+
+搬完之后 opener 关系也完好,实测:
+
+```
+opener 手里那个句柄 : {closed:false, 能写 document, postMessage 发得出}
+被开那一页看到的    : {opener:true, title:"被 opener 改过"}
+```
+
+**唯一的真代价**:那个 popup 窗口是**真的被创建了**,然后才被搬走。
+无头下看不出来;**有头(VNC)那条腿上它可能闪一下** —— 那是一个真的 X 窗口。
+这一条**没在有头下实测过**,要做之前得补。
 
 ### 5.2 `remote` 那条路上装不了
 
@@ -180,6 +213,7 @@ available_in(headed=…, remote=…)     # 今天:能切到哪几种画面
 
 | | 买到什么 | 动多少 |
 | --- | --- | --- |
+| 0 | **popup 转 tab 换成 `chrome.tabs.move`** —— 不碰页面、没有白名单、`attributionsrc` 那个洞自动消失 | 一个只要 `tabs` 权限的扩展,**连内容脚本都不用** |
 | 1 | **rrweb 进隔离世界** —— 消掉 `_umd_shield`、消掉"改变页面环境"那条代价 | 只动 `rrweb.py` 的注入那一段 |
 | 2 | **前台走 `chrome.tabs.onActivated`** —— 删掉 `_confirm_front` / `_ask_front` / `foreground.ts` / "一进表就装探针" | 动 `tabs.py` `sessions.py` |
 | 3 | tab 表整个换成 `chrome.tabs` | **先别做**,见下 |
